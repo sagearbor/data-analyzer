@@ -1,0 +1,168 @@
+# Azure Container Apps Configuration
+apiVersion: 2022-03-01
+kind: containerapp
+metadata:
+  name: data-analyzer-web
+  location: eastus
+properties:
+  managedEnvironmentId: /subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.App/managedEnvironments/{environment-name}
+  configuration:
+    ingress:
+      external: true
+      targetPort: 8501
+      transport: http
+    secrets:
+      - name: registry-password
+        value: "{acr-password}"
+    registries:
+      - server: "{acr-name}.azurecr.io"
+        username: "{acr-username}"
+        passwordSecretRef: registry-password
+  template:
+    containers:
+      - name: data-analyzer
+        image: "{acr-name}.azurecr.io/data-analyzer:latest"
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: STREAMLIT_SERVER_PORT
+            value: "8501"
+          - name: STREAMLIT_SERVER_ADDRESS
+            value: "0.0.0.0"
+    scale:
+      minReplicas: 1
+      maxReplicas: 10
+      rules:
+        - name: http-rule
+          http:
+            metadata:
+              concurrentRequests: "10"
+
+---
+# Azure Resource Group Template
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appName": {
+      "type": "string",
+      "defaultValue": "data-analyzer",
+      "metadata": {
+        "description": "Name of the application"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources"
+      }
+    },
+    "containerImage": {
+      "type": "string",
+      "defaultValue": "data-analyzer:latest",
+      "metadata": {
+        "description": "Container image to deploy"
+      }
+    }
+  },
+  "variables": {
+    "containerAppName": "[concat(parameters('appName'), '-web')]",
+    "environmentName": "[concat(parameters('appName'), '-env')]",
+    "logAnalyticsName": "[concat(parameters('appName'), '-logs')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('logAnalyticsName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2022-03-01",
+      "name": "[variables('environmentName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      ],
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName')), '2022-10-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName')), '2022-10-01').primarySharedKey]"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2022-03-01",
+      "name": "[variables('containerAppName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('environmentName'))]"
+      ],
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('environmentName'))]",
+        "configuration": {
+          "ingress": {
+            "external": true,
+            "targetPort": 8501,
+            "transport": "http",
+            "allowInsecure": false
+          }
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "data-analyzer",
+              "image": "[parameters('containerImage')]",
+              "resources": {
+                "cpu": 1.0,
+                "memory": "2Gi"
+              },
+              "env": [
+                {
+                  "name": "STREAMLIT_SERVER_PORT",
+                  "value": "8501"
+                },
+                {
+                  "name": "STREAMLIT_SERVER_ADDRESS",
+                  "value": "0.0.0.0"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 10,
+            "rules": [
+              {
+                "name": "http-scaling",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "10"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "containerAppFQDN": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', variables('containerAppName'))).configuration.ingress.fqdn]"
+    }
+  }
+}

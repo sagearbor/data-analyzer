@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+docs/
+
+# Development files
+.vscode/
+.idea/
+*.pyc
+__pycache__/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Data files
+*.csv
+*.xlsx
+*.xls
+data/
+uploads/
+temp/
+tmp/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Azure deployment files
+deploy.sh
+azure_config.yaml
+.azure/
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
