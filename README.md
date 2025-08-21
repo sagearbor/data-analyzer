@@ -91,31 +91,31 @@ data-analyzer/
 
 ## 🔧 Local Development
 
+### Setup Virtual Environment (Recommended)
+```bash
+python -m venv venv                    # Create virtual environment
+source venv/bin/activate               # Activate (Linux/Mac)
+# venv\Scripts\activate                # Activate (Windows)
+which python                           # Verify you're in venv
+deactivate                             # When done
+```
+
 ### Run MCP Server Locally
 ```bash
-# Install dependencies
-pip install -r mcp_requirements.txt
-
-# Run MCP server
-python mcp_server.py
+pip install -r mcp_requirements.txt   # Install dependencies
+python mcp_server.py                   # Run MCP server
 ```
 
 ### Run Web App Locally
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run Streamlit app
-streamlit run web_app.py
+pip install -r requirements.txt       # Install dependencies
+streamlit run web_app.py               # Run Streamlit app
 ```
 
 ### Docker Development
 ```bash
-# Build image
-docker build -t data-analyzer .
-
-# Run container
-docker run -p 8501:8501 data-analyzer
+docker build -t data-analyzer .       # Build image
+docker run -p 8501:8501 data-analyzer # Run container
 ```
 
 ## 📋 Usage Examples
@@ -353,21 +353,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Azure Container Apps deployment
 - Basic data quality checks
 - Schema and rules validation
-
----
-
-## Directory Structure
-data-analyzer/
-├── README.md
-├── Dockerfile
-├── deploy.sh
-├── requirements.txt
-├── mcp_requirements.txt
-├── azure_config.yaml
-├── mcp_server.py
-├── web_app.py
-├── .gitignore
-├── .dockerignore
-└── docs/
-    └── API.md
 

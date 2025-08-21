@@ -124,7 +124,9 @@ class QualityChecker:
                         elif expected_type == "float":
                             pd.to_numeric(self.df[column], errors='raise')
                         elif expected_type == "datetime":
-                            pd.to_datetime(self.df[column], errors='raise')
+                            parsed_dates = pd.to_datetime(self.df[column].dropna(), errors='coerce')
+                            if parsed_dates.isna().any():
+                                raise ValueError(f"Invalid datetime values found")
                     except:
                         type_issues.append({
                             "column": column,
@@ -233,6 +235,60 @@ class QualityChecker:
             
         return result
     
+    def _auto_detect_types(self) -> Dict[str, str]:
+        """Auto-detect column types including dates"""
+        detected_types = {}
+        
+        for col in self.df.columns:
+            col_data = self.df[col].dropna()
+            if len(col_data) == 0:
+                detected_types[col] = "unknown"
+                continue
+                
+            # Check if it's numeric
+            try:
+                numeric_data = pd.to_numeric(col_data, errors='coerce')
+                if not numeric_data.isna().all():
+                    # Check if all values are integers
+                    if (numeric_data % 1 == 0).all():
+                        detected_types[col] = "int"
+                    else:
+                        detected_types[col] = "float"
+                    continue
+            except:
+                pass
+            
+            # Check if it's datetime
+            try:
+                # Try to parse as datetime, but only if it has valid-looking patterns
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    datetime_parsed = pd.to_datetime(col_data, errors='coerce')
+                
+                # Check if more than 50% of non-null values were successfully parsed
+                # and at least one value looks like a date
+                valid_dates = datetime_parsed.notna().sum()
+                if valid_dates > len(col_data) * 0.5 and valid_dates > 0:
+                    # Double-check with strict parsing to catch invalid dates
+                    sample_values = col_data.head(3).tolist()
+                    if any(any(char in str(val) for char in ['-', '/', ':', ' ']) for val in sample_values):
+                        detected_types[col] = "datetime"
+                        continue
+            except:
+                pass
+            
+            # Check if it's boolean
+            unique_values = set(str(v).lower() for v in col_data.unique())
+            if unique_values.issubset({'true', 'false', '1', '0', 'yes', 'no', 't', 'f', 'y', 'n'}):
+                detected_types[col] = "bool"
+                continue
+            
+            # Default to string
+            detected_types[col] = "str"
+        
+        return detected_types
+    
     def get_summary_stats(self) -> Dict[str, Any]:
         """Generate summary statistics for the dataset"""
         stats = {
@@ -242,6 +298,7 @@ class QualityChecker:
             },
             "columns": list(self.df.columns),
             "dtypes": {col: str(dtype) for col, dtype in self.df.dtypes.items()},
+            "auto_detected_types": self._auto_detect_types(),
             "missing_values": self.df.isnull().sum().to_dict(),
             "duplicate_rows": self.df.duplicated().sum(),
             "memory_usage_mb": round(self.df.memory_usage(deep=True).sum() / 1024 / 1024, 2)
