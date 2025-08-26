@@ -29,8 +29,9 @@ st.set_page_config(
 class MCPClient:
     """Client to communicate with MCP server for data analysis"""
     
-    def __init__(self, server_script_path: str = "mcp_server.py"):
+    def __init__(self, server_script_path: str = "mcp_server.py", use_real_mcp: bool = False):
         self.server_script_path = server_script_path
+        self.use_real_mcp = use_real_mcp
     
     async def analyze_data(self, data_content: str, file_format: str = "csv", schema: Dict = None, rules: Dict = None, min_rows: int = 1, debug: bool = False):
         """Call MCP server to analyze data"""
@@ -57,9 +58,12 @@ class MCPClient:
                 temp_file = f.name
             
             try:
-                # Call the MCP server (simplified version for demo)
-                # In production, you'd use proper MCP client libraries
-                result = self._simulate_mcp_call(request_data, debug=debug)
+                if self.use_real_mcp:
+                    # Call the real MCP server
+                    result = await self._call_real_mcp_server(request_data, debug=debug)
+                else:
+                    # Use simulation for development
+                    result = self._simulate_mcp_call(request_data, debug=debug)
                 return result
             finally:
                 os.unlink(temp_file)
@@ -120,6 +124,118 @@ class MCPClient:
             detected_types[col] = "str"
         
         return detected_types
+    
+    async def _call_real_mcp_server(self, request_data: Dict, debug: bool = False) -> Dict:
+        """Call the real MCP server using subprocess with proper MCP protocol"""
+        try:
+            import subprocess
+            import json
+            
+            if debug:
+                print("🔧 DEBUG: Calling real MCP server")
+                print(f"🔧 DEBUG: Request: {request_data}")
+            
+            # Start the MCP server process
+            process = subprocess.Popen(
+                ["python", self.server_script_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Step 1: Initialize the server
+            init_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "roots": {
+                            "listChanged": True
+                        },
+                        "sampling": {}
+                    },
+                    "clientInfo": {
+                        "name": "data-analyzer-client",
+                        "version": "1.0.0"
+                    }
+                }
+            }
+            
+            # Step 2: Send initialized notification
+            initialized_notification = {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+                "params": {}
+            }
+            
+            # Step 3: Make the actual tool call
+            tool_request = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": request_data["tool"],
+                    "arguments": request_data["arguments"]
+                }
+            }
+            
+            # Combine all messages
+            messages = [
+                json.dumps(init_request),
+                json.dumps(initialized_notification), 
+                json.dumps(tool_request)
+            ]
+            
+            input_data = "\n".join(messages) + "\n"
+            
+            if debug:
+                print(f"🔧 DEBUG: Sending MCP messages:")
+                for i, msg in enumerate(messages, 1):
+                    print(f"🔧 DEBUG: Message {i}: {msg}")
+            
+            stdout, stderr = process.communicate(input=input_data, timeout=30)
+            
+            if debug:
+                print(f"🔧 DEBUG: MCP server stdout: {stdout}")
+                if stderr:
+                    print(f"🔧 DEBUG: MCP server stderr: {stderr}")
+            
+            # Parse the responses (we expect multiple JSON objects)
+            if stdout.strip():
+                responses = []
+                for line in stdout.strip().split('\n'):
+                    if line.strip():
+                        try:
+                            responses.append(json.loads(line.strip()))
+                        except json.JSONDecodeError:
+                            continue
+                
+                if debug:
+                    print(f"🔧 DEBUG: Parsed responses: {responses}")
+                
+                # Look for the tool call response (should be the last one with id=2)
+                for response in responses:
+                    if response.get("id") == 2:  # Our tool call response
+                        if "result" in response:
+                            # Parse the result content
+                            result_content = response["result"]["content"][0]["text"]
+                            return json.loads(result_content)
+                        elif "error" in response:
+                            return {"error": response["error"]["message"], "type": "mcp_server_error"}
+            
+            return {"error": "No valid response from MCP server", "type": "mcp_communication_error"}
+            
+        except subprocess.TimeoutExpired:
+            if debug:
+                print("🔧 DEBUG: MCP server timeout")
+            return {"error": "MCP server timeout", "type": "mcp_timeout_error"}
+        except Exception as e:
+            if debug:
+                print(f"🔧 DEBUG: MCP server error: {e}")
+            return {"error": str(e), "type": "mcp_call_error"}
     
     def _debug_print(self, message: str, debug: bool):
         """Helper function to print debug messages only when debug mode is on"""
@@ -359,9 +475,8 @@ class MCPClient:
             return {"error": str(e), "type": "analysis_error"}
 
 # Initialize MCP client
-@st.cache_resource
-def get_mcp_client():
-    return MCPClient()
+def get_mcp_client(use_real_mcp: bool = False):
+    return MCPClient(use_real_mcp=use_real_mcp)
 
 def create_schema_editor():
     """Create an interactive schema editor"""
@@ -699,6 +814,13 @@ def main():
             help="Enable debug output in browser console (F12 → Console)"
         )
         
+        # MCP mode toggle
+        use_real_mcp = st.checkbox(
+            "🚀 Use Real MCP Server",
+            value=False,
+            help="Use actual MCP server instead of simulation (requires MCP dependencies)"
+        )
+        
         st.divider()
         
         # Quick example data
@@ -756,7 +878,7 @@ def main():
                 if st.button("🔍 Analyze CSV", type="primary", use_container_width=True):
                     with st.spinner("Analyzing CSV data..."):
                         # Get MCP client
-                        client = get_mcp_client()
+                        client = get_mcp_client(use_real_mcp=use_real_mcp)
                         
                         # Run analysis
                         results = asyncio.run(client.analyze_data(
@@ -825,7 +947,7 @@ def main():
             if st.button("🔍 Analyze Example Data", type="primary", use_container_width=True):
                 with st.spinner("Analyzing CSV data..."):
                     # Get MCP client
-                    client = get_mcp_client()
+                    client = get_mcp_client(use_real_mcp=use_real_mcp)
                     
                     # Run analysis
                     results = asyncio.run(client.analyze_data(

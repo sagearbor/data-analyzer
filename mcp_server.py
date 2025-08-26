@@ -83,18 +83,26 @@ class QualityChecker:
         return result
     
     def check_data_types(self) -> Dict[str, Any]:
-        """Validate column data types against schema"""
-        if not self.schema:
+        """Validate column data types against schema or auto-detected types"""
+        # Use provided schema OR auto-detected types for validation
+        auto_detected_types = self._auto_detect_types()
+        
+        # Combine manual schema with auto-detected types for validation
+        validation_schema = auto_detected_types.copy()
+        if self.schema:
+            validation_schema.update(self.schema)  # Manual schema overrides auto-detection
+        
+        if not validation_schema:
             return {
                 "check": "data_types",
                 "passed": True,
-                "message": "No schema provided, skipping type validation"
+                "message": "No schema or auto-detection available, skipping type validation"
             }
         
         type_issues = []
         total_checks = 0
         
-        for column, expected_type in self.schema.items():
+        for column, expected_type in validation_schema.items():
             if column not in self.df.columns:
                 type_issues.append({
                     "column": column,
@@ -124,17 +132,37 @@ class QualityChecker:
                         elif expected_type == "float":
                             pd.to_numeric(self.df[column], errors='raise')
                         elif expected_type == "datetime":
-                            parsed_dates = pd.to_datetime(self.df[column].dropna(), errors='coerce')
+                            import warnings
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore")
+                                parsed_dates = pd.to_datetime(self.df[column].dropna(), errors='coerce')
                             if parsed_dates.isna().any():
                                 raise ValueError(f"Invalid datetime values found")
                     except:
-                        type_issues.append({
-                            "column": column,
-                            "issue": "type_mismatch",
-                            "expected_type": expected_type,
-                            "actual_type": actual_dtype,
-                            "sample_values": self.df[column].head(3).tolist()
-                        })
+                        # For datetime issues, provide more specific information
+                        if expected_type == "datetime":
+                            col_data = self.df[column].dropna()
+                            import warnings
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore")
+                                invalid_dates = col_data[pd.to_datetime(col_data, errors='coerce').isna()]
+                            type_issues.append({
+                                "column": column,
+                                "issue": "datetime_validation_failed",
+                                "expected_type": expected_type,
+                                "actual_type": actual_dtype,
+                                "invalid_values": invalid_dates.tolist(),
+                                "valid_sample": col_data[pd.to_datetime(col_data, errors='coerce').notna()].head(2).tolist(),
+                                "description": f"Found {len(invalid_dates)} invalid date values in column '{column}'"
+                            })
+                        else:
+                            type_issues.append({
+                                "column": column,
+                                "issue": "type_mismatch",
+                                "expected_type": expected_type,
+                                "actual_type": actual_dtype,
+                                "sample_values": self.df[column].head(3).tolist()
+                            })
         
         passed = len(type_issues) == 0
         result = {
