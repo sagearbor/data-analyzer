@@ -1,0 +1,138 @@
+{
+  "dictionary_name": "Clinical Trial Data Dictionary v2.1",
+  "version": "2.1",
+  "last_updated": "2024-01-15",
+  "fields": [
+    {
+      "field_name": "subject_id",
+      "field_label": "Subject ID",
+      "data_type": "string",
+      "required": true,
+      "validation": {
+        "pattern": "^S[0-9]{3,6}$",
+        "description": "Must start with 'S' followed by 3-6 digits"
+      }
+    },
+    {
+      "field_name": "site_id",
+      "field_label": "Clinical Site ID",
+      "data_type": "string",
+      "required": true,
+      "validation": {
+        "pattern": "^SITE[0-9]{2,4}$",
+        "allowed_values": ["SITE01", "SITE02", "SITE03", "SITE04", "SITE05"]
+      }
+    },
+    {
+      "field_name": "enrollment_date",
+      "field_label": "Enrollment Date",
+      "data_type": "date",
+      "required": true,
+      "format": "YYYY-MM-DD",
+      "validation": {
+        "min": "2023-01-01",
+        "max": "2025-12-31"
+      }
+    },
+    {
+      "field_name": "visit_date",
+      "field_label": "Visit Date",
+      "data_type": "date",
+      "required": true,
+      "format": "YYYY-MM-DD"
+    },
+    {
+      "field_name": "age",
+      "field_label": "Subject Age",
+      "data_type": "integer",
+      "required": true,
+      "unit": "years",
+      "validation": {
+        "min": 18,
+        "max": 85
+      }
+    },
+    {
+      "field_name": "gender",
+      "field_label": "Biological Gender",
+      "data_type": "string",
+      "required": true,
+      "validation": {
+        "allowed_values": ["M", "F", "Other"]
+      }
+    },
+    {
+      "field_name": "bmi",
+      "field_label": "Body Mass Index",
+      "data_type": "decimal",
+      "required": false,
+      "precision": 1,
+      "unit": "kg/m²",
+      "validation": {
+        "min": 15.0,
+        "max": 50.0
+      }
+    },
+    {
+      "field_name": "treatment_arm",
+      "field_label": "Treatment Arm Assignment",
+      "data_type": "string",
+      "required": true,
+      "validation": {
+        "allowed_values": ["Treatment", "Placebo", "Control"]
+      }
+    },
+    {
+      "field_name": "adverse_event",
+      "field_label": "Adverse Event Description",
+      "data_type": "string",
+      "required": false,
+      "validation": {
+        "max_length": 500
+      }
+    },
+    {
+      "field_name": "lab_value",
+      "field_label": "Primary Lab Result",
+      "data_type": "decimal",
+      "required": false,
+      "precision": 1,
+      "unit": "mg/dL",
+      "validation": {
+        "min": 0,
+        "max": 1000
+      }
+    },
+    {
+      "field_name": "compliance_pct",
+      "field_label": "Treatment Compliance Percentage",
+      "data_type": "decimal",
+      "required": true,
+      "precision": 1,
+      "unit": "%",
+      "validation": {
+        "min": 0,
+        "max": 100
+      }
+    },
+    {
+      "field_name": "completed_study",
+      "field_label": "Completed Full Study",
+      "data_type": "boolean",
+      "required": true,
+      "validation": {
+        "allowed_values": ["Y", "N"]
+      }
+    },
+    {
+      "field_name": "protocol_version",
+      "field_label": "Protocol Version",
+      "data_type": "decimal",
+      "required": true,
+      "precision": 1,
+      "validation": {
+        "allowed_values": [2.0, 2.1]
+      }
+    }
+  ]
+}

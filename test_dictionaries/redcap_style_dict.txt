@@ -1,0 +1,87 @@
+REDCap Data Dictionary
+
+Variable / Field Name: patient_id
+Field Type: text
+Field Label: Patient Identifier
+Required: yes
+Validation Type: regex
+Validation Pattern: ^P[0-9]{6}$
+Field Note: Unique patient ID starting with 'P' followed by 6 digits
+
+Variable / Field Name: consent_date
+Field Type: date_dmy
+Field Label: Date of Informed Consent
+Required: yes
+Text Validation Min: 01-01-2023
+Text Validation Max: 31-12-2025
+Field Note: Date when patient signed informed consent
+
+Variable / Field Name: age_at_enrollment
+Field Type: integer
+Field Label: Age at Enrollment (years)
+Required: yes
+Text Validation Min: 18
+Text Validation Max: 99
+Field Note: Patient age in completed years at time of enrollment
+
+Variable / Field Name: diagnosis_code
+Field Type: dropdown
+Field Label: Primary Diagnosis Code
+Required: yes
+Choices: C50 (Breast cancer), C61 (Prostate cancer), C78 (Lung cancer), C25 (Pancreatic cancer), C18 (Colon cancer)
+Field Note: ICD-10 code for primary diagnosis
+
+Variable / Field Name: stage
+Field Type: radio
+Field Label: Cancer Stage
+Required: yes
+Choices: 1 (Stage I), 2 (Stage II), 3 (Stage III), 4 (Stage IV)
+Field Note: Clinical stage at diagnosis
+
+Variable / Field Name: baseline_ecog
+Field Type: dropdown
+Field Label: Baseline ECOG Performance Status
+Required: yes
+Choices: 0 (Fully active), 1 (Restricted in strenuous activity), 2 (Ambulatory, capable of self-care), 3 (Capable of limited self-care), 4 (Completely disabled)
+Field Note: ECOG performance status at baseline
+
+Variable / Field Name: prior_therapy
+Field Type: checkbox
+Field Label: Prior Therapy Types
+Choices: surgery (Surgery), radiation (Radiation therapy), chemo (Chemotherapy), immuno (Immunotherapy), hormone (Hormone therapy)
+Field Note: Check all that apply
+
+Variable / Field Name: lab_wbc
+Field Type: number_1dp
+Field Label: White Blood Cell Count
+Required: no
+Text Validation Min: 0
+Text Validation Max: 100
+Field Note: WBC count (x10^9/L)
+
+Variable / Field Name: lab_hemoglobin
+Field Type: number_1dp
+Field Label: Hemoglobin Level
+Required: no
+Text Validation Min: 0
+Text Validation Max: 20
+Field Note: Hemoglobin (g/dL)
+
+Variable / Field Name: adverse_events_present
+Field Type: yesno
+Field Label: Any Adverse Events Reported
+Required: yes
+Field Note: Has the patient experienced any adverse events?
+
+Variable / Field Name: adverse_event_details
+Field Type: notes
+Field Label: Adverse Event Description
+Required: no
+Field Note: Describe adverse events if present
+
+Variable / Field Name: study_completion
+Field Type: dropdown
+Field Label: Study Completion Status
+Required: yes
+Choices: completed (Completed), withdrawn (Withdrawn), lost (Lost to follow-up), died (Death), ongoing (Ongoing)
+Field Note: Current study status for patient

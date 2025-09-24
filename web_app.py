@@ -17,6 +17,13 @@ from typing import Dict, Any, Optional
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import streamlit.components.v1 as components
+from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
+from mermaid_renderer import render_mermaid
+try:
+    from streamlit_option_menu import option_menu
+except ImportError:
+    option_menu = None
 
 # Configure Streamlit page
 st.set_page_config(
@@ -71,6 +78,146 @@ class MCPClient:
         except Exception as e:
             return {"error": str(e), "type": "mcp_error"}
     
+    async def parse_data_dictionary(self, dictionary_content: str,
+                                   format_hint: str = "auto",
+                                   use_cache: bool = True,
+                                   debug: bool = False) -> Dict:
+        """Parse data dictionary using MCP server or simulation"""
+        request_data = {
+            "tool": "parse_data_dictionary",
+            "arguments": {
+                "dictionary_content": dictionary_content,
+                "format_hint": format_hint,
+                "use_cache": use_cache,
+                "debug": debug
+            }
+        }
+
+        if self.use_real_mcp:
+            return await self._call_real_mcp_server(request_data, debug)
+        else:
+            return self._simulate_dictionary_parsing(dictionary_content, format_hint, debug)
+
+    def _simulate_dictionary_parsing(self, dictionary_content: str, format_hint: str, debug: bool = False) -> Dict:
+        """Simulate dictionary parsing for demo purposes"""
+        try:
+            # Check if it's PDF or other complex format that needs real LLM
+            if format_hint in ['pdf', 'excel', 'xlsx', 'json']:
+                return {
+                    "success": False,
+                    "error": f"Format '{format_hint}' requires Azure OpenAI for parsing. Please enable '🚀 Use Real MCP Server' in the sidebar to use your Azure OpenAI configuration.",
+                    "validation": {
+                        "is_valid": False,
+                        "errors": [f"Enable 'Use Real MCP Server' in sidebar to parse {format_hint.upper()} files with Azure OpenAI"],
+                        "warnings": ["Your Azure OpenAI credentials are configured in .env file"],
+                        "confidence_score": 0.0
+                    }
+                }
+
+            # For simulation, parse simple CSV/text dictionaries
+            if format_hint in ['csv', 'text', 'auto'] or 'Column' in dictionary_content[:500] or 'Field' in dictionary_content[:500]:
+                lines = dictionary_content.strip().split('\n')
+                if len(lines) < 2:
+                    return {"success": False, "error": "Dictionary too short"}
+
+                # Simple CSV parsing simulation
+                headers = [h.strip() for h in lines[0].split(',')]
+                schema = {}
+                rules = {}
+
+                for line in lines[1:]:
+                    if not line.strip():
+                        continue
+                    parts = [p.strip() for p in line.split(',')]
+                    if len(parts) >= 2:
+                        col_name = parts[0]
+                        col_type = parts[1].lower()
+
+                        # Map types
+                        type_map = {
+                            'integer': 'int', 'int': 'int',
+                            'float': 'float', 'decimal': 'float', 'real': 'float',
+                            'string': 'str', 'text': 'str', 'varchar': 'str',
+                            'boolean': 'bool', 'bool': 'bool',
+                            'date': 'datetime', 'datetime': 'datetime'
+                        }
+                        schema[col_name] = type_map.get(col_type, 'str')
+
+                        # Extract min/max if present
+                        if len(parts) > 3:
+                            if parts[3] and parts[3] != '':
+                                try:
+                                    rules.setdefault(col_name, {})['min'] = float(parts[3])
+                                except:
+                                    pass
+                        if len(parts) > 4:
+                            if parts[4] and parts[4] != '':
+                                try:
+                                    rules.setdefault(col_name, {})['max'] = float(parts[4])
+                                except:
+                                    pass
+
+                # Generate a simple parser code for simulation
+                parser_code = f"""def parse_dictionary(content: str) -> dict:
+    # Auto-generated parser for {format_hint} dictionary
+    lines = content.strip().split('\\n')
+    headers = lines[0].split(',')
+
+    columns = {{}}
+    for line in lines[1:]:
+        parts = line.split(',')
+        if len(parts) >= 2:
+            columns[parts[0]] = {{
+                'type': parts[1],
+                'required': len(parts) > 2 and parts[2].lower() == 'yes'
+            }}
+
+    return {{
+        'columns': columns,
+        'metadata': {{'source_format': '{format_hint}', 'total_columns': len(columns)}}
+    }}
+"""
+
+                return {
+                    "success": True,
+                    "schema": schema,
+                    "rules": rules,
+                    "metadata": {
+                        "source_format": format_hint,
+                        "total_columns": len(schema)
+                    },
+                    "validation": {
+                        "is_valid": True,
+                        "errors": [],
+                        "warnings": [],
+                        "confidence_score": 0.75  # Simulation confidence
+                    },
+                    "confidence_score": 0.75,
+                    "parser_code": parser_code  # Include simulated parser code
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Format {format_hint} not supported in simulation mode. Use real MCP server.",
+                    "validation": {
+                        "is_valid": False,
+                        "errors": ["Simulation only supports CSV dictionaries"],
+                        "warnings": [],
+                        "confidence_score": 0.0
+                    }
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "validation": {
+                    "is_valid": False,
+                    "errors": [str(e)],
+                    "warnings": [],
+                    "confidence_score": 0.0
+                }
+            }
+
     def _auto_detect_types(self, df: pd.DataFrame) -> Dict[str, str]:
         """Auto-detect column types including dates"""
         detected_types = {}
@@ -773,21 +920,186 @@ def display_results(results: Dict[str, Any]):
         numeric_df = pd.DataFrame(numeric_data)
         st.dataframe(numeric_df, use_container_width=True)
 
-def main():
-    """Main Streamlit application"""
-    
-    st.title("📊 CSV Quality Analyzer")
+def render_about_page():
+    """Render the About page with tool description and architecture"""
+    st.title("🆘 About Data Analyzer")
+
+    # Tool Description
+    st.markdown("""
+    ## What is Data Analyzer?
+
+    Data Analyzer is an AI-powered data quality validation tool that helps you:
+
+    🔍 **Validate Data Quality**
+    - Check data types, ranges, and allowed values
+    - Identify missing values and duplicates
+    - Generate comprehensive statistics
+
+    🤖 **Parse Data Dictionaries with AI**
+    - Upload dictionaries in various formats (CSV, JSON, REDCap, Clinical)
+    - AI generates deterministic Python code to parse dictionaries
+    - Code is cached for reuse (1 year cache lifetime)
+
+    📊 **Support Multiple Formats**
+    - Currently supports CSV with plans for JSON, Excel, Parquet
+    - Extensible architecture for adding new formats
+
+    ⚙️ **Configure Validation Rules**
+    - Set expected data types for columns
+    - Define min/max ranges for numeric data
+    - Specify allowed values for categorical data
+
+    ## How It Works
+
+    The tool uses **Azure OpenAI (GPT-4o-mini)** to generate Python code that parses data dictionaries.
+    This approach provides:
+    - ✅ **Deterministic results** - Same input always produces same output
+    - 🔍 **Verifiable code** - Generated code can be inspected and tested
+    - 📦 **Cacheable parsers** - Reuse parsers for similar dictionaries
+    - 📊 **High confidence** - ~95% accuracy through validation
+    """)
+
+    # Architecture Diagram
+    st.markdown("## 🏭 System Architecture")
+    st.markdown("""The diagram below shows how data flows through the system and where AI comes into play:""")
+
+    # Create columns for the flow diagram
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        ### 📁 Input Stage
+        - **Data Files**
+          - CSV (supported)
+          - JSON (planned)
+          - Excel (planned)
+
+        - **Dictionaries**
+          - CSV format
+          - JSON format
+          - REDCap format
+          - Clinical specs
+        """)
+
+    with col2:
+        st.markdown("""
+        ### 🤖 AI Processing
+        - **Azure OpenAI**
+          - GPT-4o-mini model
+          - Code generation
+          - Python parsers
+
+        - **Caching**
+          - 1-year lifetime
+          - File-based cache
+          - Instant retrieval
+        """)
+
+    with col3:
+        st.markdown("""
+        ### 📊 Output Stage
+        - **Validation**
+          - Type checking
+          - Range validation
+          - Allowed values
+
+        - **Results**
+          - Dashboard view
+          - Issue tracking
+          - Statistics
+        """)
+
+    # Show the detailed flow
+    with st.expander("🔄 View Detailed Data Flow"):
+        st.markdown("""
+        ```
+        1. User uploads data file (CSV)
+           ↓
+        2. User uploads/selects data dictionary
+           ↓
+        3. Dictionary sent to Azure OpenAI
+           ↓
+        4. LLM generates Python parser code
+           ↓
+        5. Code executed in sandbox (600s timeout)
+           ↓
+        6. Schema & rules extracted
+           ↓
+        7. Cache parser for reuse (1 year)
+           ↓
+        8. Apply rules to data validation
+           ↓
+        9. Display results in dashboard
+        ```
+        """)
+
+    # Display Mermaid diagram
+    st.markdown("### 📊 Interactive Architecture Diagram")
+
+    try:
+        with open('assets/data_flow_diagram.mmd', 'r') as f:
+            mermaid_code = f.read()
+
+        # Render Mermaid diagram visually using our custom renderer
+        render_mermaid(mermaid_code, height=700)
+
+        # Option to view/copy the code
+        with st.expander("🔍 View Diagram Source Code"):
+            st.code(mermaid_code, language='mermaid')
+
+            # Copy button with actual functionality
+            if st.button("📋 Copy to Clipboard", key="copy_mermaid"):
+                st.code(mermaid_code)
+                st.info("📎 Select and copy the code above")
+
+    except FileNotFoundError:
+        st.error("Architecture diagram file not found. Please ensure assets/data_flow_diagram.mmd exists.")
+
+    # Key Features
+    st.markdown("""
+    ## 🌟 Key Features
+
+    ### LLM Integration
+    - Uses Azure OpenAI to generate parser code
+    - Code generation instead of direct parsing
+    - 600-second timeout for complex operations
+
+    ### Caching System
+    - File-based cache with 1-year lifetime
+    - Cache key based on dictionary structure
+    - Instant retrieval for similar dictionaries
+
+    ### Security
+    - Subprocess isolation for code execution
+    - No network access in parser code
+    - Future: Docker containerization planned
+
+    ### Demo Data
+    - Culturally diverse datasets (Western, Asian, Clinical)
+    - Matching demo dictionaries
+    - Intentional errors for testing validation
+    """)
+
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    **Version**: 1.0.0 | **License**: MIT | **GitHub**: [data-analyzer](https://github.com/yourusername/data-analyzer)
+    """)
+
+def render_home_page():
+    """Render the main Home page with data analysis functionality"""
+    st.title("📊 Data Quality Analyzer")
     st.markdown("Upload a CSV file and configure validation rules to check data quality")
-    
+
     # Sidebar configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
         
         # File upload
         uploaded_file = st.file_uploader(
-            "Choose a CSV file",
-            type=['csv'],
-            help="Upload a CSV file to analyze"
+            "Choose a data file",
+            type=['csv', 'json', 'xlsx', 'xls'],
+            help="Upload a data file to analyze (CSV, JSON, or Excel)"
         )
         
         # Minimum rows setting
@@ -816,26 +1128,319 @@ def main():
         
         # MCP mode toggle
         use_real_mcp = st.checkbox(
-            "🚀 Use Real MCP Server",
+            "🚀 Use Real MCP Server (Azure OpenAI)",
             value=False,
-            help="Use actual MCP server instead of simulation (requires MCP dependencies)"
+            help="Enable to use your Azure OpenAI API for parsing PDFs and complex dictionaries. Credentials are in .env file."
         )
+        if not use_real_mcp:
+            st.caption("💡 Enable above to use Azure OpenAI for PDFs")
         
         st.divider()
         
-        # Quick example data
-        if st.button("📝 Load Example Data"):
-            # Create example CSV content with date field
-            example_data = """id,name,age,country,salary,hire_date
-1,John Doe,25,USA,50000,2023-01-15
-2,Jane Smith,30,CAN,55000,2022-03-20
-3,Bob Johnson,35,MEX,60000,2021-07-10
-4,Alice Brown,28,USA,52000,invalid_date
-5,Charlie Wilson,150,INVALID,75000,2020-12-05"""
-            
+        # Quick example data with format selection
+        st.markdown("### 📝 Example Data")
+        demo_format = st.selectbox(
+            "Select demo data format:",
+            ["CSV - Western", "CSV - Asian", "JSON - Mixed", "CSV - Clinical Trial"],
+            key="demo_format_selector"
+        )
+
+        if st.button("Load Example Data"):
+            example_data = ""
+
+            if demo_format == "CSV - Western":
+                # Western names with diverse data types and some errors
+                example_data = """employee_id,first_name,last_name,age,salary,hire_date,last_login_datetime,bonus_percentage,department,is_active,skills,email,phone
+1001,John,Smith,28,75000.50,2023-01-15,2024-01-20 09:30:00,15.5,Engineering,true,"Python;SQL;Docker",john.smith@techcorp.com,+1-555-0101
+1002,Sarah,Johnson,32,82000.00,2022-06-10,2024-01-19 14:45:30,18.2,Marketing,true,"Analytics;SEO;Content",sarah.j@techcorp.com,+1-555-0102
+1003,Michael,Williams,-5,68000.75,2021-11-22,2024-01-18 08:15:45,12.0,Sales,false,"CRM;Excel;Communication",m.williams@techcorp.com,INVALID_PHONE
+1004,Emma,Brown,29,91000.00,invalid_date,2024-01-20 16:20:00,22.5,Engineering,true,"Java;AWS;Kubernetes",emma.brown@techcorp.com,+1-555-0104
+1005,David,Martinez,45,105000.00,2020-03-08,2024-01-19 11:30:00,25.0,Management,true,"Leadership;Strategy;Finance",d.martinez@techcorp.com,+1-555-0105
+1006,Lisa,Anderson,31,79000.50,2023-02-14,NOT_A_DATETIME,17.8,HR,true,"Recruiting;HRIS;Training",lisa.a@techcorp.com,+1-555-0106
+1007,Robert,Taylor,256,72000.00,2022-08-30,2024-01-20 13:45:00,14.5,Finance,true,"Excel;SAP;Audit",r.taylor@techcorp.com,+1-555-0107"""
+
+            elif demo_format == "CSV - Asian":
+                # Asian names with different data patterns
+                example_data = """staff_id,given_name,family_name,age,monthly_salary,join_date,last_activity,performance_score,dept_code,active_status,certifications,work_email,mobile
+2001,Wei,Zhang,26,8500.00,2023-03-20,2024-01-20T10:45:00Z,4.2,DEV,1,"AWS-SA;CCNA;PMP",wei.zhang@company.cn,+86-138-0000-0001
+2002,Yuki,Tanaka,30,9200.50,2022-09-15,2024-01-19T15:30:00Z,4.5,MKT,1,"Google-Ads;HubSpot",y.tanaka@company.jp,+81-90-1234-5678
+2003,Priya,Sharma,28,7800.00,2021-12-01,2024-01-18T09:00:00Z,3.8,OPS,1,"Six-Sigma;Lean",priya.sharma@company.in,+91-98765-43210
+2004,Min-jun,Kim,999,10500.00,2020-06-18,INVALID_TIME,4.7,DEV,1,"Java;Spring;React",minjun.kim@company.kr,+82-10-9876-5432
+2005,Mei,Chen,32,8900.75,2023-01-10,2024-01-20T14:20:00Z,-1.5,FIN,0,"CPA;Excel-Expert",mei.chen@company.tw,MISSING_PHONE
+2006,Raj,Patel,27,8200.00,bad_date,2024-01-19T11:15:00Z,4.1,HR,1,"PHR;Workday",raj.patel@company.in,+91-99999-88888
+2007,Hiroshi,Yamamoto,35,11000.00,2019-04-22,2024-01-20T16:00:00Z,4.9,MGT,1,"MBA;PgMP;Agile",h.yamamoto@company.jp,+81-80-3333-4444"""
+
+            elif demo_format == "JSON - Mixed":
+                # JSON format with nested data and mixed cultures
+                example_data = '''[
+  {"id": 3001, "name": {"first": "Maria", "last": "Garcia"}, "age": 29, "salary": 72000, "hired": "2023-02-28", "active": true, "scores": [85, 90, 88], "department": "Research"},
+  {"id": 3002, "name": {"first": "Ahmed", "last": "Hassan"}, "age": 31, "salary": 78000, "hired": "2022-11-15", "active": true, "scores": [92, 88, 91], "department": "Engineering"},
+  {"id": 3003, "name": {"first": "Olga", "last": "Ivanova"}, "age": -10, "salary": 69000, "hired": "2021-07-20", "active": false, "scores": [78, 82], "department": "Quality"},
+  {"id": 3004, "name": {"first": "João", "last": "Silva"}, "age": 34, "salary": "NOT_A_NUMBER", "hired": "invalid", "active": true, "scores": [88, 85, 87, 90], "department": "Sales"},
+  {"id": 3005, "name": {"first": "Fatima", "last": "Al-Rashid"}, "age": 27, "salary": 71500, "hired": "2023-05-10", "active": "maybe", "scores": null, "department": "Marketing"}
+]'''
+
+            elif demo_format == "CSV - Clinical Trial":
+                # Clinical trial data with medical/pharmaceutical fields
+                example_data = """subject_id,site_id,enrollment_date,visit_date,age,gender,bmi,treatment_arm,adverse_event,lab_value,compliance_pct,completed_study,protocol_version
+S001,SITE01,2023-01-15,2023-02-15,45,M,24.5,Treatment,None,120.5,95.5,Y,2.1
+S002,SITE01,2023-01-20,2023-02-20,52,F,28.3,Placebo,Mild Headache,135.2,88.0,Y,2.1
+S003,SITE02,2023-02-01,invalid_date,38,M,22.1,Treatment,None,118.0,92.5,Y,2.1
+S004,SITE02,2023-02-05,2023-03-05,-5,F,31.2,Placebo,Nausea,142.8,76.5,N,2.1
+S005,SITE03,2023-02-10,2023-03-10,61,X,26.7,Treatment,None,999.9,101.5,Y,2.0
+S006,SITE03,bad_enrollment,2023-03-15,49,M,29.8,Treatment,Dizziness,128.3,82.0,Y,2.1
+S007,SITE04,2023-02-20,2023-03-20,55,F,INVALID_BMI,Placebo,None,131.7,90.0,Y,2.1"""
+
             st.session_state.example_data = example_data
-            st.success("Example data loaded!")
-    
+            # Store the format type for proper parsing
+            if "JSON" in demo_format:
+                st.session_state.example_format = "json"
+            else:
+                st.session_state.example_format = "csv"
+            st.success(f"{demo_format} data loaded!")
+
+        st.divider()
+
+        # Data Dictionary Upload Section
+        st.markdown("### 📚 Data Dictionary")
+
+        # Option to load demo dictionary
+        dict_demo_format = st.selectbox(
+            "Load demo dictionary:",
+            ["None"] + list(DEMO_DICTIONARIES.keys()),
+            key="dict_demo_selector",
+            help="Load a demo dictionary that matches the demo datasets"
+        )
+
+        if dict_demo_format != "None":
+            action = st.radio(
+                "Action:",
+                ["Load Only", "Load & Parse", "Load, Parse & Apply"],
+                key="demo_dict_action",
+                horizontal=True,
+                index=2  # Default to full workflow
+            )
+            if st.button("📁 Execute", key="load_demo_dict"):
+                st.session_state['dict_content'] = get_demo_dictionary(dict_demo_format)
+                st.session_state['dict_format'] = dict_demo_format
+                st.session_state['dict_source'] = 'demo'
+                st.session_state['dict_action'] = action
+                st.success(f"Loaded {dict_demo_format} dictionary!")
+
+                # Auto-trigger parsing if requested
+                if action in ["Load & Parse", "Load, Parse & Apply"]:
+                    st.session_state['auto_parse'] = True
+                if action == "Load, Parse & Apply":
+                    st.session_state['auto_apply'] = True
+
+        # File upload option
+        dict_file = st.file_uploader(
+            "Or upload your own:",
+            type=['csv', 'xlsx', 'json', 'txt', 'pdf'],
+            key="dict_uploader",
+            help="Upload a data dictionary to auto-populate schema and rules. Supports CSV, Excel, JSON, text, PDF, and REDCap formats."
+        )
+
+        if dict_file:
+            upload_action = st.radio(
+                "Action on upload:",
+                ["Load Only", "Load & Parse", "Load, Parse & Apply"],
+                key="upload_dict_action",
+                horizontal=True,
+                index=2  # Default to full workflow
+            )
+
+            # Read and store uploaded file content
+            file_extension = dict_file.name.split('.')[-1].lower()
+
+            if file_extension == 'pdf':
+                # Extract text from PDF
+                try:
+                    import PyPDF2
+                    pdf_reader = PyPDF2.PdfReader(dict_file)
+                    dict_content = ""
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        dict_content += page.extract_text()
+                    st.success(f"Extracted {len(dict_content)} characters from PDF")
+                except ImportError:
+                    st.error("PyPDF2 not installed. Please install it to process PDF files.")
+                    st.code("pip install PyPDF2")
+                    dict_content = ""
+                except Exception as e:
+                    st.error(f"Error reading PDF: {str(e)}")
+                    dict_content = ""
+            else:
+                # Read text-based files
+                dict_content = dict_file.read()
+                try:
+                    dict_content = dict_content.decode('utf-8')
+                except UnicodeDecodeError:
+                    dict_content = dict_content.decode('latin-1')
+
+            st.session_state['dict_content'] = dict_content
+            st.session_state['dict_format'] = file_extension
+            st.session_state['dict_source'] = 'upload'
+            st.session_state['dict_filename'] = dict_file.name
+            st.session_state['dict_action'] = upload_action
+
+            # Auto-trigger parsing if requested
+            if upload_action in ["Load & Parse", "Load, Parse & Apply"]:
+                st.session_state['auto_parse'] = True
+            if upload_action == "Load, Parse & Apply":
+                st.session_state['auto_apply'] = True
+
+        # Show parse button if we have dictionary content
+        if st.session_state.get('dict_content'):
+            # Check if we should auto-parse
+            should_parse = st.session_state.get('auto_parse', False)
+
+            if not should_parse:
+                parse_button = st.button(
+                    "🤖 Parse Dictionary",
+                    key="parse_dict_btn",
+                    use_container_width=True,
+                    type="primary"
+                )
+                should_parse = parse_button
+
+            if should_parse:
+                # Clear auto-parse flag
+                if 'auto_parse' in st.session_state:
+                    del st.session_state['auto_parse']
+                with st.spinner("Parsing data dictionary with AI..."):
+                    # Get dictionary content from session state
+                    dict_content = st.session_state.get('dict_content', '')
+
+                    # Determine format hint
+                    if st.session_state.get('dict_source') == 'demo':
+                        # For demo dictionaries, use CSV format
+                        format_hint = 'csv'
+                    else:
+                        # For uploaded files, use file extension
+                        format_hint = st.session_state.get('dict_format', 'auto')
+                        if format_hint == 'txt':
+                            format_hint = 'text'
+                        elif format_hint == 'xlsx':
+                            format_hint = 'excel'
+
+                    # Get MCP client
+                    client = get_mcp_client(use_real_mcp=use_real_mcp)
+
+                    # Parse dictionary
+                    result = asyncio.run(client.parse_data_dictionary(
+                        dictionary_content=dict_content,
+                        format_hint=format_hint,
+                        use_cache=True,
+                        debug=debug_mode
+                    ))
+
+                    if result.get('success'):
+                        # Store parsed results in session state
+                        st.session_state['parsed_schema'] = result.get('schema', {})
+                        st.session_state['parsed_rules'] = result.get('rules', {})
+                        st.session_state['dict_metadata'] = result.get('metadata', {})
+                        st.session_state['parser_validation'] = result.get('validation', {})
+                        st.session_state['parser_code'] = result.get('parser_code', '')  # Store parser code for download
+                        st.session_state['parse_complete'] = True  # Mark parse as complete
+
+                        confidence = result.get('confidence_score', 0.0)
+                        st.success(f"✅ Dictionary parsed successfully!")
+                        st.metric("Confidence Score", f"{confidence:.1%}")
+
+                        # Show validation info
+                        validation = result.get('validation', {})
+                        if validation.get('warnings'):
+                            with st.expander(f"⚠️ {len(validation['warnings'])} Warnings"):
+                                for warning in validation['warnings']:
+                                    st.warning(warning)
+
+                    else:
+                        st.error(f"❌ Failed to parse dictionary: {result.get('error', 'Unknown error')}")
+                        if debug_mode and result.get('validation'):
+                            with st.expander("Debug Info"):
+                                st.json(result['validation'])
+
+            # Show parsed results if available
+            if st.session_state.get('parse_complete') and st.session_state.get('parsed_schema'):
+                # Preview extracted schema
+                with st.expander("📋 Extracted Schema", expanded=True):
+                    st.json(st.session_state['parsed_schema'])
+
+                # Preview extracted rules
+                if st.session_state.get('parsed_rules'):
+                    with st.expander("⚙️ Extracted Rules", expanded=True):
+                        st.json(st.session_state['parsed_rules'])
+
+                # Check if we should auto-apply
+                should_apply = st.session_state.get('auto_apply', False)
+
+                # Apply button (or auto-apply)
+                if not should_apply:
+                    should_apply = st.button("✅ Apply to Validation", key="apply_dict", type="primary", use_container_width=True)
+
+                if should_apply:
+                    # Clear auto-apply flag
+                    if 'auto_apply' in st.session_state:
+                        del st.session_state['auto_apply']
+                    # Convert to UI format and apply
+                    if st.session_state.get('parsed_schema'):
+                        schema_entries = []
+                        for col_name, col_type in st.session_state['parsed_schema'].items():
+                            schema_entries.append({
+                                'column': col_name,
+                                'type': col_type
+                            })
+                        st.session_state.schema_entries = schema_entries
+
+                    if st.session_state.get('parsed_rules'):
+                        rules_entries = []
+                        for col_name, col_rules in st.session_state['parsed_rules'].items():
+                            # Determine rule type based on available constraints
+                            if 'allowed' in col_rules:
+                                rule_type = 'allowed_values'
+                                config = {'allowed': col_rules['allowed']}
+                            elif 'min' in col_rules or 'max' in col_rules:
+                                rule_type = 'range'
+                                config = {}
+                                if 'min' in col_rules:
+                                    config['min'] = col_rules['min']
+                                if 'max' in col_rules:
+                                    config['max'] = col_rules['max']
+                            else:
+                                continue  # Skip if no recognized rule type
+
+                            rules_entries.append({
+                                'column': col_name,
+                                'rule_type': rule_type,
+                                'config': config
+                            })
+                        st.session_state.rules_entries = rules_entries
+
+                    st.success("✅ Schema and rules applied to validation!")
+                    st.rerun()
+
+            # Download parser code button (show if code exists)
+            if st.session_state.get('parser_code'):
+                st.divider()
+                st.markdown("#### 💾 Download Parser")
+                # Determine filename for download
+                if st.session_state.get('dict_source') == 'demo':
+                    base_name = st.session_state.get('dict_format', 'dictionary').replace(' ', '_').replace('-', '_')
+                else:
+                    base_name = st.session_state.get('dict_filename', 'dictionary').split('.')[0]
+
+                # Download the generated parser code
+                st.download_button(
+                    label="📥 Download Parser Code (Python)",
+                    data=st.session_state['parser_code'],
+                    file_name=f"parser_{base_name}.py",
+                    mime="text/x-python",
+                    key="download_parser_code",
+                    use_container_width=True,
+                    help="Download the AI-generated Python code that parses this dictionary format"
+                )
+
     # Main content area
     if uploaded_file is not None:
         try:
@@ -898,9 +1503,10 @@ def main():
     
     elif 'example_data' in st.session_state:
         # Handle example data
-        csv_content = st.session_state.example_data
-        
-        st.info("Using example data - configure schema and rules below, then run analysis")
+        file_content = st.session_state.example_data
+        file_format = st.session_state.get('example_format', 'csv')
+
+        st.info(f"Using example {file_format.upper()} data - configure schema and rules below, then run analysis")
         
         # Editable example data
         with st.expander("📄 Example Data (Editable)", expanded=True):
@@ -908,24 +1514,30 @@ def main():
                 # Allow user to edit the example data
                 edited_data = st.text_area(
                     "Edit your data here:",
-                    value=csv_content,
+                    value=file_content,
                     height=200,
-                    help="Edit the CSV data directly. Changes will be used for analysis."
+                    help=f"Edit the {file_format.upper()} data directly. Changes will be used for analysis."
                 )
-                
+
                 # Update the data if it changed
-                if edited_data != csv_content:
+                if edited_data != file_content:
                     st.session_state.example_data = edited_data
-                    csv_content = edited_data
-                
+                    file_content = edited_data
+
                 # Show preview of the edited data
                 st.subheader("Preview:")
-                preview_df = pd.read_csv(io.StringIO(csv_content))
+                if file_format == 'json':
+                    preview_df = pd.read_json(io.StringIO(file_content))
+                else:
+                    preview_df = pd.read_csv(io.StringIO(file_content))
                 st.dataframe(preview_df, use_container_width=True)
                 
             except Exception as e:
-                st.error(f"Error reading CSV data: {str(e)}")
-                st.info("Please check your CSV format. Make sure it has proper headers and comma separation.")
+                st.error(f"Error reading {file_format.upper()} data: {str(e)}")
+                if file_format == 'json':
+                    st.info("Please check your JSON format. Make sure it's valid JSON syntax.")
+                else:
+                    st.info("Please check your CSV format. Make sure it has proper headers and comma separation.")
                 return
         
         # Configuration tabs for example data
@@ -951,8 +1563,8 @@ def main():
                     
                     # Run analysis
                     results = asyncio.run(client.analyze_data(
-                        data_content=csv_content,
-                        file_format="csv",
+                        data_content=file_content,
+                        file_format=file_format,
                         schema=schema if schema else None,
                         rules=rules if rules else None,
                         min_rows=min_rows,
@@ -992,6 +1604,81 @@ def main():
         
         Ready to get started? Upload a file or load the example data! 🚀
         """)
+
+def main():
+    """Main Streamlit application with navigation"""
+
+    # Custom CSS for better styling
+    st.markdown("""
+    <style>
+    /* Navbar styling */
+    section[data-testid="stSidebar"] {
+        top: 0;
+    }
+    .navbar {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Create navigation menu
+    st.markdown("## 📊 Data Quality Analyzer")
+
+    if option_menu:
+        # Use streamlit-option-menu for a professional navbar
+        selected = option_menu(
+            menu_title=None,  # No title
+            options=["🏠 Home", "ℹ️ About"],
+            icons=None,  # Icons already in option text
+            menu_icon=None,
+            default_index=0,
+            orientation="horizontal",
+            styles={
+                "container": {
+                    "padding": "5px",
+                    "background-color": "#f0f2f6",
+                    "border-radius": "10px",
+                    "margin-bottom": "1rem"
+                },
+                "icon": {"display": "none"},  # Hide icons since we have them in text
+                "nav-link": {
+                    "font-size": "16px",
+                    "text-align": "center",
+                    "margin": "0px 5px",
+                    "padding": "10px 20px",
+                    "border-radius": "5px",
+                    "--hover-color": "#e0e2e6"
+                },
+                "nav-link-selected": {
+                    "background-color": "#667eea",
+                    "color": "white",
+                    "font-weight": "bold"
+                },
+            }
+        )
+        # Remove emoji from selected for comparison
+        selected = selected.replace("🏠 ", "").replace("ℹ️ ", "")
+    else:
+        # Fallback to radio buttons if option_menu not available
+        col1, col2, _ = st.columns([1, 1, 4])
+        with col1:
+            if st.button("🏠 Home", use_container_width=True, type="primary"):
+                selected = "Home"
+        with col2:
+            if st.button("ℹ️ About", use_container_width=True):
+                selected = "About"
+        selected = st.session_state.get("page", "Home")
+
+    st.markdown("---")
+
+    # Render the selected page
+    if selected == "About":
+        render_about_page()
+    else:
+        render_home_page()
 
 if __name__ == "__main__":
     main()

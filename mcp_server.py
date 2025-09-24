@@ -17,12 +17,19 @@ import base64
 from datetime import datetime
 import tempfile
 import os
+import sys
+
+# Add src to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 # MCP SDK imports
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
 import mcp.types as types
+
+# Import data dictionary parser
+from core.data_dictionary_parser import DataDictionaryParser
 
 # Data quality check modules (adapted from csvChecker, extensible for other formats)
 class DataLoader:
@@ -453,6 +460,35 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["data_content"]
             }
+        ),
+        types.Tool(
+            name="parse_data_dictionary",
+            description="Parse data dictionary using LLM-generated code to extract schema and validation rules",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dictionary_content": {
+                        "type": "string",
+                        "description": "Data dictionary content (CSV, JSON, text, REDCap, etc.)"
+                    },
+                    "format_hint": {
+                        "type": "string",
+                        "description": "Hint about dictionary format (csv, json, text, redcap, clinical, auto)",
+                        "default": "auto"
+                    },
+                    "use_cache": {
+                        "type": "boolean",
+                        "description": "Use cached parser if available for similar dictionaries",
+                        "default": True
+                    },
+                    "debug": {
+                        "type": "boolean",
+                        "description": "Enable debug output for parser generation",
+                        "default": False
+                    }
+                },
+                "required": ["dictionary_content"]
+            }
         )
     ]
 
@@ -511,6 +547,64 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
                 )
             ]
     
+    elif name == "parse_data_dictionary":
+        try:
+            dictionary_content = arguments["dictionary_content"]
+            format_hint = arguments.get("format_hint", "auto")
+            use_cache = arguments.get("use_cache", True)
+            debug = arguments.get("debug", False)
+
+            # Initialize parser
+            parser = DataDictionaryParser()
+
+            # Parse the dictionary
+            parsed = await parser.parse_dictionary(
+                dictionary_content,
+                format_hint=format_hint,
+                use_cache=use_cache,
+                debug=debug
+            )
+
+            # Convert to schema and rules if successful
+            if parsed.get("success"):
+                schema, rules = parser.convert_to_schema_and_rules(parsed)
+
+                result = {
+                    "success": True,
+                    "schema": schema,
+                    "rules": rules,
+                    "metadata": parsed.get("metadata", {}),
+                    "validation": parsed.get("validation", {}),
+                    "columns_parsed": len(schema),
+                    "confidence_score": parsed.get("confidence_score", 0.0),
+                    "parser_code": parsed.get("parser_code", "")  # Include parser code for download
+                }
+            else:
+                result = {
+                    "success": False,
+                    "error": parsed.get("error", "Unknown parsing error"),
+                    "validation": parsed.get("validation", {})
+                }
+
+            return [
+                types.TextContent(
+                    type="text",
+                    text=json.dumps(result, indent=2, default=str)
+                )
+            ]
+
+        except Exception as e:
+            return [
+                types.TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "success": False,
+                        "error": str(e),
+                        "type": "dictionary_parsing_error"
+                    }, indent=2)
+                )
+            ]
+
     elif name == "get_data_info":
         try:
             data_content = arguments["data_content"]
