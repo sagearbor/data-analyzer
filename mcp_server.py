@@ -26,7 +26,7 @@ import mcp.types as types
 
 # Data quality check modules (adapted from csvChecker, extensible for other formats)
 class DataLoader:
-    """Load and validate data files (CSV, future: JSON, Excel, etc.)"""
+    """Load and validate data files (CSV, JSON, Excel, Parquet)"""
     
     @staticmethod
     def load_csv(file_path_or_content: Union[str, bytes, io.StringIO], **kwargs) -> pd.DataFrame:
@@ -35,12 +35,18 @@ class DataLoader:
             if isinstance(file_path_or_content, bytes):
                 # Decode bytes to string and create StringIO
                 content = file_path_or_content.decode('utf-8')
+                if not content.strip():
+                    # Return empty DataFrame for empty content
+                    return pd.DataFrame()
                 return pd.read_csv(io.StringIO(content), **kwargs)
             elif isinstance(file_path_or_content, str):
                 if os.path.exists(file_path_or_content):
                     return pd.read_csv(file_path_or_content, **kwargs)
                 else:
                     # Treat as CSV content string
+                    if not file_path_or_content.strip():
+                        # Return empty DataFrame for empty content
+                        return pd.DataFrame()
                     return pd.read_csv(io.StringIO(file_path_or_content), **kwargs)
             else:
                 return pd.read_csv(file_path_or_content, **kwargs)
@@ -48,12 +54,130 @@ class DataLoader:
             raise ValueError(f"Failed to load CSV: {str(e)}")
     
     @staticmethod
-    def load_data(file_path_or_content: Union[str, bytes, io.StringIO], file_format: str = "csv", **kwargs) -> pd.DataFrame:
-        """Load data from various formats - extensible for future formats"""
-        if file_format.lower() == "csv":
+    def detect_encoding(file_path: str) -> str:
+        """Detect file encoding for text files"""
+        import chardet
+        try:
+            with open(file_path, 'rb') as f:
+                result = chardet.detect(f.read(100000))
+                return result.get('encoding', 'utf-8')
+        except:
+            return 'utf-8'
+
+    @staticmethod
+    def load_json(file_path_or_content: Union[str, bytes, dict], max_depth: int = 5) -> pd.DataFrame:
+        """Load JSON data and flatten nested structures up to max_depth levels"""
+        try:
+            # Parse JSON data
+            if isinstance(file_path_or_content, dict):
+                json_data = file_path_or_content
+            elif isinstance(file_path_or_content, bytes):
+                json_data = json.loads(file_path_or_content.decode('utf-8'))
+            elif isinstance(file_path_or_content, str):
+                if os.path.exists(file_path_or_content):
+                    with open(file_path_or_content, 'r', encoding='utf-8') as f:
+                        json_data = json.load(f)
+                else:
+                    json_data = json.loads(file_path_or_content)
+            else:
+                raise ValueError("Invalid JSON input type")
+
+            # Handle different JSON structures
+            if isinstance(json_data, list):
+                # Array of objects - direct conversion
+                df = pd.json_normalize(json_data, max_level=max_depth)
+            elif isinstance(json_data, dict):
+                # Nested object - normalize with depth control
+                df = pd.json_normalize(json_data, max_level=max_depth)
+
+                # If result is a single row, try to extract nested arrays
+                if len(df) == 1 and df.shape[1] > 0:
+                    # Look for columns with list values that could be expanded
+                    for col in df.columns:
+                        if isinstance(df.iloc[0][col], list) and len(df.iloc[0][col]) > 0:
+                            if all(isinstance(item, dict) for item in df.iloc[0][col]):
+                                # Found nested array of objects, use that as main data
+                                df = pd.json_normalize(df.iloc[0][col], max_level=max_depth-1)
+                                break
+            else:
+                # Single value - wrap in dataframe
+                df = pd.DataFrame([json_data])
+
+            return df
+        except Exception as e:
+            raise ValueError(f"Failed to load JSON: {str(e)}")
+
+    @staticmethod
+    def load_excel(file_path_or_content: Union[str, bytes], sheet_name: Optional[str] = None) -> pd.DataFrame:
+        """Load Excel file (.xlsx or .xls), combining all sheets if sheet_name not specified"""
+        try:
+            if isinstance(file_path_or_content, bytes):
+                # Load from bytes
+                excel_file = pd.ExcelFile(io.BytesIO(file_path_or_content))
+            elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
+                # Load from file path
+                excel_file = pd.ExcelFile(file_path_or_content)
+            else:
+                raise ValueError("Excel file not found or invalid input")
+
+            # Get all sheet names
+            sheet_names = excel_file.sheet_names
+
+            if sheet_name:
+                # Load specific sheet
+                if sheet_name not in sheet_names:
+                    raise ValueError(f"Sheet '{sheet_name}' not found. Available sheets: {sheet_names}")
+                return pd.read_excel(excel_file, sheet_name=sheet_name)
+            else:
+                # Load and combine all sheets
+                dfs = []
+                for name in sheet_names:
+                    df = pd.read_excel(excel_file, sheet_name=name)
+                    df['_sheet_name'] = name  # Add sheet identifier
+                    dfs.append(df)
+
+                if len(dfs) == 1:
+                    # Single sheet, remove sheet identifier
+                    return dfs[0].drop('_sheet_name', axis=1)
+                else:
+                    # Multiple sheets, concatenate with sheet identifier
+                    return pd.concat(dfs, ignore_index=True)
+        except Exception as e:
+            raise ValueError(f"Failed to load Excel: {str(e)}")
+
+    @staticmethod
+    def load_parquet(file_path_or_content: Union[str, bytes]) -> pd.DataFrame:
+        """Load Parquet file"""
+        try:
+            if isinstance(file_path_or_content, bytes):
+                # Load from bytes
+                return pd.read_parquet(io.BytesIO(file_path_or_content))
+            elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
+                # Load from file path
+                return pd.read_parquet(file_path_or_content)
+            else:
+                raise ValueError("Parquet file not found or invalid input")
+        except Exception as e:
+            raise ValueError(f"Failed to load Parquet: {str(e)}")
+
+    @staticmethod
+    def load_data(file_path_or_content: Union[str, bytes, io.StringIO, dict],
+                  file_format: str = "csv", **kwargs) -> pd.DataFrame:
+        """Load data from various formats"""
+        format_lower = file_format.lower()
+
+        if format_lower == "csv":
             return DataLoader.load_csv(file_path_or_content, **kwargs)
+        elif format_lower == "json":
+            max_depth = kwargs.pop('max_depth', 5)
+            return DataLoader.load_json(file_path_or_content, max_depth=max_depth)
+        elif format_lower in ["excel", "xlsx", "xls"]:
+            sheet_name = kwargs.pop('sheet_name', None)
+            return DataLoader.load_excel(file_path_or_content, sheet_name=sheet_name)
+        elif format_lower == "parquet":
+            return DataLoader.load_parquet(file_path_or_content)
         else:
-            raise ValueError(f"Unsupported file format: {file_format}. Currently supported: CSV")
+            raise ValueError(f"Unsupported file format: {file_format}. Supported: CSV, JSON, Excel, Parquet")
 
 class QualityChecker:
     """Perform data quality checks on structured data (CSV, future: other formats)"""
