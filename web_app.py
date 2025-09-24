@@ -20,7 +20,7 @@ from datetime import datetime
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="Data Quality Analyzer",
+    page_title="Multi-Format Data Quality Analyzer",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -776,7 +776,7 @@ def display_results(results: Dict[str, Any]):
 def main():
     """Main Streamlit application"""
     
-    st.title("📊 CSV Quality Analyzer")
+    st.title("📊 Multi-Format Data Quality Analyzer")
     st.markdown("Upload a CSV file and configure validation rules to check data quality")
     
     # Sidebar configuration
@@ -785,9 +785,9 @@ def main():
         
         # File upload
         uploaded_file = st.file_uploader(
-            "Choose a CSV file",
-            type=['csv'],
-            help="Upload a CSV file to analyze"
+            "Choose a data file",
+            type=['csv', 'json', 'xlsx', 'xls', 'parquet'],
+            help="Upload a CSV, JSON, Excel, or Parquet file to analyze"
         )
         
         # Minimum rows setting
@@ -822,37 +822,132 @@ def main():
         )
         
         st.divider()
-        
-        # Quick example data
-        if st.button("📝 Load Example Data"):
-            # Create example CSV content with date field
-            example_data = """id,name,age,country,salary,hire_date
+
+        # Quick example data with format selector
+        st.subheader("📝 Demo Data")
+        demo_format = st.selectbox(
+            "Choose demo data format:",
+            ["CSV", "JSON", "Excel", "Parquet"]
+        )
+
+        if st.button(f"Load {demo_format} Example Data"):
+            if demo_format == "CSV":
+                # Create example CSV content with date field
+                example_data = """id,name,age,country,salary,hire_date
 1,John Doe,25,USA,50000,2023-01-15
 2,Jane Smith,30,CAN,55000,2022-03-20
 3,Bob Johnson,35,MEX,60000,2021-07-10
 4,Alice Brown,28,USA,52000,invalid_date
 5,Charlie Wilson,150,INVALID,75000,2020-12-05"""
-            
+                st.session_state.example_format = "csv"
+
+            elif demo_format == "JSON":
+                # Create example JSON content
+                example_json = {
+                    "employees": [
+                        {"id": 1, "name": "John Doe", "age": 25, "country": "USA", "salary": 50000, "hire_date": "2023-01-15"},
+                        {"id": 2, "name": "Jane Smith", "age": 30, "country": "CAN", "salary": 55000, "hire_date": "2022-03-20"},
+                        {"id": 3, "name": "Bob Johnson", "age": 35, "country": "MEX", "salary": 60000, "hire_date": "2021-07-10"},
+                        {"id": 4, "name": "Alice Brown", "age": 28, "country": "USA", "salary": 52000, "hire_date": "invalid_date"},
+                        {"id": 5, "name": "Charlie Wilson", "age": 150, "country": "INVALID", "salary": 75000, "hire_date": "2020-12-05"}
+                    ]
+                }
+                example_data = json.dumps(example_json, indent=2)
+                st.session_state.example_format = "json"
+
+            elif demo_format == "Excel":
+                # Create example Excel data (as DataFrame to be saved as Excel)
+                df_excel = pd.DataFrame({
+                    "id": [1, 2, 3, 4, 5],
+                    "name": ["John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson"],
+                    "age": [25, 30, 35, 28, 150],
+                    "country": ["USA", "CAN", "MEX", "USA", "INVALID"],
+                    "salary": [50000, 55000, 60000, 52000, 75000],
+                    "hire_date": ["2023-01-15", "2022-03-20", "2021-07-10", "invalid_date", "2020-12-05"]
+                })
+                # Convert to Excel bytes
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_excel.to_excel(writer, index=False, sheet_name="Employees")
+                example_data = base64.b64encode(output.getvalue()).decode()
+                st.session_state.example_format = "excel"
+
+            elif demo_format == "Parquet":
+                # Create example Parquet data
+                df_parquet = pd.DataFrame({
+                    "id": [1, 2, 3, 4, 5],
+                    "name": ["John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson"],
+                    "age": [25, 30, 35, 28, 150],
+                    "country": ["USA", "CAN", "MEX", "USA", "INVALID"],
+                    "salary": [50000, 55000, 60000, 52000, 75000],
+                    "hire_date": ["2023-01-15", "2022-03-20", "2021-07-10", "invalid_date", "2020-12-05"]
+                })
+                # Convert to Parquet bytes
+                output = io.BytesIO()
+                df_parquet.to_parquet(output, index=False)
+                example_data = base64.b64encode(output.getvalue()).decode()
+                st.session_state.example_format = "parquet"
+
             st.session_state.example_data = example_data
-            st.success("Example data loaded!")
+            st.success(f"{demo_format} example data loaded!")
     
     # Main content area
     if uploaded_file is not None:
         try:
-            # Read the uploaded file
-            csv_content = uploaded_file.read().decode(encoding)
+            # Determine file format from extension
+            file_format = uploaded_file.name.split('.')[-1].lower()
+            if file_format in ['xlsx', 'xls']:
+                file_format = 'excel'
+
+            # Read the uploaded file based on format
+            if file_format == 'csv':
+                file_content = uploaded_file.read().decode(encoding)
+            else:
+                # For binary formats (JSON, Excel, Parquet)
+                uploaded_file.seek(0)  # Reset file pointer
+                file_bytes = uploaded_file.read()
+                if file_format == 'json':
+                    file_content = file_bytes.decode('utf-8')
+                else:
+                    # For Excel and Parquet, encode as base64
+                    file_content = base64.b64encode(file_bytes).decode()
             
             # Display file info
-            st.info(f"File: {uploaded_file.name} ({len(csv_content)} characters)")
+            file_size = len(file_bytes) if file_format != 'csv' else len(file_content)
+            st.info(f"File: {uploaded_file.name} ({file_size:,} bytes, Format: {file_format.upper()})")
             
             # Preview the data
             with st.expander("📄 Data Preview", expanded=True):
                 try:
-                    preview_df = pd.read_csv(io.StringIO(csv_content))
+                    # Load data using appropriate loader
+                    if file_format == 'csv':
+                        preview_df = pd.read_csv(io.StringIO(file_content))
+                    elif file_format == 'json':
+                        json_data = json.loads(file_content)
+                        # Handle nested JSON structures
+                        if isinstance(json_data, dict) and len(json_data) == 1:
+                            # If single key with array value, use the array
+                            first_key = list(json_data.keys())[0]
+                            if isinstance(json_data[first_key], list):
+                                preview_df = pd.DataFrame(json_data[first_key])
+                            else:
+                                preview_df = pd.json_normalize(json_data)
+                        elif isinstance(json_data, list):
+                            preview_df = pd.DataFrame(json_data)
+                        else:
+                            preview_df = pd.json_normalize(json_data)
+                    elif file_format == 'excel':
+                        preview_df = pd.read_excel(io.BytesIO(base64.b64decode(file_content)))
+                    elif file_format == 'parquet':
+                        preview_df = pd.read_parquet(io.BytesIO(base64.b64decode(file_content)))
+                    else:
+                        st.error(f"Unsupported file format: {file_format}")
+                        return
+
                     st.dataframe(preview_df.head(10), use_container_width=True)
                     st.caption(f"Showing first 10 rows of {len(preview_df)} total rows")
                 except Exception as e:
-                    st.error(f"Error reading CSV: {str(e)}")
+                    st.error(f"Error reading {file_format.upper()} file: {str(e)}")
                     return
             
             # Configuration tabs
@@ -875,15 +970,15 @@ def main():
             with tab3:
                 st.subheader("🚀 Run Analysis")
                 
-                if st.button("🔍 Analyze CSV", type="primary", use_container_width=True):
-                    with st.spinner("Analyzing CSV data..."):
+                if st.button(f"🔍 Analyze {file_format.upper()} Data", type="primary", use_container_width=True):
+                    with st.spinner(f"Analyzing {file_format.upper()} data..."):
                         # Get MCP client
                         client = get_mcp_client(use_real_mcp=use_real_mcp)
-                        
+
                         # Run analysis
                         results = asyncio.run(client.analyze_data(
-                            data_content=csv_content,
-                            file_format="csv",
+                            data_content=file_content,
+                            file_format=file_format,
                             schema=schema if schema else None,
                             rules=rules if rules else None,
                             min_rows=min_rows,
@@ -898,34 +993,54 @@ def main():
     
     elif 'example_data' in st.session_state:
         # Handle example data
-        csv_content = st.session_state.example_data
-        
-        st.info("Using example data - configure schema and rules below, then run analysis")
+        example_content = st.session_state.example_data
+        example_format = st.session_state.get('example_format', 'csv')
+
+        st.info(f"Using {example_format.upper()} example data - configure schema and rules below, then run analysis")
         
         # Editable example data
         with st.expander("📄 Example Data (Editable)", expanded=True):
             try:
-                # Allow user to edit the example data
-                edited_data = st.text_area(
-                    "Edit your data here:",
-                    value=csv_content,
-                    height=200,
-                    help="Edit the CSV data directly. Changes will be used for analysis."
-                )
-                
-                # Update the data if it changed
-                if edited_data != csv_content:
-                    st.session_state.example_data = edited_data
-                    csv_content = edited_data
-                
-                # Show preview of the edited data
+                # For CSV and JSON, allow editing; for binary formats show preview only
+                if example_format in ['csv', 'json']:
+                    # Allow user to edit the example data
+                    edited_data = st.text_area(
+                        "Edit your data here:",
+                        value=example_content,
+                        height=200,
+                        help=f"Edit the {example_format.upper()} data directly. Changes will be used for analysis."
+                    )
+
+                    # Update the data if it changed
+                    if edited_data != example_content:
+                        st.session_state.example_data = edited_data
+                        example_content = edited_data
+                else:
+                    st.info(f"Binary format ({example_format.upper()}) - editing not supported. Preview only.")
+
+                # Show preview of the data
                 st.subheader("Preview:")
-                preview_df = pd.read_csv(io.StringIO(csv_content))
+                if example_format == 'csv':
+                    preview_df = pd.read_csv(io.StringIO(example_content))
+                elif example_format == 'json':
+                    json_data = json.loads(example_content)
+                    # Handle nested JSON structures
+                    if isinstance(json_data, dict) and 'employees' in json_data:
+                        preview_df = pd.DataFrame(json_data['employees'])
+                    elif isinstance(json_data, list):
+                        preview_df = pd.DataFrame(json_data)
+                    else:
+                        preview_df = pd.json_normalize(json_data)
+                elif example_format == 'excel':
+                    preview_df = pd.read_excel(io.BytesIO(base64.b64decode(example_content)))
+                elif example_format == 'parquet':
+                    preview_df = pd.read_parquet(io.BytesIO(base64.b64decode(example_content)))
+
                 st.dataframe(preview_df, use_container_width=True)
                 
             except Exception as e:
-                st.error(f"Error reading CSV data: {str(e)}")
-                st.info("Please check your CSV format. Make sure it has proper headers and comma separation.")
+                st.error(f"Error reading {example_format.upper()} data: {str(e)}")
+                st.info(f"Please check your {example_format.upper()} format.")
                 return
         
         # Configuration tabs for example data
@@ -944,15 +1059,15 @@ def main():
         with tab3:
             st.subheader("🚀 Run Analysis")
             
-            if st.button("🔍 Analyze Example Data", type="primary", use_container_width=True):
-                with st.spinner("Analyzing CSV data..."):
+            if st.button(f"🔍 Analyze {example_format.upper()} Example Data", type="primary", use_container_width=True):
+                with st.spinner(f"Analyzing {example_format.upper()} data..."):
                     # Get MCP client
                     client = get_mcp_client(use_real_mcp=use_real_mcp)
-                    
+
                     # Run analysis
                     results = asyncio.run(client.analyze_data(
-                        data_content=csv_content,
-                        file_format="csv",
+                        data_content=example_content,
+                        file_format=example_format,
                         schema=schema if schema else None,
                         rules=rules if rules else None,
                         min_rows=min_rows,
@@ -965,9 +1080,9 @@ def main():
     else:
         # Welcome screen
         st.markdown("""
-        ## Welcome to CSV Quality Analyzer! 👋
-        
-        This tool helps you validate and analyze CSV files for data quality issues.
+        ## Welcome to Multi-Format Data Quality Analyzer! 👋
+
+        This tool helps you validate and analyze data files (CSV, JSON, Excel, Parquet) for data quality issues.
         
         ### Features:
         - **📊 Data Quality Checks**: Row count, data type validation, value range checks
@@ -977,8 +1092,8 @@ def main():
         - **🔍 Missing Value Analysis**: Identify and visualize missing data patterns
         
         ### Get Started:
-        1. Upload a CSV file using the sidebar
-        2. Or click "Load Example Data" to try it out
+        1. Upload a data file (CSV, JSON, Excel, or Parquet) using the sidebar
+        2. Or select a demo format and click "Load Example Data" to try it out
         3. Configure schema and validation rules
         4. Run the analysis to get detailed quality reports
         

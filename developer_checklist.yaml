@@ -1,0 +1,328 @@
+# Developer Checklist for Data Analyzer
+# Status: TODO | INPROGRESS | DONE
+# AI agents: Please update status and add notes when working on tasks
+
+project_info:
+  name: Data Analyzer
+  version: 1.0.0
+  last_updated: 2025-01-19
+
+phases:
+  # Phase 1: Core Functionality & Testing
+  phase_1_core:
+    name: "Core Infrastructure"
+    status: INPROGRESS
+    tasks:
+      - id: core_1
+        name: "MCP Client Integration"
+        description: "Replace simulated MCP calls with actual MCP client in web_app.py"
+        status: TODO
+        priority: CRITICAL
+        effort: "3-5 days"
+        dependencies: []
+        files:
+          - web_app.py
+        notes: "Currently using _simulate_mcp_call() method"
+
+      - id: core_2
+        name: "Testing Framework Setup"
+        description: "Implement comprehensive test suite"
+        status: TODO
+        priority: HIGH
+        effort: "2-3 days"
+        dependencies: []
+        subtasks:
+          - "Create tests/test_mcp_server.py"
+          - "Create tests/test_web_app.py"
+          - "Create tests/test_integration.py"
+          - "Add pytest to requirements"
+          - "Setup CI/CD test runners"
+
+      - id: core_3
+        name: "Error Handling Enhancement"
+        description: "Improve error handling and user feedback"
+        status: TODO
+        priority: MEDIUM
+        effort: "1-2 days"
+        dependencies: []
+        notes: ""
+
+  # Phase 2: Data Format Support
+  phase_2_formats:
+    name: "Multi-Format Support"
+    status: TODO
+    tasks:
+      - id: format_1
+        name: "JSON Support"
+        description: "Add JSON file analysis capabilities"
+        status: TODO
+        priority: HIGH
+        effort: "2-3 days"
+        dependencies: ["core_1"]
+        files:
+          - mcp_server.py
+          - web_app.py
+        subtasks:
+          - "Implement JSON loader in DataLoader class"
+          - "Handle nested JSON structures"
+          - "Add JSON-specific validation rules"
+          - "Update UI for JSON configuration"
+
+      - id: format_2
+        name: "Excel Support"
+        description: "Add Excel file analysis with multi-sheet support"
+        status: TODO
+        priority: HIGH
+        effort: "3-4 days"
+        dependencies: ["core_1"]
+        files:
+          - mcp_server.py
+          - web_app.py
+        subtasks:
+          - "Add openpyxl or xlrd dependency"
+          - "Implement Excel loader in DataLoader"
+          - "Handle multiple sheets"
+          - "Add sheet selection UI"
+
+      - id: format_3
+        name: "Parquet Support"
+        description: "Add Parquet columnar format support"
+        status: TODO
+        priority: MEDIUM
+        effort: "2 days"
+        dependencies: ["core_1"]
+        files:
+          - mcp_server.py
+          - web_app.py
+        subtasks:
+          - "Add pyarrow dependency"
+          - "Implement Parquet loader"
+          - "Handle schema extraction"
+
+      - id: format_4
+        name: "XML Support"
+        description: "Add XML hierarchical data support"
+        status: TODO
+        priority: LOW
+        effort: "3-4 days"
+        dependencies: ["core_1"]
+        notes: "Complex due to hierarchical nature"
+
+  # Phase 3: Authentication & Security
+  phase_3_security:
+    name: "Security & Authentication"
+    status: TODO
+    tasks:
+      - id: sec_1
+        name: "API Key Authentication"
+        description: "Implement API key based authentication"
+        status: TODO
+        priority: HIGH
+        effort: "2-3 days"
+        dependencies: ["core_1"]
+        notes: ""
+
+      - id: sec_2
+        name: "OAuth2 Integration"
+        description: "Add OAuth2 support for enterprise users"
+        status: TODO
+        priority: MEDIUM
+        effort: "4-5 days"
+        dependencies: ["sec_1"]
+        notes: ""
+
+      - id: sec_3
+        name: "Data Encryption"
+        description: "Encrypt sensitive data in transit and at rest"
+        status: TODO
+        priority: HIGH
+        effort: "3-4 days"
+        dependencies: []
+        notes: ""
+
+  # Phase 4: Performance & Scalability
+  phase_4_performance:
+    name: "Performance Optimization"
+    status: TODO
+    tasks:
+      - id: perf_1
+        name: "Streaming Processing"
+        description: "Handle files > 200MB with streaming"
+        status: TODO
+        priority: MEDIUM
+        effort: "4-5 days"
+        dependencies: []
+        subtasks:
+          - "Implement chunked reading"
+          - "Add progress indicators"
+          - "Memory-efficient processing"
+
+      - id: perf_2
+        name: "Caching Layer"
+        description: "Add caching for repeated analyses"
+        status: TODO
+        priority: LOW
+        effort: "2-3 days"
+        dependencies: []
+        notes: ""
+
+      - id: perf_3
+        name: "Parallel Processing"
+        description: "Use multiprocessing for large datasets"
+        status: TODO
+        priority: MEDIUM
+        effort: "3-4 days"
+        dependencies: []
+        notes: ""
+
+  # Phase 5: UI/UX Enhancements
+  phase_5_ui:
+    name: "User Interface Improvements"
+    status: TODO
+    tasks:
+      - id: ui_1
+        name: "Data Profiling Dashboard"
+        description: "Enhanced visualization dashboard"
+        status: TODO
+        priority: MEDIUM
+        effort: "3-4 days"
+        dependencies: []
+        subtasks:
+          - "Add interactive charts"
+          - "Distribution plots"
+          - "Correlation matrices"
+
+      - id: ui_2
+        name: "Export Reports"
+        description: "Export analysis results to PDF/HTML"
+        status: TODO
+        priority: MEDIUM
+        effort: "2-3 days"
+        dependencies: []
+        notes: ""
+
+      - id: ui_3
+        name: "Rule Templates"
+        description: "Pre-built validation rule templates"
+        status: TODO
+        priority: LOW
+        effort: "2 days"
+        dependencies: []
+        notes: ""
+
+  # Phase 6: Production Readiness
+  phase_6_production:
+    name: "Production Deployment"
+    status: TODO
+    tasks:
+      - id: prod_1
+        name: "Monitoring & Logging"
+        description: "Comprehensive application monitoring"
+        status: TODO
+        priority: HIGH
+        effort: "3-4 days"
+        dependencies: ["core_1", "core_2"]
+        subtasks:
+          - "Application Insights integration"
+          - "Custom metrics"
+          - "Alert configuration"
+
+      - id: prod_2
+        name: "Load Testing"
+        description: "Performance benchmarking and optimization"
+        status: TODO
+        priority: MEDIUM
+        effort: "2-3 days"
+        dependencies: ["core_2"]
+        files:
+          - tests/test_performance.py
+
+      - id: prod_3
+        name: "Documentation"
+        description: "Complete API and user documentation"
+        status: INPROGRESS
+        priority: MEDIUM
+        effort: "3-4 days"
+        dependencies: []
+        notes: |
+          INPROGRESS:
+          - Basic README.md exists
+          - API.md partially complete
+          - Need: User guide, deployment guide, troubleshooting guide
+
+      - id: prod_4
+        name: "CI/CD Pipeline"
+        description: "Automated testing and deployment"
+        status: TODO
+        priority: HIGH
+        effort: "2-3 days"
+        dependencies: ["core_2"]
+        subtasks:
+          - "GitHub Actions workflow"
+          - "Automated testing"
+          - "Container build & push"
+          - "Azure deployment automation"
+
+# Bug Fixes & Known Issues
+bugs:
+  - id: bug_1
+    description: "Date validation shows numpy warnings"
+    status: DONE
+    fixed_in_commit: "0500e15"
+    notes: "Suppressed warnings and improved error messages"
+
+  - id: bug_2
+    description: "Large files (>200MB) cause memory issues"
+    status: TODO
+    priority: HIGH
+    related_task: "perf_1"
+
+  - id: bug_3
+    description: "Special characters in CSV headers cause issues"
+    status: TODO
+    priority: MEDIUM
+    notes: ""
+
+# Technical Debt
+tech_debt:
+  - id: debt_1
+    description: "Refactor DataLoader for better extensibility"
+    status: TODO
+    priority: MEDIUM
+    notes: "Current implementation tightly coupled to pandas"
+
+  - id: debt_2
+    description: "Standardize error response format"
+    status: TODO
+    priority: LOW
+    notes: ""
+
+  - id: debt_3
+    description: "Add type hints throughout codebase"
+    status: TODO
+    priority: LOW
+    notes: ""
+
+# Notes for AI Agents
+ai_instructions:
+  update_process: |
+    When working on tasks:
+    1. Change status from TODO to INPROGRESS when starting
+    2. Add detailed notes about what's been done and what remains
+    3. Update subtasks individually if present
+    4. Change to DONE only when fully complete and tested
+    5. Update last_updated field at top of file
+
+  example_inprogress_note: |
+    INPROGRESS:
+    - Completed: Basic JSON loading functionality
+    - Completed: Unit tests for JSON loader
+    - Remaining: UI integration for JSON config
+    - Remaining: Handle deeply nested structures
+    - Blocked: Waiting for MCP client integration (core_1)
+
+  priority_guide:
+    CRITICAL: "Blocks other work or breaks core functionality"
+    HIGH: "Important for release or heavily requested"
+    MEDIUM: "Nice to have, improves user experience"
+    LOW: "Future enhancement, not urgent"

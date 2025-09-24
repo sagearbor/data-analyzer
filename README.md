@@ -1,6 +1,6 @@
 # Data Analyzer - Azure MCP Server & Web Application
 
-A comprehensive data quality analysis tool built with Azure MCP (Model Context Protocol) server and Streamlit web interface. Currently supports CSV analysis with an extensible architecture for future data formats (JSON, Excel, Parquet, etc.). Based on your [csvChecker](https://github.com/sagearbor/csvChecker) repository with enhanced cloud capabilities.
+A comprehensive data quality analysis tool built with Azure MCP (Model Context Protocol) server and Streamlit web interface. Supports multiple data formats including CSV, JSON, Excel (XLSX/XLS), and Parquet with comprehensive data quality analysis capabilities. Based on your [csvChecker](https://github.com/sagearbor/csvChecker) repository with enhanced cloud capabilities.
 
 ## 🏗️ Architecture
 
@@ -23,9 +23,9 @@ A comprehensive data quality analysis tool built with Azure MCP (Model Context P
 
 ### Supported Data Formats
 - **CSV**: Full support with encoding detection ✅
-- **JSON**: Coming soon 🔄
-- **Excel**: Planned 📋
-- **Parquet**: Planned 📋
+- **JSON**: Nested structure flattening and array handling ✅
+- **Excel**: Multi-sheet support (XLSX/XLS) ✅
+- **Parquet**: Binary columnar format support ✅
 
 ### Web Interface
 - **Interactive File Upload**: Support for data files with encoding detection
