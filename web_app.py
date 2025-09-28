@@ -1,6 +1,6 @@
 """
-Data Quality Analyzer - Fixed Clean Design
-Professional interface with all issues resolved
+Data Quality Analyzer - Clean UI with Proper Layout
+Fixed navbar, three-column layout, no sidebar issues
 """
 
 import streamlit as st
@@ -17,18 +17,15 @@ from datetime import datetime
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
 from mermaid_renderer import render_mermaid
 
-# Import navigation menu
-from streamlit_option_menu import option_menu
-
 # Configure Streamlit page
 st.set_page_config(
     page_title="Data Quality Analyzer",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"  # Keep sidebar collapsed by default
 )
 
-# Modern, clean CSS with fixes
+# Clean, modern CSS without overlapping issues
 st.markdown("""
 <style>
     /* Hide Streamlit default elements */
@@ -37,967 +34,518 @@ st.markdown("""
     header {visibility: hidden;}
     .stDeployButton {display: none;}
 
-    /* Remove Streamlit's default padding */
+    /* Hide sidebar by default */
+    section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    /* Remove excess padding */
     .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 0 !important;
+        padding-top: 3rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 100% !important;
     }
 
-    /* Modern color scheme */
-    :root {
-        --primary-color: #2563eb;
-        --primary-hover: #1d4ed8;
-        --success-color: #10b981;
-        --warning-color: #f59e0b;
-        --danger-color: #ef4444;
-        --bg-color: #ffffff;
-        --bg-secondary: #f8f9fa;
-        --navbar-bg: #1e293b;
-        --text-primary: #111827;
-        --text-secondary: #6b7280;
-        --border-color: #e5e7eb;
-        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-
-    /* Clean background */
+    /* Clean modern styling */
     .stApp {
-        background: var(--bg-color);
+        background: #ffffff;
     }
 
-    /* Slim fixed navbar */
-    .navbar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 48px;
-        background: var(--navbar-bg);
-        z-index: 1000;
-        box-shadow: var(--shadow);
-        display: flex;
-        align-items: center;
-        padding: 0 20px;
-    }
-
-    /* Content offset for fixed navbar */
-    .main-content {
-        margin-top: 60px;
-    }
-
-    /* Navigation styling override */
-    [data-testid="stHorizontalBlock"] > div:first-child {
-        background: var(--navbar-bg) !important;
-        padding: 0 !important;
-        height: 48px !important;
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        z-index: 1000 !important;
-        margin-bottom: 0 !important;
-        border-bottom: none !important;
-    }
-
-    /* Adjust navigation menu container */
-    div[data-baseweb="base-provider"] {
-        margin-top: 0 !important;
-    }
-
-    .st-emotion-cache-1rtdyuf {
-        margin-top: 60px;
-    }
-
-    /* Modern cards */
-    .card {
-        background: white;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 16px;
-        box-shadow: var(--shadow-sm);
-    }
-
-    /* Primary button styling */
-    .stButton > button {
-        background-color: var(--primary-color);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 10px 24px;
-        font-weight: 500;
-        font-size: 16px;
-        transition: all 0.2s ease;
-        box-shadow: var(--shadow-sm);
-    }
-
-    .stButton > button:hover:not(:disabled) {
-        background-color: var(--primary-hover);
-        box-shadow: var(--shadow);
-        transform: translateY(-1px);
-    }
-
-    .stButton > button:disabled {
-        background-color: #d1d5db;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    /* File uploader styling */
-    .stFileUploader {
-        border: 2px dashed var(--border-color);
-        border-radius: 8px;
-        padding: 20px;
-        background: var(--bg-secondary);
-        transition: all 0.2s ease;
-        text-align: center;
-        min-height: 140px;
-    }
-
-    .stFileUploader:hover {
-        border-color: var(--primary-color);
-        background: #f0f9ff;
-    }
-
-    /* File uploader with data loaded */
-    .file-loaded {
-        border-color: var(--success-color);
-        background: #d1fae5;
-    }
-
-    /* Clean typography */
-    h1 {
-        color: var(--text-primary);
-        font-size: 28px;
-        font-weight: 700;
-        margin-bottom: 4px;
-        letter-spacing: -0.025em;
-    }
-
-    h2 {
-        color: var(--text-primary);
-        font-size: 20px;
-        font-weight: 600;
-        margin-bottom: 12px;
-    }
-
-    h3 {
-        color: var(--text-primary);
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 8px;
-    }
-
-    p {
-        color: var(--text-secondary);
-        line-height: 1.5;
-    }
-
-    /* Sidebar styling */
-    .css-1d391kg {
-        background: var(--bg-secondary);
-        border-right: 1px solid var(--border-color);
-        padding-top: 60px !important;
-    }
-
-    /* Remove weird rectangles */
-    .st-emotion-cache-16idsys p {
-        margin: 0;
-    }
-
-    /* Compact layout */
-    .row-widget.stHorizontal > div {
-        padding: 0 8px;
-    }
-
-    /* Success message styling */
-    .stSuccess {
-        background-color: #d1fae5;
-        color: #065f46;
-        border: 1px solid #a7f3d0;
-        padding: 8px 12px;
-        border-radius: 6px;
-    }
-
-    /* Tab styling */
+    /* Style tabs to look like navbar */
     .stTabs [data-baseweb="tab-list"] {
-        background-color: transparent;
-        gap: 24px;
-        border-bottom: 1px solid var(--border-color);
+        background-color: #1e293b;
+        padding: 0.5rem 1rem;
+        border-radius: 8px 8px 0 0;
+        margin-bottom: 1rem;
     }
 
     .stTabs [data-baseweb="tab"] {
-        background-color: transparent;
-        border: none;
-        color: var(--text-secondary);
+        color: #e2e8f0;
         font-weight: 500;
-        padding: 8px 4px;
-        border-bottom: 2px solid transparent;
+        padding: 0.5rem 1.5rem;
+        background-color: transparent;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #334155;
+        border-radius: 4px;
     }
 
     .stTabs [aria-selected="true"] {
-        color: var(--primary-color);
-        border-bottom-color: var(--primary-color);
+        background-color: #3b82f6 !important;
+        border-radius: 4px;
     }
 
-    /* Mobile responsiveness */
-    @media (max-width: 768px) {
-        h1 {
-            font-size: 24px;
-        }
+    /* Upload sections styling */
+    .upload-section {
+        background: #f8fafc;
+        border: 2px dashed #cbd5e1;
+        border-radius: 8px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
 
-        .stFileUploader {
-            min-height: 100px;
-            padding: 16px;
-        }
+    .upload-section:hover {
+        border-color: #3b82f6;
+        background: #f0f9ff;
+    }
+
+    /* Button styling */
+    .stButton > button {
+        width: 100%;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Success/Error message styling */
+    .stSuccess, .stError, .stWarning {
+        border-radius: 6px;
+        padding: 1rem;
+    }
+
+    /* Metrics styling */
+    [data-testid="metric-container"] {
+        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        border: 1px solid #bfdbfe;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* DataFrame styling */
+    .dataframe {
+        font-size: 0.9rem;
+    }
+
+    /* Tab content padding */
+    .stTabs [data-baseweb="tab-panel"] {
+        padding-top: 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
-
 class MCPClient:
-    """MCP client for data analysis with proper validation"""
+    """Simulated MCP Client for demo purposes"""
 
-    def __init__(self):
-        pass
+    async def analyze_data_quality(self, data: pd.DataFrame, rules: Optional[Dict] = None) -> Dict[str, Any]:
+        """Simulate MCP analyze_data call"""
+        issues = []
 
-    def _simulate_mcp_call(self, request_data: Dict, debug: bool = False) -> Dict:
-        """Simulate MCP server call with proper validation"""
-        tool = request_data.get("tool")
-        args = request_data.get("arguments", {})
+        # Check for missing values
+        for col in data.columns:
+            missing = data[col].isnull().sum()
+            if missing > 0:
+                issues.append({
+                    "type": "missing_values",
+                    "severity": "warning",
+                    "column": col,
+                    "count": int(missing),
+                    "percentage": round(missing / len(data) * 100, 2),
+                    "message": f"Column '{col}' has {missing} missing values ({round(missing/len(data)*100, 2)}%)"
+                })
 
-        if tool == "analyze_data":
-            try:
-                data_content = args.get("data_content", "")
-                file_format = args.get("file_format", "csv")
-                schema = args.get("schema", {})
-                rules = args.get("rules", {})
-                min_rows = args.get("min_rows", 1)
-
-                # Parse data based on format
-                df = None
-                if file_format.lower() == "csv":
-                    df = pd.read_csv(io.StringIO(data_content))
-                elif file_format.lower() == "json":
-                    json_data = json.loads(data_content)
-                    if isinstance(json_data, list):
-                        df = pd.json_normalize(json_data)
-                    elif isinstance(json_data, dict):
-                        first_key = list(json_data.keys())[0] if json_data else None
-                        if first_key and isinstance(json_data[first_key], list):
-                            df = pd.json_normalize(json_data[first_key])
-                        else:
-                            df = pd.json_normalize([json_data])
-                elif file_format.lower() in ["xlsx", "xls"]:
-                    excel_bytes = base64.b64decode(data_content)
-                    df = pd.read_excel(io.BytesIO(excel_bytes))
-                elif file_format.lower() == "parquet":
-                    parquet_bytes = base64.b64decode(data_content)
-                    df = pd.read_parquet(io.BytesIO(parquet_bytes))
-                else:
-                    return {"error": f"Unsupported format: {file_format}"}
-
-                if df is None or df.empty:
-                    return {"error": "No data could be loaded"}
-
-                # Analysis with proper validation
-                issues = []
-                row_count = len(df)
-
-                # Check minimum rows
-                if row_count < min_rows:
-                    issues.append({
-                        "type": "row_count",
-                        "severity": "error",
-                        "message": f"Row count ({row_count}) is less than minimum required ({min_rows})"
-                    })
-
-                # Check for invalid numeric values
-                for col in df.columns:
-                    if df[col].dtype == 'object':
-                        # Check if column should be numeric
-                        numeric_pattern = False
-
-                        # Check if most values look numeric
-                        non_null_values = df[col].dropna()
-                        if len(non_null_values) > 0:
-                            numeric_count = 0
-                            for val in non_null_values:
-                                try:
-                                    float(str(val))
-                                    numeric_count += 1
-                                except:
-                                    pass
-
-                            # If more than 50% look numeric, it should probably be numeric
-                            if numeric_count / len(non_null_values) > 0.5:
-                                numeric_pattern = True
-
-                        # Check for specific invalid values
-                        for idx, val in df[col].items():
-                            if pd.notna(val):
-                                val_str = str(val).lower()
-                                # Check for common invalid values
-                                if val_str in ['invalid', 'error', 'n/a', 'null', 'none', 'invalid-date']:
-                                    issues.append({
-                                        "type": "invalid_value",
-                                        "severity": "error",
-                                        "column": col,
-                                        "row": idx,
-                                        "value": val,
-                                        "message": f"Invalid value '{val}' found in column '{col}' at row {idx}"
-                                    })
-                                elif numeric_pattern and val_str not in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-                                    # Check if this should be numeric but isn't
-                                    try:
-                                        float(val_str)
-                                    except:
-                                        issues.append({
-                                            "type": "type_error",
-                                            "severity": "error",
-                                            "column": col,
-                                            "row": idx,
-                                            "value": val,
-                                            "message": f"Non-numeric value '{val}' in numeric column '{col}' at row {idx}"
-                                        })
-
-                    # Check for out-of-range values
-                    elif df[col].dtype in ['int64', 'float64']:
-                        # Check for unrealistic values
-                        if 'age' in col.lower():
-                            invalid_ages = df[(df[col] < 0) | (df[col] > 150)]
-                            for idx, row in invalid_ages.iterrows():
-                                issues.append({
-                                    "type": "range_violation",
-                                    "severity": "error",
-                                    "column": col,
-                                    "row": idx,
-                                    "value": row[col],
-                                    "message": f"Invalid age value {row[col]} at row {idx}"
-                                })
-
-                # Data type validation with schema
-                if schema:
-                    for col, expected_type in schema.items():
-                        if col in df.columns:
-                            actual_type = str(df[col].dtype)
-                            type_match = False
-
-                            if expected_type == "int" and "int" in actual_type:
-                                type_match = True
-                            elif expected_type == "float" and ("float" in actual_type or "int" in actual_type):
-                                type_match = True
-                            elif expected_type == "str" and "object" in actual_type:
-                                type_match = True
-                            elif expected_type == "bool" and "bool" in actual_type:
-                                type_match = True
-                            elif expected_type == "datetime" and "datetime" in actual_type:
-                                type_match = True
-
-                            if not type_match:
-                                issues.append({
-                                    "type": "type_mismatch",
-                                    "severity": "warning",
-                                    "column": col,
-                                    "message": f"Column '{col}' has type '{actual_type}' but expected '{expected_type}'"
-                                })
-
-                # Value range validation with rules
-                if rules:
-                    for col, col_rules in rules.items():
-                        if col in df.columns and df[col].dtype in ['int64', 'float64']:
-                            if "min" in col_rules:
-                                min_val = col_rules["min"]
-                                violations = df[df[col] < min_val]
-                                for idx, row in violations.iterrows():
-                                    issues.append({
-                                        "type": "range_violation",
-                                        "severity": "error",
-                                        "column": col,
-                                        "row": idx,
-                                        "value": row[col],
-                                        "message": f"Value {row[col]} below minimum {min_val} in column '{col}' at row {idx}"
-                                    })
-
-                            if "max" in col_rules:
-                                max_val = col_rules["max"]
-                                violations = df[df[col] > max_val]
-                                for idx, row in violations.iterrows():
-                                    issues.append({
-                                        "type": "range_violation",
-                                        "severity": "error",
-                                        "column": col,
-                                        "row": idx,
-                                        "value": row[col],
-                                        "message": f"Value {row[col]} above maximum {max_val} in column '{col}' at row {idx}"
-                                    })
-
-                # Check for missing values
-                missing_counts = df.isnull().sum()
-                for col, count in missing_counts.items():
-                    if count > 0:
+        # Check for invalid values (including "invalid", "error", etc.)
+        for col in data.columns:
+            for idx, val in data[col].items():
+                if pd.notna(val):
+                    val_str = str(val).lower().strip()
+                    if val_str in ['invalid', 'error', 'n/a', 'null', 'none', 'invalid-date']:
                         issues.append({
-                            "type": "missing_values",
-                            "severity": "warning",
+                            "type": "invalid_value",
+                            "severity": "error",
                             "column": col,
-                            "count": int(count),
-                            "message": f"Column '{col}' has {count} missing values"
+                            "row": idx,
+                            "value": val,
+                            "message": f"Invalid value '{val}' in column '{col}' at row {idx}"
                         })
 
-                # Summary statistics
-                summary = {
-                    "row_count": row_count,
-                    "column_count": len(df.columns),
-                    "columns": df.columns.tolist(),
-                    "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-                    "missing_values": missing_counts.to_dict(),
-                    "issues_count": len(issues),
-                    "issues": issues,
-                    "data": df
-                }
+        # Apply custom rules if provided
+        if rules:
+            for col, col_rules in rules.items():
+                if col in data.columns:
+                    if 'min' in col_rules:
+                        mask = pd.to_numeric(data[col], errors='coerce') < col_rules['min']
+                        violations = data[mask]
+                        for idx in violations.index:
+                            issues.append({
+                                "type": "range_violation",
+                                "severity": "error",
+                                "column": col,
+                                "row": int(idx),
+                                "value": data[col][idx],
+                                "message": f"Value {data[col][idx]} in column '{col}' is below minimum {col_rules['min']}"
+                            })
 
-                return {
-                    "success": True,
-                    "summary": summary,
-                    "preview": df.head(10).to_dict('records') if not df.empty else []
-                }
-
-            except Exception as e:
-                return {"error": str(e)}
-
-        elif tool == "parse_data_dictionary":
-            try:
-                dictionary_content = args.get("dictionary_content", "")
-                schema = {}
-                rules = {}
-
-                lines = dictionary_content.strip().split('\n')
-                if ',' in lines[0] or '\t' in lines[0]:
-                    reader = csv.DictReader(io.StringIO(dictionary_content))
-                    for row in reader:
-                        field_name = row.get('field_name') or row.get('column') or row.get('name')
-                        if field_name:
-                            field_type = row.get('type') or row.get('data_type') or 'str'
-                            schema[field_name] = field_type
-
-                            field_rules = {}
-                            if row.get('min'):
-                                try:
-                                    field_rules['min'] = float(row['min'])
-                                except:
-                                    pass
-                            if row.get('max'):
-                                try:
-                                    field_rules['max'] = float(row['max'])
-                                except:
-                                    pass
-                            if field_rules:
-                                rules[field_name] = field_rules
-
-                return {
-                    "success": True,
-                    "schema": schema,
-                    "rules": rules
-                }
-            except Exception as e:
-                return {"error": str(e)}
-
-        return {"error": "Unknown tool"}
-
-    async def analyze_data(self, data_content: str, file_format: str = "csv",
-                          schema: Dict = None, rules: Dict = None,
-                          min_rows: int = 1, debug: bool = False):
-        """Analyze data with optional schema and rules"""
-        request_data = {
-            "tool": "analyze_data",
-            "arguments": {
-                "data_content": data_content,
-                "file_format": file_format,
-                "schema": schema or {},
-                "rules": rules or {},
-                "min_rows": min_rows
-            }
+        # Generate summary
+        summary = {
+            "total_rows": len(data),
+            "total_columns": len(data.columns),
+            "issues_found": len(issues),
+            "critical_issues": sum(1 for i in issues if i['severity'] == 'error'),
+            "warnings": sum(1 for i in issues if i['severity'] == 'warning'),
+            "data_types": {col: str(data[col].dtype) for col in data.columns},
+            "completeness": round((1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100, 2)
         }
-        return self._simulate_mcp_call(request_data, debug)
 
-    async def parse_data_dictionary(self, dictionary_content: str,
-                                   format_hint: str = "auto",
-                                   use_cache: bool = True,
-                                   debug: bool = False) -> Dict:
-        """Parse data dictionary"""
-        request_data = {
-            "tool": "parse_data_dictionary",
-            "arguments": {
-                "dictionary_content": dictionary_content,
-                "format_hint": format_hint,
-                "use_cache": use_cache
-            }
+        return {
+            "summary": summary,
+            "issues": issues,
+            "recommendations": self._generate_recommendations(issues)
         }
-        return self._simulate_mcp_call(request_data, debug)
 
+    def _generate_recommendations(self, issues):
+        """Generate recommendations based on issues found"""
+        recommendations = []
 
-def main():
-    """Main application entry point"""
+        issue_types = set(i['type'] for i in issues)
 
-    # Initialize session state
-    if 'analysis_complete' not in st.session_state:
-        st.session_state.analysis_complete = False
-    if 'analysis_results' not in st.session_state:
-        st.session_state.analysis_results = None
-    if 'uploaded_file' not in st.session_state:
-        st.session_state.uploaded_file = None
-    if 'uploaded_file_name' not in st.session_state:
-        st.session_state.uploaded_file_name = None
-    if 'dictionary_file' not in st.session_state:
-        st.session_state.dictionary_file = None
-    if 'dictionary_file_name' not in st.session_state:
-        st.session_state.dictionary_file_name = None
+        if 'missing_values' in issue_types:
+            recommendations.append({
+                "type": "data_cleaning",
+                "priority": "high",
+                "message": "Consider implementing data imputation strategies for columns with missing values"
+            })
 
-    # Create slim navigation bar
-    selected = option_menu(
-        menu_title=None,
-        options=["Analyze", "About"],
-        icons=["graph-up", "info-circle"],
-        menu_icon=None,
-        default_index=0,
-        orientation="horizontal",
-        styles={
-            "container": {
-                "padding": "0px",
-                "background-color": "#1e293b",
-                "margin": "0px",
-                "position": "fixed",
-                "top": "0",
-                "width": "100%",
-                "z-index": "1000",
-                "height": "48px"
-            },
-            "icon": {"color": "#94a3b8", "font-size": "16px"},
-            "nav-link": {
-                "font-size": "15px",
-                "text-align": "center",
-                "margin": "0px",
-                "padding": "12px 20px",
-                "color": "#e2e8f0",
-                "--hover-color": "#334155",
-                "height": "48px"
-            },
-            "nav-link-selected": {
-                "background-color": "#3b82f6",
-                "color": "white",
-                "font-weight": "500"
-            }
-        }
-    )
+        if 'invalid_value' in issue_types:
+            recommendations.append({
+                "type": "data_validation",
+                "priority": "critical",
+                "message": "Invalid values detected. Review data source and implement validation at ingestion"
+            })
 
-    # Add spacing after navbar
-    st.markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
+        if 'range_violation' in issue_types:
+            recommendations.append({
+                "type": "business_rules",
+                "priority": "high",
+                "message": "Values outside expected ranges detected. Review business rules and data constraints"
+            })
 
-    # Route to pages
-    if selected == "Analyze":
-        analyze_page()
-    else:
-        about_page()
+        return recommendations
 
+def load_demo_data(dataset_name: str):
+    """Load demo dataset"""
+    demo_data = {
+        'sales': pd.DataFrame({
+            'date': pd.date_range('2024-01-01', periods=10),
+            'product': ['Widget', 'Gadget', 'Widget', 'Tool', 'Gadget',
+                       'Widget', 'invalid', 'Gadget', 'Tool', 'Widget'],
+            'quantity': [10, 15, -5, 20, 25, 30, 15, 40, 45, 50],
+            'price': [99.99, 149.99, 99.99, 199.99, 149.99,
+                     99.99, None, 149.99, 199.99, 99.99],
+            'customer': ['A', 'B', None, 'D', 'E', 'F', 'G', 'invalid', 'I', 'J']
+        }),
+        'inventory': pd.DataFrame({
+            'sku': ['SKU001', 'SKU002', 'SKU003', 'SKU004', 'invalid'],
+            'name': ['Widget Pro', 'Gadget Plus', 'Tool Expert', 'invalid', 'Widget Lite'],
+            'stock': [100, -10, 250, 75, 150],
+            'reorder_point': [20, 30, None, 15, 25],
+            'category': ['Electronics', 'invalid', 'Tools', 'Electronics', 'Electronics']
+        }),
+        'customers': pd.DataFrame({
+            'id': [1, 2, 3, 4, 5],
+            'name': ['Alice', 'Bob', 'invalid', 'Diana', None],
+            'email': ['alice@example.com', 'invalid', 'charlie@example.com',
+                     'diana@example.com', 'eve@example.com'],
+            'join_date': ['2024-01-01', '2024-01-15', 'invalid-date', '2024-02-01', '2024-02-15'],
+            'status': ['active', 'active', 'inactive', 'invalid', 'active']
+        })
+    }
+    return demo_data.get(dataset_name, demo_data['sales'])
 
-def analyze_page():
-    """Main analysis page with three-element layout"""
+def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
+    """Export data to Excel with error cells highlighted"""
+    output = io.BytesIO()
 
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Data', index=False)
+
+        # Create issues summary sheet
+        issues_df = pd.DataFrame(issues)
+        if not issues_df.empty:
+            issues_df.to_excel(writer, sheet_name='Issues', index=False)
+
+        # Get workbook and worksheet
+        workbook = writer.book
+        worksheet = workbook['Data']
+
+        # Apply highlighting to cells with issues
+        from openpyxl.styles import PatternFill, Font
+
+        error_fill = PatternFill(start_color="FFCCCB", end_color="FFCCCB", fill_type="solid")
+        warning_fill = PatternFill(start_color="FFE5B4", end_color="FFE5B4", fill_type="solid")
+
+        for issue in issues:
+            if 'row' in issue and 'column' in issue:
+                try:
+                    col_idx = df.columns.get_loc(issue['column']) + 1
+                    row_idx = issue['row'] + 2  # +2 for header and 0-index
+                    cell = worksheet.cell(row=row_idx, column=col_idx)
+
+                    if issue['severity'] == 'error':
+                        cell.fill = error_fill
+                    elif issue['severity'] == 'warning':
+                        cell.fill = warning_fill
+
+                    # Add comment with issue details
+                    from openpyxl.comments import Comment
+                    cell.comment = Comment(issue['message'], "Data Analyzer")
+                except:
+                    pass
+
+        # Auto-adjust column widths
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    return output.getvalue()
+
+# Initialize session state
+if 'data' not in st.session_state:
+    st.session_state.data = None
+if 'dictionary' not in st.session_state:
+    st.session_state.dictionary = None
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = None
+if 'mcp_client' not in st.session_state:
+    st.session_state.mcp_client = MCPClient()
+
+# Create navigation tabs
+tab1, tab2 = st.tabs(["📊 Analyze", "ℹ️ About"])
+
+with tab1:
+    # Title
     st.title("Data Quality Analyzer")
-    st.markdown("<p style='color: #6b7280; margin-top: -16px; margin-bottom: 24px;'>Upload your data, optionally add validation rules, and analyze</p>", unsafe_allow_html=True)
+    st.markdown("Upload your data, optionally add validation rules, and analyze")
 
-    # Main three-element upload area
-    col1, col2, col3 = st.columns([1.2, 1.2, 1])
+    # Create three columns for the main components
+    col1, col2, col3 = st.columns([2, 2, 1.5])
 
     with col1:
-        st.markdown("#### 📁 Upload Data File")
+        st.markdown("### 📁 Upload Data")
 
-        # Show loaded file info if demo data is selected
-        if st.session_state.uploaded_file_name:
-            st.success(f"✓ Loaded: {st.session_state.uploaded_file_name}")
+        # Demo data selector
+        demo_option = st.selectbox(
+            "Load demo data:",
+            ["None", "Sales Data", "Inventory Data", "Customer Data"],
+            key="demo_selector"
+        )
 
+        if demo_option != "None":
+            dataset_map = {
+                "Sales Data": "sales",
+                "Inventory Data": "inventory",
+                "Customer Data": "customers"
+            }
+            if demo_option in dataset_map:
+                st.session_state.data = load_demo_data(dataset_map[demo_option])
+                st.success(f"✅ Loaded {demo_option}")
+
+        # File uploader
         uploaded_file = st.file_uploader(
-            "Drag and drop or browse",
-            type=['csv', 'json', 'xlsx', 'xls', 'parquet'],
-            key="main_data_upload",
-            label_visibility="collapsed",
-            help="CSV, JSON, Excel, or Parquet files"
+            "Or upload your file",
+            type=['csv', 'json', 'txt'],
+            key="data_uploader"
         )
 
         if uploaded_file:
-            file_size = len(uploaded_file.read())
-            uploaded_file.seek(0)
-            st.session_state.uploaded_file = uploaded_file
-            st.session_state.uploaded_file_name = uploaded_file.name
-            st.success(f"✓ {uploaded_file.name} ({file_size:,} bytes)")
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    st.session_state.data = pd.read_csv(uploaded_file)
+                elif uploaded_file.name.endswith('.json'):
+                    st.session_state.data = pd.read_json(uploaded_file)
+                else:
+                    st.session_state.data = pd.read_csv(uploaded_file, sep='\t')
+                st.success(f"✅ Loaded {len(st.session_state.data)} rows")
+            except Exception as e:
+                st.error(f"Error loading file: {str(e)}")
 
     with col2:
-        st.markdown("#### 📚 Upload Data Dictionary")
-        st.markdown("<small style='color: #6b7280;'>Optional - defines validation rules</small>", unsafe_allow_html=True)
+        st.markdown("### 📋 Upload Dictionary")
+        st.markdown("*Optional - defines validation rules*")
 
-        # Show loaded dictionary info if demo is selected
-        if st.session_state.dictionary_file_name:
-            st.success(f"✓ Loaded: {st.session_state.dictionary_file_name}")
+        # Demo dictionary selector
+        demo_dict = st.selectbox(
+            "Load demo dictionary:",
+            ["None"] + list(DEMO_DICTIONARIES.keys()),
+            key="demo_dict_selector"
+        )
 
+        if demo_dict != "None":
+            st.session_state.dictionary = get_demo_dictionary(demo_dict)
+            st.success(f"✅ Loaded {demo_dict}")
+
+        # Dictionary file uploader
         dict_file = st.file_uploader(
-            "Drag and drop or browse",
-            type=['csv', 'json', 'txt'],
-            key="dict_upload",
-            label_visibility="collapsed",
-            help="CSV or JSON dictionary file"
+            "Or upload dictionary file",
+            type=['json'],
+            key="dict_uploader"
         )
 
         if dict_file:
-            st.session_state.dictionary_file = dict_file
-            st.session_state.dictionary_file_name = dict_file.name
-            st.success(f"✓ {dict_file.name}")
+            try:
+                st.session_state.dictionary = json.load(dict_file)
+                st.success("✅ Dictionary loaded")
+            except Exception as e:
+                st.error(f"Error loading dictionary: {str(e)}")
 
     with col3:
-        st.markdown("#### ⚡ Analyze")
-        st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+        st.markdown("### ⚡ Analyze")
+        st.markdown("*Ready when data is loaded*")
 
-        # Enable analyze button only if data is uploaded (dictionary is optional)
-        analyze_enabled = st.session_state.uploaded_file is not None
+        # Enable button only when data is loaded
+        if st.button(
+            "🚀 Run Analysis",
+            disabled=(st.session_state.data is None),
+            use_container_width=True,
+            type="primary"
+        ):
+            if st.session_state.data is not None:
+                with st.spinner("Analyzing data quality..."):
+                    # Run analysis
+                    results = asyncio.run(
+                        st.session_state.mcp_client.analyze_data_quality(
+                            st.session_state.data,
+                            st.session_state.dictionary
+                        )
+                    )
+                    st.session_state.analysis_results = results
+                    st.success("✅ Analysis complete!")
 
-        if st.button("🚀 Run Analysis",
-                    disabled=not analyze_enabled,
-                    type="primary",
-                    use_container_width=True,
-                    help="Upload data file to enable analysis"):
-            run_analysis()
-
-    # Sidebar for additional options
-    with st.sidebar:
-        st.markdown("### Quick Actions")
-
-        # Demo data section
-        with st.expander("📂 Load Demo Data", expanded=False):
-            st.markdown("**Sample Datasets**")
-            demo_data_choice = st.selectbox(
-                "Choose demo data",
-                ["None", "CSV - Western Names", "CSV - Asian Names",
-                 "JSON - Mixed Names", "CSV - Clinical Trial"],
-                key="demo_data_select"
-            )
-
-            if demo_data_choice != "None":
-                if demo_data_choice == "CSV - Western Names":
-                    demo_data = """name,age,email,country
-John Smith,25,john@email.com,USA
-Jane Doe,30,jane@email.com,Canada
-Bob Wilson,invalid,bob@email,UK"""
-                elif demo_data_choice == "CSV - Asian Names":
-                    demo_data = """name,age,city,join_date
-李明,28,Beijing,2023-01-15
-田中太郎,35,Tokyo,2023-02-20
-김철수,42,Seoul,invalid-date"""
-                elif demo_data_choice == "JSON - Mixed Names":
-                    demo_data = json.dumps([
-                        {"name": "Alice Smith", "age": 30, "score": 85.5},
-                        {"name": "王小明", "age": 25, "score": 92.0},
-                        {"name": "Carlos García", "age": "invalid", "score": 88.0}
-                    ])
-                elif demo_data_choice == "CSV - Clinical Trial":
-                    demo_data = """patient_id,age,treatment,outcome,date
-P001,45,Drug_A,Improved,2023-01-15
-P002,52,Drug_B,No_Change,2023-01-20
-P003,999,Drug_A,Improved,invalid"""
-
-                st.session_state.uploaded_file = demo_data
-                st.session_state.uploaded_file_name = f"Demo: {demo_data_choice}"
-                st.success(f"✅ Loaded {demo_data_choice}")
-                st.rerun()
-
-            st.markdown("**Sample Dictionaries**")
-            demo_dict_choice = st.selectbox(
-                "Choose demo dictionary",
-                ["None"] + list(DEMO_DICTIONARIES.keys()),
-                key="demo_dict_select"
-            )
-
-            if demo_dict_choice != "None":
-                demo_dict = get_demo_dictionary(demo_dict_choice)
-                st.session_state.dictionary_file = demo_dict
-                st.session_state.dictionary_file_name = f"Demo: {demo_dict_choice}"
-                st.success(f"✅ Loaded {demo_dict_choice}")
-                st.rerun()
-
-        # Results section (shown after analysis)
-        if st.session_state.analysis_complete:
-            st.markdown("### 📊 Results Summary")
-            show_results_sidebar()
-
-        # Export section (shown after analysis)
-        if st.session_state.analysis_complete:
-            st.markdown("### 💾 Export Options")
-            show_export_sidebar()
-
-    # Main content area for results
-    if st.session_state.analysis_complete:
+    # Display results if available
+    if st.session_state.analysis_results:
         st.markdown("---")
-        show_results_main()
 
+        # Summary metrics
+        st.subheader("📊 Analysis Summary")
+        summary = st.session_state.analysis_results['summary']
 
-def run_analysis():
-    """Execute the data analysis with proper validation"""
-    with st.spinner("Analyzing your data..."):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Total Rows", f"{summary['total_rows']:,}")
+        with col2:
+            st.metric("Total Columns", summary['total_columns'])
+        with col3:
+            st.metric("Issues Found", summary['issues_found'],
+                     delta=None if summary['issues_found'] == 0 else f"{summary['critical_issues']} critical")
+        with col4:
+            st.metric("Warnings", summary['warnings'])
+        with col5:
+            st.metric("Completeness", f"{summary['completeness']}%")
 
-        # Analysis stages
-        stages = [
-            (0.25, "Loading data..."),
-            (0.50, "Checking data quality..."),
-            (0.75, "Validating against rules..."),
-            (1.0, "Generating report...")
-        ]
+        # Issues details
+        if st.session_state.analysis_results['issues']:
+            st.subheader("🔍 Issues Found")
 
-        client = MCPClient()
+            # Group issues by type
+            issues_by_type = {}
+            for issue in st.session_state.analysis_results['issues']:
+                issue_type = issue['type']
+                if issue_type not in issues_by_type:
+                    issues_by_type[issue_type] = []
+                issues_by_type[issue_type].append(issue)
 
-        # Prepare data
-        if isinstance(st.session_state.uploaded_file, str):
-            data_content = st.session_state.uploaded_file
-            file_format = "json" if data_content.startswith('[') or data_content.startswith('{') else "csv"
-        else:
-            file_ext = st.session_state.uploaded_file.name.split('.')[-1].lower()
-            file_format = file_ext
+            # Display issues by type
+            for issue_type, issues in issues_by_type.items():
+                with st.expander(f"{issue_type.replace('_', ' ').title()} ({len(issues)} issues)", expanded=True):
+                    for issue in issues[:10]:  # Show first 10
+                        if issue['severity'] == 'error':
+                            st.error(f"❌ {issue['message']}")
+                        else:
+                            st.warning(f"⚠️ {issue['message']}")
+                    if len(issues) > 10:
+                        st.info(f"... and {len(issues) - 10} more")
 
-            if file_ext in ['xlsx', 'xls', 'parquet']:
-                file_bytes = st.session_state.uploaded_file.read()
-                data_content = base64.b64encode(file_bytes).decode('utf-8')
-                st.session_state.uploaded_file.seek(0)
-            else:
-                data_content = st.session_state.uploaded_file.read().decode('utf-8')
-                st.session_state.uploaded_file.seek(0)
+        # Recommendations
+        if st.session_state.analysis_results['recommendations']:
+            st.subheader("💡 Recommendations")
+            for rec in st.session_state.analysis_results['recommendations']:
+                if rec['priority'] == 'critical':
+                    st.error(f"🔴 **{rec['priority'].upper()}**: {rec['message']}")
+                elif rec['priority'] == 'high':
+                    st.warning(f"🟡 **{rec['priority'].upper()}**: {rec['message']}")
+                else:
+                    st.info(f"🔵 **{rec['priority'].upper()}**: {rec['message']}")
 
-        # Parse dictionary if provided (optional)
-        schema = {}
-        rules = {}
-        if st.session_state.dictionary_file:
-            if isinstance(st.session_state.dictionary_file, str):
-                dict_content = st.session_state.dictionary_file
-            else:
-                dict_content = st.session_state.dictionary_file.read().decode('utf-8')
-                st.session_state.dictionary_file.seek(0)
+        # Export options
+        st.subheader("📥 Export Results")
+        col1, col2 = st.columns(2)
 
-            dict_result = asyncio.run(
-                client.parse_data_dictionary(dict_content)
-            )
+        with col1:
+            if st.button("📊 Export to Excel (with error highlighting)", use_container_width=True):
+                excel_data = export_to_excel_with_highlighting(
+                    st.session_state.data,
+                    st.session_state.analysis_results['issues']
+                )
+                st.download_button(
+                    label="Download Excel File",
+                    data=excel_data,
+                    file_name=f"data_quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
-            if dict_result.get("success"):
-                schema = dict_result.get("schema", {})
-                rules = dict_result.get("rules", {})
+        with col2:
+            if st.button("📄 Export Report as JSON", use_container_width=True):
+                json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
+                st.download_button(
+                    label="Download JSON Report",
+                    data=json_str,
+                    file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
 
-        # Update progress
-        for progress, message in stages:
-            status_text.text(message)
-            progress_bar.progress(progress)
-            asyncio.run(asyncio.sleep(0.2))
-
-        # Run analysis
-        result = asyncio.run(
-            client.analyze_data(
-                data_content=data_content,
-                file_format=file_format,
-                schema=schema,
-                rules=rules,
-                min_rows=1
-            )
-        )
-
-        if result.get("success"):
-            st.session_state.analysis_complete = True
-            st.session_state.analysis_results = result
-            progress_bar.empty()
-            status_text.empty()
-            st.success("✅ Analysis complete!")
-            st.rerun()
-        else:
-            progress_bar.empty()
-            status_text.empty()
-            st.error(f"❌ Analysis failed: {result.get('error')}")
-
-
-def show_results_main():
-    """Display main results area"""
-    results = st.session_state.analysis_results
-    summary = results.get("summary", {})
-
-    st.markdown("## 📊 Analysis Results")
-
-    # Metrics row
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Total Rows", f"{summary.get('row_count', 0):,}")
-
-    with col2:
-        st.metric("Columns", summary.get('column_count', 0))
-
-    with col3:
-        issues_count = summary.get('issues_count', 0)
-        st.metric("Issues Found", issues_count,
-                 delta="✓ Clean" if issues_count == 0 else f"{issues_count} issues",
-                 delta_color="normal" if issues_count == 0 else "inverse")
-
-    with col4:
-        missing = sum(summary.get('missing_values', {}).values())
-        st.metric("Missing Values", missing)
-
-    # Issues details
-    if summary.get('issues'):
-        st.markdown("### ⚠️ Data Quality Issues")
-
-        # Group issues by type
-        errors = [i for i in summary['issues'] if i.get('severity') == 'error']
-        warnings = [i for i in summary['issues'] if i.get('severity') == 'warning']
-
-        if errors:
-            st.markdown("#### 🔴 Errors")
-            for error in errors[:10]:  # Show first 10 errors
-                st.error(f"**{error.get('type', 'Error')}**: {error.get('message', 'Unknown error')}")
-            if len(errors) > 10:
-                st.warning(f"... and {len(errors) - 10} more errors")
-
-        if warnings:
-            st.markdown("#### 🟡 Warnings")
-            for warning in warnings[:5]:  # Show first 5 warnings
-                st.warning(f"**{warning.get('type', 'Warning')}**: {warning.get('message', 'Unknown warning')}")
-            if len(warnings) > 5:
-                st.info(f"... and {len(warnings) - 5} more warnings")
-
-    # Data preview
-    if results.get('preview'):
-        st.markdown("### 📋 Data Preview")
-        df_preview = pd.DataFrame(results['preview'])
-        st.dataframe(df_preview, use_container_width=True, height=300)
-
-
-def show_results_sidebar():
-    """Show results summary in sidebar"""
-    results = st.session_state.analysis_results
-    summary = results.get("summary", {})
-
-    errors = len([i for i in summary.get('issues', []) if i.get('severity') == 'error'])
-    warnings = len([i for i in summary.get('issues', []) if i.get('severity') == 'warning'])
-
-    st.info(f"""
-    **Quick Stats**
-    - Rows: {summary.get('row_count', 0):,}
-    - Columns: {summary.get('column_count', 0)}
-    - Errors: {errors}
-    - Warnings: {warnings}
-    """)
-
-
-def show_export_sidebar():
-    """Show export options in sidebar"""
-    results = st.session_state.analysis_results
-    summary = results.get("summary", {})
-
-    # Excel export
-    if st.button("📊 Export to Excel", use_container_width=True):
-        try:
-            import openpyxl
-            from openpyxl.styles import PatternFill, Font
-
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "Data Analysis"
-
-            # Get data
-            df = summary.get('data', pd.DataFrame(results.get('preview', [])))
-
-            # Write headers
-            for col_idx, col_name in enumerate(df.columns, 1):
-                cell = ws.cell(row=1, column=col_idx, value=col_name)
-                cell.font = Font(bold=True)
-
-            # Write data with error highlighting
-            error_fill = PatternFill(start_color="FF6B6B", end_color="FF6B6B", fill_type="solid")
-
-            for row_idx, row_data in df.iterrows():
-                for col_idx, value in enumerate(row_data, 1):
-                    cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
-
-                    # Check if this cell has errors
-                    for issue in summary.get('issues', []):
-                        if (issue.get('row') == row_idx and
-                            issue.get('column') == df.columns[col_idx - 1]):
-                            cell.fill = error_fill
-
-            # Save
-            excel_buffer = io.BytesIO()
-            wb.save(excel_buffer)
-            excel_buffer.seek(0)
-
-            st.download_button(
-                label="⬇️ Download Excel",
-                data=excel_buffer.getvalue(),
-                file_name=f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        except ImportError:
-            st.error("Install openpyxl: pip install openpyxl")
-
-    # CSV export
-    if st.button("📄 Export to CSV", use_container_width=True):
-        df = summary.get('data', pd.DataFrame(results.get('preview', [])))
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-
-        st.download_button(
-            label="⬇️ Download CSV",
-            data=csv_buffer.getvalue(),
-            file_name=f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
-        )
-
-
-def about_page():
-    """About page with information"""
+with tab2:
     st.title("About Data Quality Analyzer")
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    st.markdown("""
+    ### 🎯 Purpose
+    The Data Quality Analyzer is a powerful tool designed to help you identify and resolve data quality issues
+    in your datasets. It performs comprehensive checks to ensure your data meets quality standards.
 
-    with col2:
-        st.markdown("""
-        ### Professional Data Validation Tool
+    ### ✨ Features
+    - **Multiple Format Support**: CSV, JSON, and TXT files
+    - **Automatic Issue Detection**: Missing values, invalid entries, range violations
+    - **Custom Validation Rules**: Define your own business rules via data dictionaries
+    - **Visual Reporting**: Clear metrics and issue summaries
+    - **Excel Export**: Highlighted cells showing exact error locations
+    - **Demo Data**: Built-in datasets for testing
 
-        Data Quality Analyzer helps data professionals validate and clean their datasets efficiently.
-        It provides instant feedback on data quality issues with detailed error reporting.
+    ### 🔍 What We Check
+    1. **Missing Values**: Identifies null or empty cells
+    2. **Invalid Values**: Detects entries like "invalid", "error", "n/a"
+    3. **Data Type Validation**: Ensures values match expected types
+    4. **Range Validation**: Checks if numeric values fall within specified ranges
+    5. **Completeness**: Overall data completeness percentage
 
-        #### ✨ Key Features
-        - Support for CSV, JSON, Excel, and Parquet files
-        - Automatic detection of invalid values like "invalid", "error", "n/a"
-        - Data type validation and range checking
-        - Optional data dictionary for custom rules
-        - Export results with error highlighting
+    ### 📚 How to Use
+    1. **Upload your data** using the file uploader or select demo data
+    2. **Optionally add a dictionary** to define custom validation rules
+    3. **Click Analyze** to run the quality checks
+    4. **Review the results** including issues and recommendations
+    5. **Export findings** to Excel or JSON for further analysis
 
-        #### 🚀 How to Use
-        1. **Upload your data file** - Required for analysis
-        2. **Optionally add a data dictionary** - Define custom validation rules
-        3. **Click Analyze** - Get instant quality report
-        4. **Export results** - Download with errors highlighted
+    ### 🛠 Technical Details
+    Built with Streamlit and powered by the Model Context Protocol (MCP) for
+    advanced data analysis capabilities.
 
-        #### 📊 What We Check
-        - Invalid values (text in numeric fields)
-        - Out-of-range values (e.g., age > 150)
-        - Missing or null values
-        - Data type mismatches
-        - Custom rule violations
-
-        #### 🛠️ Technology
-        - Built with Streamlit and Python
-        - Uses Pandas for data processing
-        - Model Context Protocol (MCP) for analysis
-        - Deployable on Azure Container Apps
-
-        ---
-
-        *Version 1.1.0 | © 2024 Data Quality Analyzer*
-        """)
-
-
-if __name__ == "__main__":
-    main()
+    ---
+    *Version 2.0 - Clean UI Edition*
+    """)
