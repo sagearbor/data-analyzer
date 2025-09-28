@@ -12,6 +12,9 @@ import asyncio
 import csv
 from typing import Dict, Any, Optional
 from datetime import datetime
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
@@ -41,7 +44,7 @@ st.markdown("""
 
     /* Remove excess padding */
     .block-container {
-        padding-top: 3rem !important;
+        padding-top: 0.2rem !important;
         padding-bottom: 2rem !important;
         max-width: 100% !important;
     }
@@ -51,12 +54,37 @@ st.markdown("""
         background: #ffffff;
     }
 
-    /* Style tabs to look like navbar */
+    /* Style tabs to look like navbar and fix to top */
     .stTabs [data-baseweb="tab-list"] {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
         background-color: #1e293b;
         padding: 0.5rem 1rem;
-        border-radius: 8px 8px 0 0;
-        margin-bottom: 1rem;
+        border-radius: 0;
+        margin-bottom: 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    /* Add title to navbar */
+    .stTabs [data-baseweb="tab-list"]::before {
+        content: "Data Quality Analyzer";
+        color: #e2e8f0;
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-right: auto;
+        padding-right: 2rem;
+    }
+
+    /* Add minimal spacing below fixed navbar */
+    .stTabs [data-baseweb="tab-panel"] {
+        margin-top: 48px;
+        padding-top: 1rem;
     }
 
     .stTabs [data-baseweb="tab"] {
@@ -128,9 +156,16 @@ st.markdown("""
         font-size: 0.9rem;
     }
 
-    /* Tab content padding */
-    .stTabs [data-baseweb="tab-panel"] {
-        padding-top: 0;
+    /* Additional spacing for content */
+    .element-container {
+        margin-top: 0.3rem;
+    }
+
+    /* Ensure headings don't wrap */
+    h3 {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -234,34 +269,107 @@ class MCPClient:
         return recommendations
 
 def load_demo_data(dataset_name: str):
-    """Load demo dataset"""
+    """Load demo dataset matching the dictionary options"""
     demo_data = {
-        'sales': pd.DataFrame({
-            'date': pd.date_range('2024-01-01', periods=10),
-            'product': ['Widget', 'Gadget', 'Widget', 'Tool', 'Gadget',
-                       'Widget', 'invalid', 'Gadget', 'Tool', 'Widget'],
-            'quantity': [10, 15, -5, 20, 25, 30, 15, 40, 45, 50],
-            'price': [99.99, 149.99, 99.99, 199.99, 149.99,
-                     99.99, None, 149.99, 199.99, 99.99],
-            'customer': ['A', 'B', None, 'D', 'E', 'F', 'G', 'invalid', 'I', 'J']
+        'western': pd.DataFrame({
+            'employee_id': [1001, 1002, 1003, 1004, 1005],
+            'first_name': ['John', 'Jane', 'invalid', 'Bob', 'Alice'],
+            'last_name': ['Smith', 'Doe', 'Johnson', 'invalid', 'Wilson'],
+            'age': [35, 28, 67, 45, 32],  # 67 is outside range
+            'salary': [75000, 85000, 45000, 95000, None],  # 45000 below min
+            'hire_date': ['2022-03-15', '2023-01-10', 'invalid-date', '2021-07-22', '2022-11-30'],
+            'department': ['Engineering', 'Marketing', 'invalid', 'Sales', 'Finance'],
+            'is_active': [True, True, False, None, True],
+            'email': ['john@company.com', 'invalid', 'mike@company.com', 'bob@company.com', 'alice@company.com']
         }),
-        'inventory': pd.DataFrame({
-            'sku': ['SKU001', 'SKU002', 'SKU003', 'SKU004', 'invalid'],
-            'name': ['Widget Pro', 'Gadget Plus', 'Tool Expert', 'invalid', 'Widget Lite'],
-            'stock': [100, -10, 250, 75, 150],
-            'reorder_point': [20, 30, None, 15, 25],
-            'category': ['Electronics', 'invalid', 'Tools', 'Electronics', 'Electronics']
+        'asian': pd.DataFrame({
+            'staff_id': [2001, 2002, 2003, 2004, 2005],
+            'given_name': ['Akiko', 'Wei', None, 'Raj', 'Mei'],
+            'family_name': ['Tanaka', 'Zhang', 'Kumar', 'invalid', 'Chen'],
+            'age': [30, 21, 45, 38, 62],  # 21 below min, 62 above max
+            'monthly_salary': [8500, 9200, 6000, 10500, None],  # 6000 below min
+            'join_date': ['2020-06-01', 'invalid-date', '2021-03-15', '2022-09-10', '2023-01-20'],
+            'dept_code': ['DEV', 'MKT', 'invalid', 'OPS', 'FIN'],
+            'active_status': [1, 1, 0, None, 1],
+            'work_email': ['akiko@work.com', 'wei@work.com', 'invalid', 'raj@work.com', 'mei@work.com']
         }),
-        'customers': pd.DataFrame({
-            'id': [1, 2, 3, 4, 5],
-            'name': ['Alice', 'Bob', 'invalid', 'Diana', None],
-            'email': ['alice@example.com', 'invalid', 'charlie@example.com',
-                     'diana@example.com', 'eve@example.com'],
-            'join_date': ['2024-01-01', '2024-01-15', 'invalid-date', '2024-02-01', '2024-02-15'],
-            'status': ['active', 'active', 'inactive', 'invalid', 'active']
+        'mixed': pd.DataFrame({
+            'id': [3001, 3002, 3003, 3004, 3005],
+            'name_first': ['Carlos', 'Emma', 'invalid', 'Liu', None],
+            'name_last': ['Rodriguez', 'invalid', 'Brown', 'Wang', 'Lee'],
+            'age': [40, 24, 35, 56, 45],  # 24 below min, 56 above max
+            'salary': [70000, 80000, 60000, 90000, None],  # 60000 below min, 90000 above max
+            'hired': ['2022-05-01', '2023-08-15', 'invalid-date', '2021-12-01', '2023-03-10'],
+            'active': [True, False, None, True, True],
+            'department': ['Research', 'invalid', 'Engineering', 'Quality', 'Sales']
         })
     }
-    return demo_data.get(dataset_name, demo_data['sales'])
+    return demo_data.get(dataset_name, demo_data['western'])
+
+def create_issue_heatmap(df: pd.DataFrame, issues: list):
+    """Create a small heatmap showing where issues are in the data"""
+    try:
+        rows, cols = len(df), len(df.columns)
+
+        # Create a matrix to store issue locations
+        # Condense large datasets
+        max_display_rows = 50
+        max_display_cols = 20
+
+        row_factor = max(1, rows // max_display_rows)
+        col_factor = max(1, cols // max_display_cols)
+
+        display_rows = min(rows, max_display_rows)
+        display_cols = min(cols, max_display_cols)
+
+        # Initialize matrix (0 = no issue, 1 = warning, 2 = error)
+        issue_matrix = np.zeros((display_rows, display_cols))
+
+        # Map issues to matrix
+        for issue in issues:
+            if 'row' in issue and 'column' in issue:
+                try:
+                    col_idx = df.columns.get_loc(issue['column'])
+                    row_idx = issue['row']
+
+                    # Map to display coordinates
+                    display_row = min(row_idx // row_factor, display_rows - 1)
+                    display_col = min(col_idx // col_factor, display_cols - 1)
+
+                    # Set severity (2 for error, 1 for warning)
+                    severity_value = 2 if issue['severity'] == 'error' else 1
+                    issue_matrix[display_row, display_col] = max(issue_matrix[display_row, display_col], severity_value)
+                except:
+                    pass
+
+        # Create the visualization
+        fig, ax = plt.subplots(figsize=(3, 2))
+
+        # Create color map (white = no issue, yellow = warning, red = error)
+        colors = ['#ffffff', '#fbbf24', '#ef4444']
+        cmap = plt.matplotlib.colors.ListedColormap(colors)
+
+        # Plot heatmap
+        im = ax.imshow(issue_matrix, cmap=cmap, aspect='auto', vmin=0, vmax=2)
+
+        # Remove axes
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+
+        # Add title
+        if rows > max_display_rows or cols > max_display_cols:
+            ax.set_title(f'Condensed {row_factor}x{col_factor}', fontsize=8, pad=2)
+
+        plt.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+    except Exception as e:
+        st.caption("Issue map unavailable")
 
 def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
     """Export data to Excel with error cells highlighted"""
@@ -332,8 +440,7 @@ if 'mcp_client' not in st.session_state:
 tab1, tab2 = st.tabs(["📊 Analyze", "ℹ️ About"])
 
 with tab1:
-    # Title
-    st.title("Data Quality Analyzer")
+    # Subtitle only - title is now in navbar
     st.markdown("Upload your data, optionally add validation rules, and analyze")
 
     # Create three columns for the main components
@@ -342,28 +449,12 @@ with tab1:
     with col1:
         st.markdown("### 📁 Upload Data")
 
-        # Demo data selector
-        demo_option = st.selectbox(
-            "Load demo data:",
-            ["None", "Sales Data", "Inventory Data", "Customer Data"],
-            key="demo_selector"
-        )
-
-        if demo_option != "None":
-            dataset_map = {
-                "Sales Data": "sales",
-                "Inventory Data": "inventory",
-                "Customer Data": "customers"
-            }
-            if demo_option in dataset_map:
-                st.session_state.data = load_demo_data(dataset_map[demo_option])
-                st.success(f"✅ Loaded {demo_option}")
-
-        # File uploader
+        # File uploader first
         uploaded_file = st.file_uploader(
-            "Or upload your file",
+            " ",  # Empty label to avoid duplication
             type=['csv', 'json', 'txt'],
-            key="data_uploader"
+            key="data_uploader",
+            label_visibility="collapsed"
         )
 
         if uploaded_file:
@@ -378,26 +469,33 @@ with tab1:
             except Exception as e:
                 st.error(f"Error loading file: {str(e)}")
 
-    with col2:
-        st.markdown("### 📋 Upload Dictionary")
-        st.markdown("*Optional - defines validation rules*")
-
-        # Demo dictionary selector
-        demo_dict = st.selectbox(
-            "Load demo dictionary:",
-            ["None"] + list(DEMO_DICTIONARIES.keys()),
-            key="demo_dict_selector"
+        # Demo data selector below file uploader
+        demo_option = st.selectbox(
+            "Or load demo data:",
+            ["None", "CSV - Western", "CSV - Asian", "JSON - Mixed"],
+            key="demo_selector"
         )
 
-        if demo_dict != "None":
-            st.session_state.dictionary = get_demo_dictionary(demo_dict)
-            st.success(f"✅ Loaded {demo_dict}")
+        if demo_option != "None":
+            dataset_map = {
+                "CSV - Western": "western",
+                "CSV - Asian": "asian",
+                "JSON - Mixed": "mixed"
+            }
+            if demo_option in dataset_map:
+                st.session_state.data = load_demo_data(dataset_map[demo_option])
+                st.success(f"✅ Loaded {demo_option} demo data")
 
-        # Dictionary file uploader
+    with col2:
+        st.markdown("### 📋 Dictionary")
+
+        # Dictionary file uploader first - aligned with data uploader
         dict_file = st.file_uploader(
-            "Or upload dictionary file",
+            " ",  # Empty label to avoid duplication
             type=['json'],
-            key="dict_uploader"
+            key="dict_uploader",
+            label_visibility="collapsed",
+            help="Optional - defines validation rules for data quality checks"
         )
 
         if dict_file:
@@ -407,16 +505,30 @@ with tab1:
             except Exception as e:
                 st.error(f"Error loading dictionary: {str(e)}")
 
+        # Demo dictionary selector below file uploader
+        demo_dict = st.selectbox(
+            "Or load demo dictionary:",
+            ["None"] + list(DEMO_DICTIONARIES.keys()),
+            key="demo_dict_selector"
+        )
+
+        if demo_dict != "None":
+            st.session_state.dictionary = get_demo_dictionary(demo_dict)
+            st.success(f"✅ Loaded {demo_dict}")
+
     with col3:
         st.markdown("### ⚡ Analyze")
-        st.markdown("*Ready when data is loaded*")
+
+        # Add spacing to align with upload boxes
+        st.markdown("<div style='height: 31px;'></div>", unsafe_allow_html=True)
 
         # Enable button only when data is loaded
         if st.button(
             "🚀 Run Analysis",
             disabled=(st.session_state.data is None),
             use_container_width=True,
-            type="primary"
+            type="primary",
+            help="Ready when data is loaded"
         ):
             if st.session_state.data is not None:
                 with st.spinner("Analyzing data quality..."):
@@ -430,15 +542,46 @@ with tab1:
                     st.session_state.analysis_results = results
                     st.success("✅ Analysis complete!")
 
+        # Export dropdown - in same column, saves vertical space
+        if st.session_state.analysis_results:
+            st.markdown("### 📥 Export")
+            export_format = st.selectbox(
+                "Choose format:",
+                ["Select export format...", "Excel with highlighting", "JSON report"],
+                key="export_format"
+            )
+
+            if export_format == "Excel with highlighting":
+                excel_data = export_to_excel_with_highlighting(
+                    st.session_state.data,
+                    st.session_state.analysis_results['issues']
+                )
+                st.download_button(
+                    label="📊 Download Excel",
+                    data=excel_data,
+                    file_name=f"data_quality_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            elif export_format == "JSON report":
+                json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
+                st.download_button(
+                    label="📄 Download JSON",
+                    data=json_str,
+                    file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+
     # Display results if available
     if st.session_state.analysis_results:
-        st.markdown("---")
 
         # Summary metrics
         st.subheader("📊 Analysis Summary")
         summary = st.session_state.analysis_results['summary']
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        # Create columns with space for heatmap
+        col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1.2, 1, 1, 1.5])
         with col1:
             st.metric("Total Rows", f"{summary['total_rows']:,}")
         with col2:
@@ -450,6 +593,10 @@ with tab1:
             st.metric("Warnings", summary['warnings'])
         with col5:
             st.metric("Completeness", f"{summary['completeness']}%")
+        with col6:
+            # Create issue heatmap visualization
+            st.markdown("#### Issue Map")
+            create_issue_heatmap(st.session_state.data, st.session_state.analysis_results['issues'])
 
         # Issues details
         if st.session_state.analysis_results['issues']:
@@ -463,9 +610,11 @@ with tab1:
                     issues_by_type[issue_type] = []
                 issues_by_type[issue_type].append(issue)
 
-            # Display issues by type
+            # Display issues by type - collapsed by default for cleaner look
             for issue_type, issues in issues_by_type.items():
-                with st.expander(f"{issue_type.replace('_', ' ').title()} ({len(issues)} issues)", expanded=True):
+                # Collapse by default for Missing Values and Invalid Values
+                expand_by_default = issue_type not in ['missing_values', 'invalid_value']
+                with st.expander(f"{issue_type.replace('_', ' ').title()} ({len(issues)} issues)", expanded=expand_by_default):
                     for issue in issues[:10]:  # Show first 10
                         if issue['severity'] == 'error':
                             st.error(f"❌ {issue['message']}")
@@ -484,33 +633,6 @@ with tab1:
                     st.warning(f"🟡 **{rec['priority'].upper()}**: {rec['message']}")
                 else:
                     st.info(f"🔵 **{rec['priority'].upper()}**: {rec['message']}")
-
-        # Export options
-        st.subheader("📥 Export Results")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("📊 Export to Excel (with error highlighting)", use_container_width=True):
-                excel_data = export_to_excel_with_highlighting(
-                    st.session_state.data,
-                    st.session_state.analysis_results['issues']
-                )
-                st.download_button(
-                    label="Download Excel File",
-                    data=excel_data,
-                    file_name=f"data_quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-
-        with col2:
-            if st.button("📄 Export Report as JSON", use_container_width=True):
-                json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
-                st.download_button(
-                    label="Download JSON Report",
-                    data=json_str,
-                    file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
-                )
 
 with tab2:
     st.title("About Data Quality Analyzer")
