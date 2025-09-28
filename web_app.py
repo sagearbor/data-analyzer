@@ -27,12 +27,17 @@ from pathlib import Path
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
+# Force use of custom renderer for better compatibility
+MERMAID_AVAILABLE = False
+from mermaid_renderer import render_mermaid
+
+# Import LLM parser
 try:
-    from streamlit_mermaid import st_mermaid
-    MERMAID_AVAILABLE = True
+    from src.llm_client import LLMDictionaryParser
+    LLM_AVAILABLE = True
 except ImportError:
-    MERMAID_AVAILABLE = False
-    from mermaid_renderer import render_mermaid
+    LLM_AVAILABLE = False
+    print("LLM client not available. Install openai package to enable.")
 
 # Configure Streamlit page
 st.set_page_config(
@@ -576,15 +581,77 @@ with tab1:
         # Dictionary file uploader first - aligned with data uploader
         dict_file = st.file_uploader(
             " ",  # Empty label to avoid duplication
-            type=['json', 'pdf'],
+            type=['json', 'pdf', 'csv', 'txt'],
             key="dict_uploader",
             label_visibility="collapsed",
-            help="Optional - defines validation rules for data quality checks (JSON or PDF)"
+            help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, or TXT)"
         )
+
+        # Add LLM parsing option if available
+        if LLM_AVAILABLE and dict_file:
+            use_llm = st.checkbox(
+                "🤖 Use AI-powered parsing",
+                value=True,
+                help="Use Azure OpenAI GPT-4 to intelligently extract field definitions from any format"
+            )
+        else:
+            use_llm = False
 
         if dict_file:
             try:
-                if dict_file.name.endswith('.pdf'):
+                # Use LLM parsing if enabled
+                if use_llm and LLM_AVAILABLE:
+                    with st.spinner("🤖 Using AI to extract field definitions..."):
+                        # Read file content
+                        file_content = ""
+                        if dict_file.name.endswith('.pdf'):
+                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            for page in pdf_reader.pages:
+                                file_content += page.extract_text() + "\n"
+                        elif dict_file.name.endswith('.csv'):
+                            file_content = dict_file.read().decode('utf-8')
+                        elif dict_file.name.endswith('.txt'):
+                            file_content = dict_file.read().decode('utf-8')
+                        elif dict_file.name.endswith('.json'):
+                            # For JSON, convert to readable text
+                            json_data = json.load(dict_file)
+                            file_content = json.dumps(json_data, indent=2)
+                        else:
+                            file_content = dict_file.read().decode('utf-8')
+
+                        # Parse with LLM
+                        llm_parser = LLMDictionaryParser()
+                        parsed_result = llm_parser.parse_dictionary(file_content[:50000])  # Limit text length
+
+                        # Store the parsed dictionary
+                        st.session_state.dictionary = {
+                            "source": "LLM Parser",
+                            "filename": dict_file.name,
+                            "rules": parsed_result.get("schema", {}),
+                            "fields": parsed_result.get("fields", []),
+                            "metadata": parsed_result.get("metadata", {})
+                        }
+
+                        st.success(f"✅ AI extracted {len(parsed_result.get('fields', []))} field definitions")
+
+                        # Show extracted fields
+                        if parsed_result.get('fields'):
+                            with st.expander(f"📋 Extracted Fields ({len(parsed_result['fields'])})", expanded=False):
+                                for field in parsed_result['fields'][:10]:
+                                    field_info = f"**{field['field_name']}** ({field['data_type']})"
+                                    if field.get('required'):
+                                        field_info += " *[Required]*"
+                                    if field.get('description'):
+                                        field_info += f"\n   {field['description']}"
+                                    if field.get('min_value') or field.get('max_value'):
+                                        field_info += f"\n   Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
+                                    if field.get('allowed_values'):
+                                        field_info += f"\n   Values: {', '.join(field['allowed_values'][:5])}"
+                                    st.markdown(field_info)
+                                if len(parsed_result['fields']) > 10:
+                                    st.text(f"... and {len(parsed_result['fields']) - 10} more")
+
+                elif dict_file.name.endswith('.pdf'):
                     # Calculate file hash for caching
                     dict_file.seek(0)
                     file_content = dict_file.read()
@@ -670,9 +737,41 @@ with tab1:
                                     st.text(f"{field}: {rule}")
                                 if len(extracted_rules) > 10:
                                     st.text(f"... and {len(extracted_rules) - 10} more")
-                else:
+                elif dict_file.name.endswith('.json'):
                     st.session_state.dictionary = json.load(dict_file)
-                    st.success("✅ Dictionary loaded")
+                    st.success("✅ JSON dictionary loaded")
+                elif dict_file.name.endswith('.csv'):
+                    # Parse CSV dictionary
+                    import pandas as pd
+                    dict_file.seek(0)
+                    df = pd.read_csv(dict_file)
+                    rules = {}
+                    for _, row in df.iterrows():
+                        if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                            field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                            if field_name:
+                                rule = {}
+                                if 'Type' in row or 'type' in row:
+                                    rule['type'] = str(row.get('Type') or row.get('type'))
+                                if 'Min' in row or 'min' in row:
+                                    rule['min'] = row.get('Min') or row.get('min')
+                                if 'Max' in row or 'max' in row:
+                                    rule['max'] = row.get('Max') or row.get('max')
+                                if 'Required' in row or 'required' in row:
+                                    rule['required'] = row.get('Required') or row.get('required')
+                                if 'Allowed_Values' in row or 'allowed_values' in row:
+                                    allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                                    if allowed and not pd.isna(allowed):
+                                        rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                                rules[field_name] = rule
+                    st.session_state.dictionary = {
+                        "source": "CSV",
+                        "filename": dict_file.name,
+                        "rules": rules
+                    }
+                    st.success(f"✅ Parsed {len(rules)} field definitions from CSV")
+                else:
+                    st.warning("Unsupported dictionary format without AI parsing")
             except Exception as e:
                 st.error(f"Error loading dictionary: {str(e)}")
 
@@ -857,20 +956,17 @@ with tab2:
         with open('assets/data_flow_diagram.mmd', 'r') as f:
             mermaid_code = f.read()
 
-        # Try different methods to render Mermaid
-        if MERMAID_AVAILABLE:
-            # Use streamlit-mermaid package
-            st_mermaid(mermaid_code, height=400)
-        else:
-            # Fallback to custom renderer
-            render_mermaid(mermaid_code, height=600)
+        st.info("📊 Interactive flowchart showing the data analysis pipeline:")
+
+        # Always use custom renderer for better compatibility
+        render_mermaid(mermaid_code, height=700)
+
     except FileNotFoundError:
         st.info("Data flow diagram not found. Please ensure 'assets/data_flow_diagram.mmd' exists.")
     except Exception as e:
         st.error(f"Error rendering diagram: {str(e)}")
         # Show the raw diagram code as fallback
-        if 'mermaid_code' in locals():
-            st.code(mermaid_code, language='mermaid')
+        st.code(mermaid_code, language='mermaid')
 
     st.markdown("""
     ---
