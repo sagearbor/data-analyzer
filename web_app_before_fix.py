@@ -1,6 +1,6 @@
 """
-Data Quality Analyzer - Fixed Clean Design
-Professional interface with all issues resolved
+Data Quality Analyzer - Modern Clean Design
+Minimalist, professional interface with improved UX
 """
 
 import streamlit as st
@@ -28,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Modern, clean CSS with fixes
+# Modern, clean CSS design
 st.markdown("""
 <style>
     /* Hide Streamlit default elements */
@@ -36,12 +36,6 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     .stDeployButton {display: none;}
-
-    /* Remove Streamlit's default padding */
-    .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 0 !important;
-    }
 
     /* Modern color scheme */
     :root {
@@ -51,13 +45,13 @@ st.markdown("""
         --warning-color: #f59e0b;
         --danger-color: #ef4444;
         --bg-color: #ffffff;
-        --bg-secondary: #f8f9fa;
-        --navbar-bg: #1e293b;
+        --bg-secondary: #f9fafb;
         --text-primary: #111827;
         --text-secondary: #6b7280;
         --border-color: #e5e7eb;
         --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
         --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     }
 
     /* Clean background */
@@ -65,47 +59,14 @@ st.markdown("""
         background: var(--bg-color);
     }
 
-    /* Slim fixed navbar */
-    .navbar {
+    /* Fixed top navbar styling */
+    .css-1rs6kro {
+        background: white;
         position: fixed;
         top: 0;
-        left: 0;
-        right: 0;
-        height: 48px;
-        background: var(--navbar-bg);
         z-index: 1000;
-        box-shadow: var(--shadow);
-        display: flex;
-        align-items: center;
-        padding: 0 20px;
-    }
-
-    /* Content offset for fixed navbar */
-    .main-content {
-        margin-top: 60px;
-    }
-
-    /* Navigation styling override */
-    [data-testid="stHorizontalBlock"] > div:first-child {
-        background: var(--navbar-bg) !important;
-        padding: 0 !important;
-        height: 48px !important;
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        z-index: 1000 !important;
-        margin-bottom: 0 !important;
-        border-bottom: none !important;
-    }
-
-    /* Adjust navigation menu container */
-    div[data-baseweb="base-provider"] {
-        margin-top: 0 !important;
-    }
-
-    .st-emotion-cache-1rtdyuf {
-        margin-top: 60px;
+        border-bottom: 1px solid var(--border-color);
+        box-shadow: var(--shadow-sm);
     }
 
     /* Modern cards */
@@ -113,9 +74,14 @@ st.markdown("""
         background: white;
         border: 1px solid var(--border-color);
         border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 16px;
+        padding: 24px;
+        margin-bottom: 20px;
         box-shadow: var(--shadow-sm);
+        transition: box-shadow 0.2s ease;
+    }
+
+    .card:hover {
+        box-shadow: var(--shadow);
     }
 
     /* Primary button styling */
@@ -131,7 +97,7 @@ st.markdown("""
         box-shadow: var(--shadow-sm);
     }
 
-    .stButton > button:hover:not(:disabled) {
+    .stButton > button:hover {
         background-color: var(--primary-hover);
         box-shadow: var(--shadow);
         transform: translateY(-1px);
@@ -147,11 +113,10 @@ st.markdown("""
     .stFileUploader {
         border: 2px dashed var(--border-color);
         border-radius: 8px;
-        padding: 20px;
+        padding: 32px;
         background: var(--bg-secondary);
         transition: all 0.2s ease;
         text-align: center;
-        min-height: 140px;
     }
 
     .stFileUploader:hover {
@@ -159,33 +124,27 @@ st.markdown("""
         background: #f0f9ff;
     }
 
-    /* File uploader with data loaded */
-    .file-loaded {
-        border-color: var(--success-color);
-        background: #d1fae5;
-    }
-
     /* Clean typography */
     h1 {
         color: var(--text-primary);
-        font-size: 28px;
+        font-size: 32px;
         font-weight: 700;
-        margin-bottom: 4px;
+        margin-bottom: 8px;
         letter-spacing: -0.025em;
     }
 
     h2 {
         color: var(--text-primary);
-        font-size: 20px;
+        font-size: 24px;
         font-weight: 600;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
     }
 
     h3 {
         color: var(--text-primary);
-        font-size: 18px;
+        font-size: 20px;
         font-weight: 600;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
     }
 
     p {
@@ -193,30 +152,62 @@ st.markdown("""
         line-height: 1.5;
     }
 
-    /* Sidebar styling */
-    .css-1d391kg {
-        background: var(--bg-secondary);
-        border-right: 1px solid var(--border-color);
-        padding-top: 60px !important;
+    /* Success/Error/Warning alerts */
+    .alert {
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin: 12px 0;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
     }
 
-    /* Remove weird rectangles */
-    .st-emotion-cache-16idsys p {
-        margin: 0;
-    }
-
-    /* Compact layout */
-    .row-widget.stHorizontal > div {
-        padding: 0 8px;
-    }
-
-    /* Success message styling */
-    .stSuccess {
-        background-color: #d1fae5;
+    .alert-success {
+        background: #d1fae5;
         color: #065f46;
         border: 1px solid #a7f3d0;
-        padding: 8px 12px;
-        border-radius: 6px;
+    }
+
+    .alert-error {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+    }
+
+    .alert-warning {
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fde68a;
+    }
+
+    /* Metrics styling */
+    .metric-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin: 24px 0;
+    }
+
+    .metric-card {
+        background: white;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+    }
+
+    .metric-value {
+        font-size: 32px;
+        font-weight: 700;
+        color: var(--primary-color);
+        margin-bottom: 4px;
+    }
+
+    .metric-label {
+        font-size: 14px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
 
     /* Tab styling */
@@ -224,6 +215,7 @@ st.markdown("""
         background-color: transparent;
         gap: 24px;
         border-bottom: 1px solid var(--border-color);
+        padding-bottom: 0;
     }
 
     .stTabs [data-baseweb="tab"] {
@@ -231,7 +223,7 @@ st.markdown("""
         border: none;
         color: var(--text-secondary);
         font-weight: 500;
-        padding: 8px 4px;
+        padding: 12px 4px;
         border-bottom: 2px solid transparent;
     }
 
@@ -240,15 +232,88 @@ st.markdown("""
         border-bottom-color: var(--primary-color);
     }
 
+    /* Sidebar styling */
+    .css-1d391kg {
+        background: var(--bg-secondary);
+        border-right: 1px solid var(--border-color);
+    }
+
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-weight: 500;
+    }
+
+    /* Navigation menu custom styling */
+    [data-testid="stHorizontalBlock"] {
+        background: white;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 24px;
+        position: sticky;
+        top: 0;
+        z-index: 999;
+    }
+
+    /* Three-column upload layout */
+    .upload-container {
+        display: flex;
+        gap: 24px;
+        margin: 32px 0;
+        align-items: start;
+    }
+
+    .upload-box {
+        flex: 1;
+        background: white;
+        border: 2px dashed var(--border-color);
+        border-radius: 8px;
+        padding: 32px;
+        text-align: center;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        transition: all 0.2s ease;
+    }
+
+    .upload-box:hover {
+        border-color: var(--primary-color);
+        background: #f0f9ff;
+    }
+
+    .upload-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+    }
+
+    .analyze-button-container {
+        flex: 0.8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 200px;
+    }
+
     /* Mobile responsiveness */
     @media (max-width: 768px) {
+        .upload-container {
+            flex-direction: column;
+        }
+
+        .metric-container {
+            grid-template-columns: 1fr;
+        }
+
         h1 {
             font-size: 24px;
         }
 
-        .stFileUploader {
-            min-height: 100px;
-            padding: 16px;
+        .upload-box {
+            min-height: 150px;
+            padding: 24px;
         }
     }
 </style>
@@ -256,13 +321,13 @@ st.markdown("""
 
 
 class MCPClient:
-    """MCP client for data analysis with proper validation"""
+    """Simplified MCP client for data analysis"""
 
     def __init__(self):
         pass
 
     def _simulate_mcp_call(self, request_data: Dict, debug: bool = False) -> Dict:
-        """Simulate MCP server call with proper validation"""
+        """Simulate MCP server call for development"""
         tool = request_data.get("tool")
         args = request_data.get("arguments", {})
 
@@ -300,7 +365,7 @@ class MCPClient:
                 if df is None or df.empty:
                     return {"error": "No data could be loaded"}
 
-                # Analysis with proper validation
+                # Basic analysis
                 issues = []
                 row_count = len(df)
 
@@ -312,71 +377,7 @@ class MCPClient:
                         "message": f"Row count ({row_count}) is less than minimum required ({min_rows})"
                     })
 
-                # Check for invalid numeric values
-                for col in df.columns:
-                    if df[col].dtype == 'object':
-                        # Check if column should be numeric
-                        numeric_pattern = False
-
-                        # Check if most values look numeric
-                        non_null_values = df[col].dropna()
-                        if len(non_null_values) > 0:
-                            numeric_count = 0
-                            for val in non_null_values:
-                                try:
-                                    float(str(val))
-                                    numeric_count += 1
-                                except:
-                                    pass
-
-                            # If more than 50% look numeric, it should probably be numeric
-                            if numeric_count / len(non_null_values) > 0.5:
-                                numeric_pattern = True
-
-                        # Check for specific invalid values
-                        for idx, val in df[col].items():
-                            if pd.notna(val):
-                                val_str = str(val).lower()
-                                # Check for common invalid values
-                                if val_str in ['invalid', 'error', 'n/a', 'null', 'none', 'invalid-date']:
-                                    issues.append({
-                                        "type": "invalid_value",
-                                        "severity": "error",
-                                        "column": col,
-                                        "row": idx,
-                                        "value": val,
-                                        "message": f"Invalid value '{val}' found in column '{col}' at row {idx}"
-                                    })
-                                elif numeric_pattern and val_str not in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-                                    # Check if this should be numeric but isn't
-                                    try:
-                                        float(val_str)
-                                    except:
-                                        issues.append({
-                                            "type": "type_error",
-                                            "severity": "error",
-                                            "column": col,
-                                            "row": idx,
-                                            "value": val,
-                                            "message": f"Non-numeric value '{val}' in numeric column '{col}' at row {idx}"
-                                        })
-
-                    # Check for out-of-range values
-                    elif df[col].dtype in ['int64', 'float64']:
-                        # Check for unrealistic values
-                        if 'age' in col.lower():
-                            invalid_ages = df[(df[col] < 0) | (df[col] > 150)]
-                            for idx, row in invalid_ages.iterrows():
-                                issues.append({
-                                    "type": "range_violation",
-                                    "severity": "error",
-                                    "column": col,
-                                    "row": idx,
-                                    "value": row[col],
-                                    "message": f"Invalid age value {row[col]} at row {idx}"
-                                })
-
-                # Data type validation with schema
+                # Data type validation
                 if schema:
                     for col, expected_type in schema.items():
                         if col in df.columns:
@@ -385,7 +386,7 @@ class MCPClient:
 
                             if expected_type == "int" and "int" in actual_type:
                                 type_match = True
-                            elif expected_type == "float" and ("float" in actual_type or "int" in actual_type):
+                            elif expected_type == "float" and "float" in actual_type:
                                 type_match = True
                             elif expected_type == "str" and "object" in actual_type:
                                 type_match = True
@@ -402,55 +403,41 @@ class MCPClient:
                                     "message": f"Column '{col}' has type '{actual_type}' but expected '{expected_type}'"
                                 })
 
-                # Value range validation with rules
+                # Value range validation
                 if rules:
                     for col, col_rules in rules.items():
-                        if col in df.columns and df[col].dtype in ['int64', 'float64']:
+                        if col in df.columns:
                             if "min" in col_rules:
                                 min_val = col_rules["min"]
-                                violations = df[df[col] < min_val]
-                                for idx, row in violations.iterrows():
+                                violations = df[df[col] < min_val][col].tolist()
+                                if violations:
                                     issues.append({
                                         "type": "range_violation",
                                         "severity": "error",
                                         "column": col,
-                                        "row": idx,
-                                        "value": row[col],
-                                        "message": f"Value {row[col]} below minimum {min_val} in column '{col}' at row {idx}"
+                                        "message": f"Column '{col}' has {len(violations)} values below minimum {min_val}",
+                                        "rows": df[df[col] < min_val].index.tolist()
                                     })
 
                             if "max" in col_rules:
                                 max_val = col_rules["max"]
-                                violations = df[df[col] > max_val]
-                                for idx, row in violations.iterrows():
+                                violations = df[df[col] > max_val][col].tolist()
+                                if violations:
                                     issues.append({
                                         "type": "range_violation",
                                         "severity": "error",
                                         "column": col,
-                                        "row": idx,
-                                        "value": row[col],
-                                        "message": f"Value {row[col]} above maximum {max_val} in column '{col}' at row {idx}"
+                                        "message": f"Column '{col}' has {len(violations)} values above maximum {max_val}",
+                                        "rows": df[df[col] > max_val].index.tolist()
                                     })
 
-                # Check for missing values
-                missing_counts = df.isnull().sum()
-                for col, count in missing_counts.items():
-                    if count > 0:
-                        issues.append({
-                            "type": "missing_values",
-                            "severity": "warning",
-                            "column": col,
-                            "count": int(count),
-                            "message": f"Column '{col}' has {count} missing values"
-                        })
-
-                # Summary statistics
+                # Calculate summary statistics
                 summary = {
                     "row_count": row_count,
                     "column_count": len(df.columns),
                     "columns": df.columns.tolist(),
                     "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-                    "missing_values": missing_counts.to_dict(),
+                    "missing_values": df.isnull().sum().to_dict(),
                     "issues_count": len(issues),
                     "issues": issues,
                     "data": df
@@ -546,52 +533,39 @@ def main():
         st.session_state.analysis_results = None
     if 'uploaded_file' not in st.session_state:
         st.session_state.uploaded_file = None
-    if 'uploaded_file_name' not in st.session_state:
-        st.session_state.uploaded_file_name = None
     if 'dictionary_file' not in st.session_state:
         st.session_state.dictionary_file = None
-    if 'dictionary_file_name' not in st.session_state:
-        st.session_state.dictionary_file_name = None
+    if 'page' not in st.session_state:
+        st.session_state.page = 'analyze'
 
-    # Create slim navigation bar
-    selected = option_menu(
-        menu_title=None,
-        options=["Analyze", "About"],
-        icons=["graph-up", "info-circle"],
-        menu_icon=None,
-        default_index=0,
-        orientation="horizontal",
-        styles={
-            "container": {
-                "padding": "0px",
-                "background-color": "#1e293b",
-                "margin": "0px",
-                "position": "fixed",
-                "top": "0",
-                "width": "100%",
-                "z-index": "1000",
-                "height": "48px"
-            },
-            "icon": {"color": "#94a3b8", "font-size": "16px"},
-            "nav-link": {
-                "font-size": "15px",
-                "text-align": "center",
-                "margin": "0px",
-                "padding": "12px 20px",
-                "color": "#e2e8f0",
-                "--hover-color": "#334155",
-                "height": "48px"
-            },
-            "nav-link-selected": {
-                "background-color": "#3b82f6",
-                "color": "white",
-                "font-weight": "500"
+    # Create clean navigation bar
+    col1, col2, col3 = st.columns([1, 8, 1])
+    with col2:
+        selected = option_menu(
+            menu_title=None,
+            options=["Analyze", "About"],
+            icons=["graph-up", "info-circle"],
+            menu_icon=None,
+            default_index=0,
+            orientation="horizontal",
+            styles={
+                "container": {"padding": "5px", "background-color": "#ffffff"},
+                "icon": {"color": "#6b7280", "font-size": "18px"},
+                "nav-link": {
+                    "font-size": "16px",
+                    "text-align": "center",
+                    "margin": "0px",
+                    "padding": "10px 20px",
+                    "color": "#6b7280",
+                    "--hover-color": "#f3f4f6"
+                },
+                "nav-link-selected": {
+                    "background-color": "#2563eb",
+                    "color": "white",
+                    "font-weight": "500"
+                }
             }
-        }
-    )
-
-    # Add spacing after navbar
-    st.markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
+        )
 
     # Route to pages
     if selected == "Analyze":
@@ -604,74 +578,63 @@ def analyze_page():
     """Main analysis page with three-element layout"""
 
     st.title("Data Quality Analyzer")
-    st.markdown("<p style='color: #6b7280; margin-top: -16px; margin-bottom: 24px;'>Upload your data, optionally add validation rules, and analyze</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #6b7280; margin-top: -10px;'>Upload your data, optionally add validation rules, and analyze</p>", unsafe_allow_html=True)
 
     # Main three-element upload area
-    col1, col2, col3 = st.columns([1.2, 1.2, 1])
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1, 0.8])
 
     with col1:
-        st.markdown("#### 📁 Upload Data File")
-
-        # Show loaded file info if demo data is selected
-        if st.session_state.uploaded_file_name:
-            st.success(f"✓ Loaded: {st.session_state.uploaded_file_name}")
-
+        st.markdown("### 📁 Upload Data File")
         uploaded_file = st.file_uploader(
             "Drag and drop or browse",
             type=['csv', 'json', 'xlsx', 'xls', 'parquet'],
             key="main_data_upload",
-            label_visibility="collapsed",
-            help="CSV, JSON, Excel, or Parquet files"
+            label_visibility="collapsed"
         )
 
         if uploaded_file:
             file_size = len(uploaded_file.read())
             uploaded_file.seek(0)
             st.session_state.uploaded_file = uploaded_file
-            st.session_state.uploaded_file_name = uploaded_file.name
             st.success(f"✓ {uploaded_file.name} ({file_size:,} bytes)")
 
     with col2:
-        st.markdown("#### 📚 Upload Data Dictionary")
-        st.markdown("<small style='color: #6b7280;'>Optional - defines validation rules</small>", unsafe_allow_html=True)
-
-        # Show loaded dictionary info if demo is selected
-        if st.session_state.dictionary_file_name:
-            st.success(f"✓ Loaded: {st.session_state.dictionary_file_name}")
-
+        st.markdown("### 📚 Upload Data Dictionary")
+        st.markdown("<small style='color: #6b7280;'>Optional</small>", unsafe_allow_html=True)
         dict_file = st.file_uploader(
             "Drag and drop or browse",
             type=['csv', 'json', 'txt'],
             key="dict_upload",
-            label_visibility="collapsed",
-            help="CSV or JSON dictionary file"
+            label_visibility="collapsed"
         )
 
         if dict_file:
             st.session_state.dictionary_file = dict_file
-            st.session_state.dictionary_file_name = dict_file.name
             st.success(f"✓ {dict_file.name}")
 
     with col3:
-        st.markdown("#### ⚡ Analyze")
-        st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+        st.markdown("### ⚡ Analyze")
+        st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-        # Enable analyze button only if data is uploaded (dictionary is optional)
+        # Enable analyze button only if data is uploaded
         analyze_enabled = st.session_state.uploaded_file is not None
 
         if st.button("🚀 Run Analysis",
                     disabled=not analyze_enabled,
                     type="primary",
-                    use_container_width=True,
-                    help="Upload data file to enable analysis"):
+                    use_container_width=True):
             run_analysis()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Sidebar for additional options
     with st.sidebar:
         st.markdown("### Quick Actions")
 
         # Demo data section
-        with st.expander("📂 Load Demo Data", expanded=False):
+        with st.expander("📂 Load Demo Data"):
             st.markdown("**Sample Datasets**")
             demo_data_choice = st.selectbox(
                 "Choose demo data",
@@ -704,9 +667,7 @@ P002,52,Drug_B,No_Change,2023-01-20
 P003,999,Drug_A,Improved,invalid"""
 
                 st.session_state.uploaded_file = demo_data
-                st.session_state.uploaded_file_name = f"Demo: {demo_data_choice}"
-                st.success(f"✅ Loaded {demo_data_choice}")
-                st.rerun()
+                st.success("Demo data loaded!")
 
             st.markdown("**Sample Dictionaries**")
             demo_dict_choice = st.selectbox(
@@ -718,37 +679,34 @@ P003,999,Drug_A,Improved,invalid"""
             if demo_dict_choice != "None":
                 demo_dict = get_demo_dictionary(demo_dict_choice)
                 st.session_state.dictionary_file = demo_dict
-                st.session_state.dictionary_file_name = f"Demo: {demo_dict_choice}"
-                st.success(f"✅ Loaded {demo_dict_choice}")
-                st.rerun()
+                st.success("Demo dictionary loaded!")
 
         # Results section (shown after analysis)
         if st.session_state.analysis_complete:
-            st.markdown("### 📊 Results Summary")
+            st.markdown("### 📊 Results")
             show_results_sidebar()
 
         # Export section (shown after analysis)
         if st.session_state.analysis_complete:
-            st.markdown("### 💾 Export Options")
+            st.markdown("### 💾 Export")
             show_export_sidebar()
 
     # Main content area for results
     if st.session_state.analysis_complete:
-        st.markdown("---")
         show_results_main()
 
 
 def run_analysis():
-    """Execute the data analysis with proper validation"""
+    """Execute the data analysis"""
     with st.spinner("Analyzing your data..."):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Analysis stages
+        # Simulate analysis stages
         stages = [
             (0.25, "Loading data..."),
-            (0.50, "Checking data quality..."),
-            (0.75, "Validating against rules..."),
+            (0.50, "Validating schema..."),
+            (0.75, "Checking rules..."),
             (1.0, "Generating report...")
         ]
 
@@ -770,7 +728,7 @@ def run_analysis():
                 data_content = st.session_state.uploaded_file.read().decode('utf-8')
                 st.session_state.uploaded_file.seek(0)
 
-        # Parse dictionary if provided (optional)
+        # Parse dictionary if provided
         schema = {}
         rules = {}
         if st.session_state.dictionary_file:
@@ -792,7 +750,7 @@ def run_analysis():
         for progress, message in stages:
             status_text.text(message)
             progress_bar.progress(progress)
-            asyncio.run(asyncio.sleep(0.2))
+            asyncio.run(asyncio.sleep(0.3))
 
         # Run analysis
         result = asyncio.run(
@@ -810,12 +768,10 @@ def run_analysis():
             st.session_state.analysis_results = result
             progress_bar.empty()
             status_text.empty()
-            st.success("✅ Analysis complete!")
+            st.success("✓ Analysis complete!")
             st.rerun()
         else:
-            progress_bar.empty()
-            status_text.empty()
-            st.error(f"❌ Analysis failed: {result.get('error')}")
+            st.error(f"Analysis failed: {result.get('error')}")
 
 
 def show_results_main():
@@ -823,7 +779,8 @@ def show_results_main():
     results = st.session_state.analysis_results
     summary = results.get("summary", {})
 
-    st.markdown("## 📊 Analysis Results")
+    st.markdown("---")
+    st.markdown("## Analysis Results")
 
     # Metrics row
     col1, col2, col3, col4 = st.columns(4)
@@ -836,8 +793,8 @@ def show_results_main():
 
     with col3:
         issues_count = summary.get('issues_count', 0)
-        st.metric("Issues Found", issues_count,
-                 delta="✓ Clean" if issues_count == 0 else f"{issues_count} issues",
+        st.metric("Issues", issues_count,
+                 delta="No issues" if issues_count == 0 else None,
                  delta_color="normal" if issues_count == 0 else "inverse")
 
     with col4:
@@ -846,31 +803,26 @@ def show_results_main():
 
     # Issues details
     if summary.get('issues'):
-        st.markdown("### ⚠️ Data Quality Issues")
+        st.markdown("### ⚠️ Issues Found")
 
-        # Group issues by type
-        errors = [i for i in summary['issues'] if i.get('severity') == 'error']
-        warnings = [i for i in summary['issues'] if i.get('severity') == 'warning']
+        errors = [i for i in summary['issues'] if i['severity'] == 'error']
+        warnings = [i for i in summary['issues'] if i['severity'] == 'warning']
 
         if errors:
             st.markdown("#### 🔴 Errors")
-            for error in errors[:10]:  # Show first 10 errors
-                st.error(f"**{error.get('type', 'Error')}**: {error.get('message', 'Unknown error')}")
-            if len(errors) > 10:
-                st.warning(f"... and {len(errors) - 10} more errors")
+            for error in errors:
+                st.error(f"{error['message']}")
 
         if warnings:
             st.markdown("#### 🟡 Warnings")
-            for warning in warnings[:5]:  # Show first 5 warnings
-                st.warning(f"**{warning.get('type', 'Warning')}**: {warning.get('message', 'Unknown warning')}")
-            if len(warnings) > 5:
-                st.info(f"... and {len(warnings) - 5} more warnings")
+            for warning in warnings:
+                st.warning(f"{warning['message']}")
 
     # Data preview
     if results.get('preview'):
-        st.markdown("### 📋 Data Preview")
+        st.markdown("### Data Preview")
         df_preview = pd.DataFrame(results['preview'])
-        st.dataframe(df_preview, use_container_width=True, height=300)
+        st.dataframe(df_preview, use_container_width=True)
 
 
 def show_results_sidebar():
@@ -878,15 +830,12 @@ def show_results_sidebar():
     results = st.session_state.analysis_results
     summary = results.get("summary", {})
 
-    errors = len([i for i in summary.get('issues', []) if i.get('severity') == 'error'])
-    warnings = len([i for i in summary.get('issues', []) if i.get('severity') == 'warning'])
-
+    # Quick stats
     st.info(f"""
     **Quick Stats**
     - Rows: {summary.get('row_count', 0):,}
     - Columns: {summary.get('column_count', 0)}
-    - Errors: {errors}
-    - Warnings: {warnings}
+    - Issues: {summary.get('issues_count', 0)}
     """)
 
 
@@ -913,18 +862,10 @@ def show_export_sidebar():
                 cell = ws.cell(row=1, column=col_idx, value=col_name)
                 cell.font = Font(bold=True)
 
-            # Write data with error highlighting
-            error_fill = PatternFill(start_color="FF6B6B", end_color="FF6B6B", fill_type="solid")
-
+            # Write data
             for row_idx, row_data in df.iterrows():
                 for col_idx, value in enumerate(row_data, 1):
-                    cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
-
-                    # Check if this cell has errors
-                    for issue in summary.get('issues', []):
-                        if (issue.get('row') == row_idx and
-                            issue.get('column') == df.columns[col_idx - 1]):
-                            cell.fill = error_fill
+                    ws.cell(row=row_idx + 2, column=col_idx, value=value)
 
             # Save
             excel_buffer = io.BytesIO()
@@ -932,7 +873,7 @@ def show_export_sidebar():
             excel_buffer.seek(0)
 
             st.download_button(
-                label="⬇️ Download Excel",
+                label="Download Excel",
                 data=excel_buffer.getvalue(),
                 file_name=f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -947,7 +888,7 @@ def show_export_sidebar():
         df.to_csv(csv_buffer, index=False)
 
         st.download_button(
-            label="⬇️ Download CSV",
+            label="Download CSV",
             data=csv_buffer.getvalue(),
             file_name=f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv"
@@ -964,38 +905,37 @@ def about_page():
         st.markdown("""
         ### Professional Data Validation Tool
 
-        Data Quality Analyzer helps data professionals validate and clean their datasets efficiently.
-        It provides instant feedback on data quality issues with detailed error reporting.
+        Data Quality Analyzer is a powerful tool designed to help data professionals validate
+        and clean their datasets efficiently. Built with modern technologies and best practices,
+        it provides instant feedback on data quality issues.
 
-        #### ✨ Key Features
-        - Support for CSV, JSON, Excel, and Parquet files
-        - Automatic detection of invalid values like "invalid", "error", "n/a"
-        - Data type validation and range checking
-        - Optional data dictionary for custom rules
-        - Export results with error highlighting
+        #### Key Features
+        - ✓ Support for CSV, JSON, Excel, and Parquet files
+        - ✓ Custom validation rules and data dictionaries
+        - ✓ Instant error detection and highlighting
+        - ✓ Export results with visual error markers
+        - ✓ Fast processing for files up to 100MB
 
-        #### 🚀 How to Use
-        1. **Upload your data file** - Required for analysis
-        2. **Optionally add a data dictionary** - Define custom validation rules
-        3. **Click Analyze** - Get instant quality report
-        4. **Export results** - Download with errors highlighted
+        #### How to Use
+        1. **Upload your data file** - Drag and drop or browse for your file
+        2. **Optionally add a data dictionary** - Define expected schema and rules
+        3. **Click Analyze** - Get instant quality reports
+        4. **Export results** - Download reports with error highlighting
 
-        #### 📊 What We Check
-        - Invalid values (text in numeric fields)
-        - Out-of-range values (e.g., age > 150)
-        - Missing or null values
-        - Data type mismatches
-        - Custom rule violations
+        #### Technology Stack
+        - **Frontend:** Streamlit
+        - **Backend:** Python with Pandas
+        - **Analysis:** MCP (Model Context Protocol)
+        - **Deployment:** Azure Container Apps
 
-        #### 🛠️ Technology
-        - Built with Streamlit and Python
-        - Uses Pandas for data processing
-        - Model Context Protocol (MCP) for analysis
-        - Deployable on Azure Container Apps
+        #### Need Help?
+        - Use the demo data to try the tool
+        - Check the sidebar for quick actions
+        - Export your results in Excel or CSV format
 
         ---
 
-        *Version 1.1.0 | © 2024 Data Quality Analyzer*
+        *Version 1.0.0 | © 2024 Data Quality Analyzer*
         """)
 
 
