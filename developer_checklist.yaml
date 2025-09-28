@@ -194,7 +194,124 @@ phase_error_export:
         - "Show download size estimate"
         - "Add batch download for all formats"
 
-# PRIORITY 3: Performance & UX Improvements
+# PRIORITY 3: Testing & Debugging Core Functionality
+phase_testing_debugging:
+  name: "Fix Core Bugs and Test All Features"
+  status: TODO
+  priority: CRITICAL
+  tasks:
+    - id: test_debug_1
+      name: "Fix JSON Format Support"
+      description: "JSON analysis currently broken - showing 'Unsupported format: json'"
+      status: TODO
+      priority: CRITICAL
+      effort: "2 hours"
+      bug_reported: "User reported: JSON Mixed demo data causes error"
+      subtasks:
+        - "Debug _simulate_mcp_call method for JSON handling"
+        - "Fix JSON data loading in web_app.py"
+        - "Test with all JSON demo formats"
+        - "Handle nested JSON structures properly"
+        - "Fix JSON preview display"
+
+    - id: test_debug_2
+      name: "Test All Demo Data Formats"
+      description: "Systematically test each demo data format"
+      status: TODO
+      priority: CRITICAL
+      effort: "3 hours"
+      subtasks:
+        - "Test CSV - Western demo data"
+        - "Test CSV - Asian demo data"
+        - "Test JSON - Mixed demo data"
+        - "Test CSV - Clinical Trial demo data"
+        - "Document all errors found"
+        - "Fix each format's specific issues"
+
+    - id: test_debug_3
+      name: "Data Dictionary Testing"
+      description: "Test data dictionary parsing and application"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Test loading each demo dictionary"
+        - "Verify schema extraction works"
+        - "Test rules extraction"
+        - "Apply dictionaries to matching demo data"
+        - "Fix any parsing errors"
+        - "Test dictionary UI integration"
+
+    - id: test_debug_4
+      name: "File Upload Testing"
+      description: "Test various file upload scenarios"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Test CSV file uploads"
+        - "Test Excel file uploads"
+        - "Test JSON file uploads"
+        - "Test Parquet file uploads"
+        - "Test large file handling"
+        - "Test invalid file formats"
+        - "Test empty files"
+
+    - id: test_debug_5
+      name: "Schema and Rules Validation Testing"
+      description: "Verify schema and rules work correctly"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Test manual schema creation"
+        - "Test auto-detection of types"
+        - "Test rules with min/max values"
+        - "Test allowed values validation"
+        - "Test datetime validation"
+        - "Fix validation error messages"
+
+    - id: test_debug_6
+      name: "Error Display Testing"
+      description: "Ensure errors are displayed correctly"
+      status: TODO
+      priority: HIGH
+      effort: "1 hour"
+      subtasks:
+        - "Test error highlighting in results"
+        - "Verify error counts are accurate"
+        - "Test error message clarity"
+        - "Check error navigation"
+        - "Test error export functionality"
+
+    - id: test_debug_7
+      name: "Cross-Browser Testing"
+      description: "Test application in different browsers"
+      status: TODO
+      priority: MEDIUM
+      effort: "1 hour"
+      subtasks:
+        - "Test in Chrome"
+        - "Test in Firefox"
+        - "Test in Safari"
+        - "Test in Edge"
+        - "Document browser-specific issues"
+
+    - id: test_debug_8
+      name: "Performance Testing"
+      description: "Test with various data sizes"
+      status: TODO
+      priority: MEDIUM
+      effort: "2 hours"
+      subtasks:
+        - "Test with 100 rows"
+        - "Test with 1,000 rows"
+        - "Test with 10,000 rows"
+        - "Test with 100,000 rows"
+        - "Monitor memory usage"
+        - "Check for memory leaks"
+
+# PRIORITY 4: Performance & UX Improvements
 phase_performance_ux:
   name: "Performance and User Experience"
   status: TODO
@@ -247,7 +364,7 @@ phase_performance_ux:
         - "Create configuration library"
         - "Share configurations via URL"
 
-# PRIORITY 4: Core Functionality Remaining
+# PRIORITY 5: Core Functionality Remaining
 phase_core_remaining:
   name: "Core Features to Complete"
   status: TODO
@@ -272,7 +389,7 @@ phase_core_remaining:
         - "Add retry mechanisms"
         - "Log errors for debugging"
 
-# PRIORITY 5: Testing & Documentation
+# PRIORITY 6: Testing & Documentation
 phase_testing_docs:
   name: "Testing and Documentation"
   status: TODO
@@ -331,18 +448,22 @@ bugs:
 # Immediate Action Items (For Tonight's Work)
 immediate_tasks:
   order_of_execution:
-    1: "ui_cleanup_1 - Fix Navigation Bar"
-    2: "ui_cleanup_2 - Sidebar Reorganization"
-    3: "ui_cleanup_3 - Main Content Area Restructuring"
-    4: "ui_cleanup_6 - Visual Polish (CSS/theming)"
-    5: "ui_cleanup_5 - Results Dashboard Redesign"
-    6: "ui_cleanup_4 - Schema/Rules Editor Overhaul"
-    7: "export_1 - Excel Export with Error Highlighting"
-    8: "export_5 - Download UI Integration"
+    1: "test_debug_1 - Fix JSON Format Support (CRITICAL BUG)"
+    2: "test_debug_2 - Test All Demo Data Formats"
+    3: "test_debug_3 - Data Dictionary Testing"
+    4: "ui_cleanup_1 - Fix Navigation Bar"
+    5: "ui_cleanup_2 - Sidebar Reorganization"
+    6: "ui_cleanup_3 - Main Content Area Restructuring"
+    7: "ui_cleanup_6 - Visual Polish (CSS/theming)"
+    8: "ui_cleanup_5 - Results Dashboard Redesign"
+    9: "export_1 - Excel Export with Error Highlighting"
+    10: "export_5 - Download UI Integration"
 
-  estimated_time: "8-10 hours total"
+  estimated_time: "10-12 hours total"
 
   notes: |
+    CRITICAL: Fix JSON support bug first - user reported this is broken!
+    Then ensure all core functionality works before UI improvements.
     Focus on making the UI clean, professional, and less cluttered.
     Priority is reducing scrolling and improving visual hierarchy.
     The download feature with error highlighting is a key differentiator.
