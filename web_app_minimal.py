@@ -10,7 +10,6 @@ import json
 import base64
 import io
 import asyncio
-import csv
 from typing import Dict, Any, Optional
 from datetime import datetime
 
@@ -243,124 +242,13 @@ class MCPClient:
                 return {"error": str(e)}
 
         elif tool == "parse_data_dictionary":
-            # Simulate dictionary parsing with actual logic
-            try:
-                dictionary_content = args.get("dictionary_content", "")
-                format_hint = args.get("format_hint", "auto")
-
-                # Parse dictionary based on format
-                schema = {}
-                rules = {}
-
-                # Try to detect format
-                lines = dictionary_content.strip().split('\n')
-                if not lines:
-                    return {"error": "Empty dictionary"}
-
-                # Check if it's CSV format (common data dictionary format)
-                if ',' in lines[0] or '\t' in lines[0]:
-                    # Parse as CSV-like dictionary
-                    import csv
-                    reader = csv.DictReader(io.StringIO(dictionary_content))
-
-                    for row in reader:
-                        # Common dictionary formats have columns like:
-                        # field_name, field_type, min, max, allowed_values, description
-                        field_name = (row.get('field_name') or row.get('column') or
-                                    row.get('variable') or row.get('name') or '')
-
-                        if field_name:
-                            # Extract type
-                            field_type = (row.get('type') or row.get('field_type') or
-                                        row.get('data_type') or 'str')
-
-                            # Map common type names
-                            type_map = {
-                                'integer': 'int', 'number': 'float', 'string': 'str',
-                                'text': 'str', 'boolean': 'bool', 'date': 'datetime',
-                                'timestamp': 'datetime', 'numeric': 'float'
-                            }
-                            field_type = type_map.get(field_type.lower(), field_type.lower())
-                            schema[field_name] = field_type
-
-                            # Extract rules
-                            field_rules = {}
-                            if row.get('min'):
-                                try:
-                                    field_rules['min'] = float(row['min'])
-                                except:
-                                    pass
-                            if row.get('max'):
-                                try:
-                                    field_rules['max'] = float(row['max'])
-                                except:
-                                    pass
-                            if row.get('allowed_values') or row.get('values'):
-                                allowed = row.get('allowed_values') or row.get('values')
-                                field_rules['allowed_values'] = [v.strip() for v in allowed.split('|')]
-
-                            if field_rules:
-                                rules[field_name] = field_rules
-
-                elif lines[0].startswith('{') or lines[0].startswith('['):
-                    # Parse as JSON dictionary
-                    dict_data = json.loads(dictionary_content)
-
-                    if isinstance(dict_data, list):
-                        # Array of field definitions
-                        for field in dict_data:
-                            if isinstance(field, dict):
-                                name = field.get('name') or field.get('field_name')
-                                if name:
-                                    dtype = field.get('type', 'str')
-                                    schema[name] = dtype
-
-                                    field_rules = {}
-                                    if 'min' in field:
-                                        field_rules['min'] = field['min']
-                                    if 'max' in field:
-                                        field_rules['max'] = field['max']
-                                    if 'allowed_values' in field:
-                                        field_rules['allowed_values'] = field['allowed_values']
-
-                                    if field_rules:
-                                        rules[name] = field_rules
-
-                    elif isinstance(dict_data, dict):
-                        # Object with schema/rules keys or field definitions
-                        if 'schema' in dict_data:
-                            schema = dict_data['schema']
-                        if 'rules' in dict_data:
-                            rules = dict_data['rules']
-
-                        # Or it might be a direct field mapping
-                        if not schema and not rules:
-                            for key, value in dict_data.items():
-                                if isinstance(value, dict):
-                                    schema[key] = value.get('type', 'str')
-                                    if 'min' in value or 'max' in value:
-                                        rules[key] = {}
-                                        if 'min' in value:
-                                            rules[key]['min'] = value['min']
-                                        if 'max' in value:
-                                            rules[key]['max'] = value['max']
-                                else:
-                                    # Simple type mapping
-                                    schema[key] = value
-
-                return {
-                    "success": True,
-                    "schema": schema,
-                    "rules": rules,
-                    "metadata": {
-                        "source": "parsed",
-                        "fields_count": len(schema),
-                        "rules_count": len(rules)
-                    }
-                }
-
-            except Exception as e:
-                return {"error": f"Dictionary parsing failed: {str(e)}"}
+            # Simulate dictionary parsing
+            return {
+                "success": True,
+                "schema": {},
+                "rules": {},
+                "metadata": {"source": "simulated"}
+            }
 
         return {"error": "Unknown tool"}
 
@@ -606,42 +494,6 @@ P003,999,Drug_A,Improved,invalid"""
             # Initialize MCP client
             client = MCPClient()
 
-            # Parse data dictionary if provided
-            dict_schema = {}
-            dict_rules = {}
-
-            if st.session_state.dictionary_file:
-                with st.spinner("📖 Parsing data dictionary..."):
-                    # Get dictionary content
-                    if isinstance(st.session_state.dictionary_file, str):
-                        # Demo dictionary
-                        dict_content = st.session_state.dictionary_file
-                    else:
-                        # Uploaded file
-                        dict_content = st.session_state.dictionary_file.read().decode('utf-8')
-                        st.session_state.dictionary_file.seek(0)
-
-                    # Parse dictionary
-                    dict_result = asyncio.run(
-                        client.parse_data_dictionary(
-                            dictionary_content=dict_content,
-                            format_hint="auto",
-                            use_cache=True,
-                            debug=debug_mode if 'debug_mode' in locals() else False
-                        )
-                    )
-
-                    if dict_result.get("success"):
-                        dict_schema = dict_result.get("schema", {})
-                        dict_rules = dict_result.get("rules", {})
-                        st.success(f"✅ Dictionary parsed: {len(dict_schema)} fields, {len(dict_rules)} rules")
-                    elif "error" in dict_result:
-                        st.warning(f"⚠️ Dictionary parsing failed: {dict_result['error']}")
-
-            # Merge manual schema/rules with dictionary
-            final_schema = {**dict_schema, **(schema if 'schema' in locals() else {})}
-            final_rules = {**dict_rules, **(rules if 'rules' in locals() else {})}
-
             # Prepare data content
             if isinstance(st.session_state.uploaded_file, str):
                 # Demo data (already a string)
@@ -670,8 +522,8 @@ P003,999,Drug_A,Improved,invalid"""
                 client.analyze_data(
                     data_content=data_content,
                     file_format=file_format,
-                    schema=final_schema if final_schema else None,
-                    rules=final_rules if final_rules else None,
+                    schema=schema if 'schema' in locals() else None,
+                    rules=rules if 'rules' in locals() else None,
                     min_rows=min_rows if 'min_rows' in locals() else 1,
                     debug=debug_mode if 'debug_mode' in locals() else False
                 )
@@ -774,8 +626,7 @@ P003,999,Drug_A,Improved,invalid"""
 
             # Download section in expander
             with st.expander("💾 Download Results"):
-                col1, col2, col3 = st.columns(3)
-
+                col1, col2 = st.columns(2)
                 with col1:
                     # Create downloadable report
                     report = {
@@ -803,100 +654,6 @@ P003,999,Drug_A,Improved,invalid"""
                             file_name=f"data_quality_issues_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                             mime="text/csv"
                         )
-
-                with col3:
-                    # Excel with error highlighting
-                    if result.get("preview"):
-                        try:
-                            import openpyxl
-                            from openpyxl.styles import PatternFill, Font, Comment
-                            from openpyxl.workbook import Workbook
-
-                            # Create Excel workbook
-                            wb = Workbook()
-                            ws = wb.active
-                            ws.title = "Data with Errors"
-
-                            # Get data
-                            df_export = pd.DataFrame(result["preview"])
-
-                            # Write headers
-                            for col_idx, col_name in enumerate(df_export.columns, 1):
-                                ws.cell(row=1, column=col_idx, value=col_name)
-                                ws.cell(row=1, column=col_idx).font = Font(bold=True)
-
-                            # Write data and highlight errors
-                            red_fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
-                            yellow_fill = PatternFill(start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid")
-
-                            # Track which cells have issues
-                            error_cells = {}
-                            for issue in summary.get('issues', []):
-                                if 'column' in issue:
-                                    col = issue['column']
-                                    if col not in error_cells:
-                                        error_cells[col] = []
-                                    error_cells[col].append({
-                                        'severity': issue.get('severity', 'error'),
-                                        'message': issue.get('message', '')
-                                    })
-
-                            # Write data rows
-                            for row_idx, row in df_export.iterrows():
-                                for col_idx, (col_name, value) in enumerate(row.items(), 1):
-                                    cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
-
-                                    # Highlight errors
-                                    if col_name in error_cells:
-                                        for error_info in error_cells[col_name]:
-                                            if error_info['severity'] == 'error':
-                                                cell.fill = red_fill
-                                            else:
-                                                cell.fill = yellow_fill
-
-                                            # Add comment with error message
-                                            if cell.comment is None:
-                                                cell.comment = Comment(error_info['message'], "Data Analyzer")
-
-                            # Add summary sheet
-                            ws2 = wb.create_sheet("Analysis Summary")
-                            ws2['A1'] = "Data Quality Analysis Summary"
-                            ws2['A1'].font = Font(bold=True, size=14)
-
-                            ws2['A3'] = "Metrics"
-                            ws2['A3'].font = Font(bold=True)
-                            ws2['A4'] = "Total Rows:"
-                            ws2['B4'] = summary.get('row_count', 0)
-                            ws2['A5'] = "Total Columns:"
-                            ws2['B5'] = summary.get('column_count', 0)
-                            ws2['A6'] = "Issues Found:"
-                            ws2['B6'] = summary.get('issues_count', 0)
-
-                            if summary.get('issues'):
-                                ws2['A8'] = "Issues Detail"
-                                ws2['A8'].font = Font(bold=True)
-                                row = 9
-                                for issue in summary['issues']:
-                                    ws2[f'A{row}'] = issue.get('severity', 'info').upper()
-                                    ws2[f'B{row}'] = issue.get('column', 'General')
-                                    ws2[f'C{row}'] = issue.get('message', '')
-                                    row += 1
-
-                            # Save to bytes
-                            excel_buffer = io.BytesIO()
-                            wb.save(excel_buffer)
-                            excel_buffer.seek(0)
-
-                            st.download_button(
-                                label="📊 Download Excel with Errors",
-                                data=excel_buffer.getvalue(),
-                                file_name=f"data_with_errors_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                help="Download Excel file with errors highlighted in red"
-                            )
-
-                        except ImportError:
-                            st.info("Install openpyxl for Excel export")
 
 
 if __name__ == "__main__":
