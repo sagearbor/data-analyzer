@@ -2,6 +2,33 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## IMPORTANT: Developer Checklist
+
+**All AI agents MUST check and update `developer_checklist.yaml` when working on this project.**
+
+The checklist contains:
+- Development phases with dependencies
+- Task statuses (TODO, INPROGRESS, DONE)
+- Priority levels and effort estimates
+- Known bugs and technical debt
+
+When working on tasks:
+1. Check `developer_checklist.yaml` for related tasks
+2. Update status to INPROGRESS when starting work
+3. Add detailed notes about progress
+4. Mark as DONE only when fully complete
+5. Update the `last_updated` field
+
+Example of updating a task:
+```yaml
+status: INPROGRESS
+notes: |
+  INPROGRESS:
+  - Completed: Basic implementation
+  - Remaining: Tests and documentation
+  - Blocked: Waiting for dependency X
+```
+
 ## Project Overview
 
 This is a data quality analysis tool with Azure deployment capabilities that consists of:
