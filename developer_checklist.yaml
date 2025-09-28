@@ -391,9 +391,118 @@ phase_performance_ux:
         - "Create configuration library"
         - "Share configurations via URL"
 
-# PRIORITY 5: Core Functionality Remaining
+# PRIORITY 5A: LLM Integration (IMMEDIATE)
+phase_llm_integration:
+  name: "LLM/Azure OpenAI Implementation"
+  status: TODO
+  description: "Get actual AI working with API keys in .env"
+  tasks:
+    - id: llm_1
+      name: "Basic Azure OpenAI Connection"
+      description: "Connect to Azure OpenAI using existing .env credentials"
+      status: TODO
+      priority: CRITICAL
+      effort: "2-3 hours"
+      notes: |
+        # Current State:
+        # - API credentials exist in .env file
+        # - NO OpenAI code exists yet
+        # - All analysis is simulated
+
+        # Implementation Steps:
+        # 1. Install openai library: pip install openai
+        # 2. Create src/llm_client.py
+        # 3. Read Azure OpenAI credentials from .env
+        # 4. Create connection class
+        # 5. Test with simple prompt
+
+        # Required .env variables:
+        # AZURE_OPENAI_API_KEY=xxx
+        # AZURE_OPENAI_ENDPOINT=xxx
+        # AZURE_OPENAI_DEPLOYMENT_NAME=xxx
+
+    - id: llm_2
+      name: "Dictionary Parser with LLM"
+      description: "Replace regex parsing with GPT-4 extraction"
+      status: TODO
+      priority: HIGH
+      effort: "3-4 days"
+      notes: |
+        # Replace current regex (web_app.py lines 625-636)
+        # with actual LLM parsing
+
+        # Implementation:
+        # 1. Send dictionary pages to GPT-4
+        # 2. Use structured prompt to extract:
+        #    - Field names and types
+        #    - Valid ranges
+        #    - Required/optional flags
+        #    - Skip patterns (basic, not full logic)
+        # 3. Return structured JSON schema
+        # 4. Cache results to avoid API costs
+
+    - id: llm_3
+      name: "Enhanced Data Quality Checks"
+      description: "Use LLM to detect complex data issues"
+      status: TODO
+      priority: MEDIUM
+      effort: "2-3 days"
+      notes: |
+        # Beyond basic pattern matching
+        # Use LLM to identify:
+        # - Semantic inconsistencies
+        # - Likely data entry errors
+        # - Outliers in context
+        # - Data that "doesn't make sense"
+
+# PRIORITY 5B: Logic Validation (COMPLEX)
+phase_logic_validation:
+  name: "Conditional Logic Engine"
+  status: TODO
+  description: "The hardest problem - validating conditional rules"
+  tasks:
+    - id: logic_1
+      name: "Template-Based Logic Detection"
+      description: "Start with common patterns"
+      status: TODO
+      priority: HIGH
+      effort: "3-4 days"
+      notes: |
+        # Phase 1 - Simple templates
+        # Detect patterns like:
+        # - "If X = Y, then Z is required"
+        # - "Skip to Q if condition"
+        # - "Show only if"
+
+        # Create src/logic_templates.py
+
+    - id: logic_2
+      name: "Statistical Logic Discovery"
+      description: "Learn patterns from data"
+      status: TODO
+      priority: MEDIUM
+      effort: "5-7 days"
+      notes: |
+        # Analyze actual data to find patterns
+        # When field A=X, field B is always blank
+        # Build confidence scores
+        # Flag violations
+
+    - id: logic_3
+      name: "LLM Logic Extraction"
+      description: "Use GPT-4 to understand complex logic"
+      status: TODO
+      priority: HIGH
+      effort: "1 week"
+      notes: |
+        # Send dictionary sections to GPT-4
+        # Extract complex conditional rules
+        # Generate Python validation code
+        # This is part of core_1b2 task
+
+# PRIORITY 5C: Core Infrastructure
 phase_core_remaining:
-  name: "Core Features to Complete"
+  name: "Core Infrastructure Improvements"
   status: TODO
   tasks:
     - id: core_1
