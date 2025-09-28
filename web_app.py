@@ -15,6 +15,10 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
+import PyPDF2
+import re
+import plotly.graph_objects as go
+import plotly.express as px
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
@@ -331,14 +335,13 @@ def load_demo_data(dataset_name: str):
     return demo_data.get(dataset_name, demo_data['western'])
 
 def create_issue_heatmap(df: pd.DataFrame, issues: list):
-    """Create a small heatmap showing where issues are in the data with hover tooltips"""
+    """Create an interactive heatmap with hover tooltips using Plotly"""
     try:
         rows, cols = len(df), len(df.columns)
 
-        # Create a matrix to store issue locations and messages
         # Condense large datasets
         max_display_rows = 60
-        max_display_cols = 30
+        max_display_cols = 100  # Increased for wide datasets
 
         row_factor = max(1, rows // max_display_rows)
         col_factor = max(1, cols // max_display_cols)
@@ -346,9 +349,9 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
         display_rows = min(rows, max_display_rows)
         display_cols = min(cols, max_display_cols)
 
-        # Initialize matrix (0 = no issue, 1 = warning, 2 = error) and tooltip dictionary
+        # Initialize matrix and hover text
         issue_matrix = np.zeros((display_rows, display_cols))
-        issue_tooltips = {}  # Store tooltips for each cell
+        hover_text = [['' for _ in range(display_cols)] for _ in range(display_rows)]
 
         # Map issues to matrix
         for issue in issues:
@@ -365,74 +368,72 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
                     severity_value = 2 if issue['severity'] == 'error' else 1
                     issue_matrix[display_row, display_col] = max(issue_matrix[display_row, display_col], severity_value)
 
-                    # Store tooltip info
-                    key = (display_row, display_col)
-                    if key not in issue_tooltips:
-                        issue_tooltips[key] = []
-                    issue_tooltips[key].append(f"{issue['type']}: Row {row_idx}, Col {issue['column']}")
+                    # Build hover text
+                    issue_info = f"<b>{issue['type'].replace('_', ' ').title()}</b><br>"
+                    issue_info += f"Row: {row_idx}<br>"
+                    issue_info += f"Column: {issue['column']}<br>"
+                    issue_info += f"Value: {issue.get('value', 'N/A')}<br>"
+                    issue_info += f"Severity: {issue['severity']}"
+
+                    if hover_text[display_row][display_col]:
+                        hover_text[display_row][display_col] += "<br><br>" + issue_info
+                    else:
+                        hover_text[display_row][display_col] = issue_info
                 except:
                     pass
 
-        # Calculate proportional figure size based on data shape
-        # Base size is 3 inches max dimension
-        max_size = 3
-        aspect_ratio = cols / rows  # Width to height ratio
-
+        # Calculate aspect ratio for proper dimensions
+        aspect_ratio = cols / rows
         if aspect_ratio > 1:
-            # Wider than tall (more columns than rows)
-            fig_width = max_size
-            fig_height = max(0.3, max_size / aspect_ratio)  # Min height of 0.3
+            # Wide dataset
+            fig_width = 300
+            fig_height = max(50, 300 / aspect_ratio)
         else:
-            # Taller than wide (more rows than columns)
-            fig_height = max_size
-            fig_width = max(0.3, max_size * aspect_ratio)  # Min width of 0.3
+            # Tall dataset
+            fig_height = 300
+            fig_width = max(50, 300 * aspect_ratio)
 
-        # Create the visualization with proportional dimensions
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        # Create interactive Plotly heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=issue_matrix,
+            text=hover_text,
+            hovertemplate='%{text}<extra></extra>',
+            colorscale=[
+                [0, '#ffffff'],      # White for no issue
+                [0.5, '#fbbf24'],    # Yellow for warning
+                [1, '#ef4444']       # Red for error
+            ],
+            showscale=False,
+            xgap=1,
+            ygap=1
+        ))
 
-        # Create color map (white = no issue, yellow = warning, red = error)
-        colors = ['#ffffff', '#fbbf24', '#ef4444']
-        cmap = plt.matplotlib.colors.ListedColormap(colors)
+        # Update layout
+        fig.update_layout(
+            title={
+                'text': f'{rows} rows × {cols} cols' + (f' (scale {row_factor}:{col_factor})' if rows > max_display_rows or cols > max_display_cols else ''),
+                'font': {'size': 10}
+            },
+            width=fig_width,
+            height=fig_height,
+            margin=dict(l=20, r=20, t=30, b=20),
+            xaxis={'showticklabels': False, 'showgrid': False},
+            yaxis={'showticklabels': False, 'showgrid': False},
+            paper_bgcolor='white',
+            plot_bgcolor='white'
+        )
 
-        # Plot heatmap
-        im = ax.imshow(issue_matrix, cmap=cmap, aspect='auto', vmin=0, vmax=2)
+        # Display with Streamlit
+        st.plotly_chart(fig, use_container_width=False)
 
-        # Add black border
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.spines['top'].set_visible(True)
-        ax.spines['top'].set_color('black')
-        ax.spines['top'].set_linewidth(2)
-        ax.spines['right'].set_visible(True)
-        ax.spines['right'].set_color('black')
-        ax.spines['right'].set_linewidth(2)
-        ax.spines['bottom'].set_visible(True)
-        ax.spines['bottom'].set_color('black')
-        ax.spines['bottom'].set_linewidth(2)
-        ax.spines['left'].set_visible(True)
-        ax.spines['left'].set_color('black')
-        ax.spines['left'].set_linewidth(2)
-
-        # Add title with data dimensions
-        title = f'{rows} rows × {cols} cols'
-        if rows > max_display_rows or cols > max_display_cols:
-            title += f' (scale {row_factor}:{col_factor})'
-        ax.set_title(title, fontsize=7, pad=2)
-
-        # Add caption with issue counts
+        # Show summary
         error_count = np.sum(issue_matrix == 2)
         warning_count = np.sum(issue_matrix == 1)
         if error_count > 0 or warning_count > 0:
-            caption = f"🔴 {int(error_count)} errors, 🟡 {int(warning_count)} warnings"
-            ax.text(0.5, -0.15, caption, transform=ax.transAxes,
-                   fontsize=6, ha='center', va='top')
-
-        plt.tight_layout(pad=0.1)
-        st.pyplot(fig, use_container_width=False)  # Don't stretch to container
-        plt.close()
+            st.caption(f"🔴 {int(error_count)} cells with errors, 🟡 {int(warning_count)} cells with warnings")
 
     except Exception as e:
-        st.caption("Issue map unavailable")
+        st.caption(f"Issue map unavailable: {str(e)}")
 
 def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
     """Export data to Excel with error cells highlighted"""
@@ -563,20 +564,59 @@ with tab1:
         )
 
         if dict_file:
-            with st.spinner(f"Processing dictionary {dict_file.name}..."):
-                try:
-                    if dict_file.name.endswith('.pdf'):
-                        # For PDF files, simulate parsing with progress
-                        progress_text = st.empty()
-                        progress_text.info(f"📄 Reading PDF dictionary '{dict_file.name}'...")
-                        # In production, you'd parse the PDF here
-                        st.session_state.dictionary = {"source": "PDF", "filename": dict_file.name}
-                        progress_text.success(f"✅ PDF dictionary '{dict_file.name}' ready for validation")
-                    else:
-                        st.session_state.dictionary = json.load(dict_file)
-                        st.success("✅ Dictionary loaded")
-                except Exception as e:
-                    st.error(f"Error loading dictionary: {str(e)}")
+            try:
+                if dict_file.name.endswith('.pdf'):
+                    # Parse PDF dictionary
+                    progress_bar = st.progress(0, text="Parsing PDF dictionary...")
+
+                    # Read PDF content
+                    pdf_reader = PyPDF2.PdfReader(dict_file)
+                    num_pages = len(pdf_reader.pages)
+
+                    extracted_text = ""
+                    extracted_rules = {}
+
+                    for i, page in enumerate(pdf_reader.pages):
+                        progress_bar.progress((i + 1) / num_pages, text=f"Processing page {i+1} of {num_pages}...")
+                        page_text = page.extract_text()
+                        extracted_text += page_text
+
+                        # Look for validation rules in the PDF (example patterns)
+                        # Look for date fields
+                        date_fields = re.findall(r'([\w_]+).*?(?:date|Date|DATE)', page_text)
+                        for field in date_fields:
+                            if field not in extracted_rules:
+                                extracted_rules[field] = {"type": "date"}
+
+                        # Look for numeric ranges
+                        range_patterns = re.findall(r'([\w_]+).*?(?:range|Range|between).*?(\d+).*?(?:to|and|-|–).*?(\d+)', page_text)
+                        for field, min_val, max_val in range_patterns:
+                            if field not in extracted_rules:
+                                extracted_rules[field] = {"min": int(min_val), "max": int(max_val)}
+
+                    progress_bar.empty()
+
+                    # Store extracted dictionary
+                    st.session_state.dictionary = {
+                        "source": "PDF",
+                        "filename": dict_file.name,
+                        "rules": extracted_rules,
+                        "pages": num_pages,
+                        "text_length": len(extracted_text)
+                    }
+
+                    st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
+                    if extracted_rules:
+                        with st.expander(f"Found {len(extracted_rules)} validation rules"):
+                            for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
+                                st.text(f"{field}: {rule}")
+                            if len(extracted_rules) > 10:
+                                st.text(f"... and {len(extracted_rules) - 10} more")
+                else:
+                    st.session_state.dictionary = json.load(dict_file)
+                    st.success("✅ Dictionary loaded")
+            except Exception as e:
+                st.error(f"Error loading dictionary: {str(e)}")
 
         # Demo dictionary selector below file uploader
         demo_dict = st.selectbox(
