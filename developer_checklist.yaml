@@ -6,7 +6,24 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2025-09-28T07:50:00Z
+  last_updated: 2025-09-28T20:00:00Z
+
+# =========================================================
+# CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
+# =========================================================
+# FIXES COMPLETED TODAY BY CLAUDE:
+# 1. ✅ Export dropdown - Shows download button immediately
+# 2. ✅ PDF dictionary caching - Saves to ~/.data_analyzer_cache/
+# 3. ✅ PDF progress - Shows every page update (not batched)
+# 4. ✅ Port issue - Fixed multiple instances, runs on 8501
+# 5. ⚠️  Mermaid diagram - STILL BROKEN (see core_1c below)
+#
+# MAJOR DISCOVERIES - IMPORTANT:
+# - MCPClient is 100% SIMULATED - NO real MCP (see core_1)
+# - Azure OpenAI was NEVER IMPLEMENTED (see core_1b)
+# - Dictionary parsing uses BASIC REGEX ONLY
+# - The app has been running on simulations all along!
+# =========================================================
 
 # PRIORITY 1: Frontend Cleanup & Visual Improvements
 phase_frontend_cleanup:
@@ -385,7 +402,186 @@ phase_core_remaining:
       status: TODO
       priority: MEDIUM
       effort: "3-5 days"
-      notes: "Currently using _simulate_mcp_call() method"
+      notes: |
+        CRITICAL CONTEXT - MUST READ:
+        # Current State (as of 2025-09-28):
+        # - The ENTIRE MCPClient class in web_app.py (line 181) is SIMULATED
+        # - NO real MCP server connection exists
+        # - analyze_data_quality() method uses basic pattern matching, NOT AI
+        # - This is NOT a bug - it was intentionally left as simulation
+
+        # What's Being Simulated:
+        # 1. Data quality analysis - just regex checks for "invalid", "error", etc.
+        # 2. Range validation - simple numeric comparisons
+        # 3. Missing value detection - basic pandas isnull() checks
+        # 4. NO machine learning or AI analysis happening
+
+        # To Implement Real MCP:
+        # - Install actual MCP client library
+        # - Replace MCPClient class with real implementation
+        # - Connect to actual MCP server (mcp_server.py exists but not connected)
+        # - Remove all simulation code
+
+    - id: core_1b
+      name: "Azure OpenAI/LLM Dictionary Parsing"
+      description: "Implement AI-powered dictionary parsing"
+      status: TODO
+      priority: HIGH
+      effort: "5-7 days"
+      notes: |
+        IMPORTANT: This feature was NEVER IMPLEMENTED despite being in docs
+        # Current State (as of 2025-09-28):
+        # - NO Azure OpenAI code exists in repository (verified with grep)
+        # - NO LLM integration exists
+        # - PDF dictionary parsing uses BASIC REGEX ONLY:
+        #   * Date fields: looks for "date" in field names
+        #   * Ranges: looks for "range/between" + two numbers
+        #   * That's it! Very primitive.
+
+        # Original Plan (never built):
+        # - Use Azure OpenAI GPT-4o-mini to generate Python parser code
+        # - Parse complex dictionaries (REDCap, Clinical, etc.)
+        # - Generate deterministic, verifiable parser code
+        # - Cache parsers for reuse
+
+        # Why It Matters:
+        # - Current regex parsing is almost useless for real dictionaries
+        # - Can't detect: data types, enumerations, patterns, dependencies
+        # - Can't understand complex formats or nested structures
+
+        # To Implement:
+        # 1. Add openai Python library to requirements
+        # 2. Add Azure OpenAI credentials to .env
+        # 3. Create LLM prompt for dictionary parsing
+        # 4. Generate Python parser code via LLM
+        # 5. Execute parser in sandbox with timeout
+        # 6. Cache successful parsers
+
+    - id: core_1b2
+      name: "Conditional Logic Validation Engine"
+      description: "Detect and validate conditional logic rules in data"
+      status: TODO
+      priority: CRITICAL
+      effort: "10-15 days"
+      notes: |
+        MAJOR FEATURE: This is one of the hardest problems in data quality
+        # The Problem:
+        # - Data dictionaries contain conditional logic (skip patterns, branching)
+        # - Example: "If Question 3 = 'No', skip to Question 7"
+        # - Example: "If Age < 18, ParentConsent must be 'Yes'"
+        # - Example: "If Treatment = 'Placebo', DoseAmount should be blank"
+        # - EVERY dictionary expresses this differently!
+
+        # Why It's Hard:
+        # 1. No standard format for expressing logic
+        # 2. Logic can be in text, tables, or separate documents
+        # 3. Complex nested conditions (IF A=1 AND B=2 THEN C must be blank)
+        # 4. Temporal dependencies (If Visit1_Status = 'Complete', Visit2 can be entered)
+
+        # APPROACH 1: LLM-Powered Rule Extraction
+        # =========================================
+        # Use GPT-4 to extract logical rules and generate validation code
+        #
+        # Pros:
+        # - Can understand natural language descriptions
+        # - Handles various formats (REDCap, Clinical, custom)
+        # - Can generate Python validation functions
+        #
+        # Cons:
+        # - Expensive (API calls)
+        # - Not 100% accurate
+        # - Need to verify generated code
+        #
+        # Implementation:
+        # 1. Send dictionary pages to GPT-4 with specialized prompt
+        # 2. Extract rules in structured format (JSON)
+        # 3. Generate Python validation functions
+        # 4. Test on sample data
+        # 5. Cache successful validators
+
+        # APPROACH 2: Statistical Pattern Learning
+        # =========================================
+        # Learn patterns from the data itself (unsupervised)
+        #
+        # Pros:
+        # - No need to parse dictionary
+        # - Finds actual patterns in real data
+        # - Can detect undocumented rules
+        #
+        # Cons:
+        # - Needs sufficient data
+        # - May find spurious correlations
+        # - Can't distinguish required vs coincidental patterns
+        #
+        # Implementation:
+        # 1. Analyze field combinations in actual data
+        # 2. Find patterns: "When A=X, B is always Y or blank"
+        # 3. Calculate confidence scores (95% = likely rule)
+        # 4. Flag violations of high-confidence patterns
+        # 5. Present findings for human review
+
+        # APPROACH 3: Hybrid Template + Learning
+        # =========================================
+        # Combine template matching with ML pattern discovery
+        #
+        # Pros:
+        # - Best of both worlds
+        # - Can handle known and unknown patterns
+        # - More robust than either alone
+        #
+        # Cons:
+        # - Most complex to implement
+        # - Requires both dictionary AND data
+        # - Needs careful tuning
+        #
+        # Implementation:
+        # 1. Pre-built templates for common patterns:
+        #    - "If [field] = [value], then [field2] = [value2/blank]"
+        #    - "Skip to [field] if [condition]"
+        #    - "Required if [condition]"
+        # 2. Use regex/NLP to match templates in dictionary
+        # 3. Validate patterns against actual data
+        # 4. Use ML to find additional patterns not in templates
+        # 5. Combine findings with confidence scores
+
+        # Example Logic Patterns to Detect:
+        # - Skip logic: "Skip Q5-Q10 if Q4='No'"
+        # - Conditional requirements: "If pregnant='Yes', due_date required"
+        # - Mutual exclusivity: "If option_A selected, option_B must be blank"
+        # - Range dependencies: "If age<18, parent_signature required"
+        # - Cascade logic: "If country='US', show state dropdown"
+
+        # Recommended Starting Point:
+        # Start with Approach 3 (Hybrid) because:
+        # - Can begin with simple template matching
+        # - Add LLM enhancement later
+        # - Statistical validation provides safety net
+        # - Most practical for production use
+
+    - id: core_1c
+      name: "Fix Mermaid Diagram Rendering"
+      description: "Mermaid diagram shows as text instead of flowchart"
+      status: TODO
+      priority: LOW
+      effort: "2-3 hours"
+      notes: |
+        # Issue (as of 2025-09-28):
+        # - Mermaid diagram in About page shows raw text not visual
+        # - Located in assets/data_flow_diagram.mmd
+        # - render_mermaid() function creates iframe but Mermaid.js fails
+        # - Error: "transform: Expected number, translate(undefined, NaN)"
+
+        # Attempted Fixes That Failed:
+        # 1. Simplified diagram syntax (graph LR)
+        # 2. Installed streamlit-mermaid package
+        # 3. Used st_mermaid() function
+        # 4. All result in empty iframe or text display
+
+        # Possible Solutions:
+        # - Use graphviz instead of Mermaid
+        # - Use static PNG/SVG image instead
+        # - Try different Mermaid.js version
+        # - Use Streamlit's native diagram support if available
 
     - id: core_2
       name: "Error Recovery"

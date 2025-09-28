@@ -19,10 +19,20 @@ import PyPDF2
 import re
 import plotly.graph_objects as go
 import plotly.express as px
+import hashlib
+import pickle
+import os
+import tempfile
+from pathlib import Path
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
-from mermaid_renderer import render_mermaid
+try:
+    from streamlit_mermaid import st_mermaid
+    MERMAID_AVAILABLE = True
+except ImportError:
+    MERMAID_AVAILABLE = False
+    from mermaid_renderer import render_mermaid
 
 # Configure Streamlit page
 st.set_page_config(
@@ -77,7 +87,7 @@ st.markdown("""
 
     /* Add title to navbar */
     .stTabs [data-baseweb="tab-list"]::before {
-        content: "Data Quality Analyzer";
+        content: "Data Quality Analyzer.";
         color: #e2e8f0;
         font-size: 1.2rem;
         font-weight: 600;
@@ -499,8 +509,17 @@ if 'analysis_results' not in st.session_state:
     st.session_state.analysis_results = None
 if 'mcp_client' not in st.session_state:
     st.session_state.mcp_client = MCPClient()
+if 'dict_cache' not in st.session_state:
+    st.session_state.dict_cache = {}  # Cache for parsed dictionaries
+if 'last_dict_file' not in st.session_state:
+    st.session_state.last_dict_file = None  # Track last uploaded dictionary
+if 'cache_dir' not in st.session_state:
+    # Create persistent cache directory
+    cache_dir = Path.home() / '.data_analyzer_cache'
+    cache_dir.mkdir(exist_ok=True)
+    st.session_state.cache_dir = cache_dir
 
-# Create navigation tabs
+# Create simple navigation tabs - no right-click support but clean UI
 tab1, tab2 = st.tabs(["📊 Analyze", "ℹ️ About"])
 
 with tab1:
@@ -566,52 +585,91 @@ with tab1:
         if dict_file:
             try:
                 if dict_file.name.endswith('.pdf'):
-                    # Parse PDF dictionary
-                    progress_bar = st.progress(0, text="Parsing PDF dictionary...")
+                    # Calculate file hash for caching
+                    dict_file.seek(0)
+                    file_content = dict_file.read()
+                    file_hash = hashlib.md5(file_content).hexdigest()
+                    dict_file.seek(0)  # Reset for reading
 
-                    # Read PDF content
-                    pdf_reader = PyPDF2.PdfReader(dict_file)
-                    num_pages = len(pdf_reader.pages)
+                    # Check persistent file cache first
+                    cache_file = st.session_state.cache_dir / f"{file_hash}.pkl"
 
-                    extracted_text = ""
-                    extracted_rules = {}
+                    if cache_file.exists():
+                        # Load from persistent cache file
+                        with open(cache_file, 'rb') as f:
+                            st.session_state.dictionary = pickle.load(f)
+                            st.session_state.dict_cache[file_hash] = st.session_state.dictionary
+                        st.success(f"⚡ Loaded dictionary from cache (instant)")
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                    elif file_hash in st.session_state.dict_cache:
+                        # Use in-memory cache
+                        st.session_state.dictionary = st.session_state.dict_cache[file_hash]
+                        st.success(f"⚡ Using cached dictionary '{dict_file.name}' (instant load)")
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                    else:
+                        # Parse PDF dictionary with container to prevent UI blocking
+                        with st.container():
+                            progress_bar = st.progress(0, text="Parsing PDF dictionary...")
 
-                    for i, page in enumerate(pdf_reader.pages):
-                        progress_bar.progress((i + 1) / num_pages, text=f"Processing page {i+1} of {num_pages}...")
-                        page_text = page.extract_text()
-                        extracted_text += page_text
+                            # Read PDF content
+                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            num_pages = len(pdf_reader.pages)
 
-                        # Look for validation rules in the PDF (example patterns)
-                        # Look for date fields
-                        date_fields = re.findall(r'([\w_]+).*?(?:date|Date|DATE)', page_text)
-                        for field in date_fields:
-                            if field not in extracted_rules:
-                                extracted_rules[field] = {"type": "date"}
+                            extracted_text = ""
+                            extracted_rules = {}
 
-                        # Look for numeric ranges
-                        range_patterns = re.findall(r'([\w_]+).*?(?:range|Range|between).*?(\d+).*?(?:to|and|-|–).*?(\d+)', page_text)
-                        for field, min_val, max_val in range_patterns:
-                            if field not in extracted_rules:
-                                extracted_rules[field] = {"min": int(min_val), "max": int(max_val)}
+                            # Process pages with continuous progress updates
+                            for i, page in enumerate(pdf_reader.pages):
+                                # Update progress for every page
+                                progress_bar.progress((i + 1) / num_pages, text=f"Processing page {i+1} of {num_pages}...")
 
-                    progress_bar.empty()
+                                page_text = page.extract_text()
+                                extracted_text += page_text
 
-                    # Store extracted dictionary
-                    st.session_state.dictionary = {
-                        "source": "PDF",
-                        "filename": dict_file.name,
-                        "rules": extracted_rules,
-                        "pages": num_pages,
-                        "text_length": len(extracted_text)
-                    }
+                                # Look for validation rules in the PDF (example patterns)
+                                # Look for date fields
+                                date_fields = re.findall(r'([\w_]+).*?(?:date|Date|DATE)', page_text)
+                                for field in date_fields:
+                                    if field not in extracted_rules:
+                                        extracted_rules[field] = {"type": "date"}
 
-                    st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
-                    if extracted_rules:
-                        with st.expander(f"Found {len(extracted_rules)} validation rules"):
-                            for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
-                                st.text(f"{field}: {rule}")
-                            if len(extracted_rules) > 10:
-                                st.text(f"... and {len(extracted_rules) - 10} more")
+                                # Look for numeric ranges
+                                range_patterns = re.findall(r'([\w_]+).*?(?:range|Range|between).*?(\d+).*?(?:to|and|-|–).*?(\d+)', page_text)
+                                for field, min_val, max_val in range_patterns:
+                                    if field not in extracted_rules:
+                                        extracted_rules[field] = {"min": int(min_val), "max": int(max_val)}
+
+                            # Clear progress bar
+                            progress_bar.empty()
+
+                        # Store extracted dictionary
+                        st.session_state.dictionary = {
+                            "source": "PDF",
+                            "filename": dict_file.name,
+                            "rules": extracted_rules,
+                            "pages": num_pages,
+                            "text_length": len(extracted_text),
+                            "hash": file_hash
+                        }
+
+                        # Cache the parsed dictionary both in memory and to file
+                        st.session_state.dict_cache[file_hash] = st.session_state.dictionary
+
+                        # Save to persistent cache file
+                        cache_file = st.session_state.cache_dir / f"{file_hash}.pkl"
+                        with open(cache_file, 'wb') as f:
+                            pickle.dump(st.session_state.dictionary, f)
+
+                        st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
+                        st.info(f"💾 Dictionary cached to disk for permanent reuse")
+                        st.caption(f"📁 Cache location: {cache_file}")
+
+                        if extracted_rules:
+                            with st.expander(f"Found {len(extracted_rules)} validation rules", expanded=False):
+                                for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
+                                    st.text(f"{field}: {rule}")
+                                if len(extracted_rules) > 10:
+                                    st.text(f"... and {len(extracted_rules) - 10} more")
                 else:
                     st.session_state.dictionary = json.load(dict_file)
                     st.success("✅ Dictionary loaded")
@@ -660,10 +718,12 @@ with tab1:
             st.markdown("### 📥 Export")
             export_format = st.selectbox(
                 "Choose format:",
-                ["Select export format...", "Excel with highlighting", "JSON report"],
-                key="export_format"
+                ["Select format to export", "Excel with highlighting", "JSON report"],
+                key="export_format",
+                on_change=lambda: None  # Trigger rerun on selection
             )
 
+            # Show download button immediately when format is selected
             if export_format == "Excel with highlighting":
                 excel_data = export_to_excel_with_highlighting(
                     st.session_state.data,
@@ -674,7 +734,8 @@ with tab1:
                     data=excel_data,
                     file_name=f"data_quality_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    use_container_width=True,
+                    type="secondary"
                 )
             elif export_format == "JSON report":
                 json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
@@ -683,7 +744,8 @@ with tab1:
                     data=json_str,
                     file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                     mime="application/json",
-                    use_container_width=True
+                    use_container_width=True,
+                    type="secondary"
                 )
 
     # Display results if available
@@ -758,29 +820,59 @@ with tab2:
     ### ✨ Features
     - **Multiple Format Support**: CSV, JSON, and TXT files
     - **Automatic Issue Detection**: Missing values, invalid entries, range violations
-    - **Custom Validation Rules**: Define your own business rules via data dictionaries
-    - **Visual Reporting**: Clear metrics and issue summaries
-    - **Excel Export**: Highlighted cells showing exact error locations
-    - **Demo Data**: Built-in datasets for testing
+    - **Custom Validation Rules**: Define your own business rules via data dictionaries (JSON or PDF)
+    - **Visual Reporting**: Clear metrics and issue summaries with interactive heatmaps
+    - **Excel Export**: Highlighted cells showing exact error locations with comments
+    - **Demo Data**: Built-in datasets for testing various validation scenarios
+    - **Dictionary Caching**: Fast PDF dictionary parsing with automatic caching
 
     ### 🔍 What We Check
     1. **Missing Values**: Identifies null or empty cells
     2. **Invalid Values**: Detects entries like "invalid", "error", "n/a"
     3. **Data Type Validation**: Ensures values match expected types
     4. **Range Validation**: Checks if numeric values fall within specified ranges
-    5. **Completeness**: Overall data completeness percentage
+    5. **Suspicious Values**: Flags test data or anomalous entries
+    6. **Completeness**: Overall data completeness percentage
 
     ### 📚 How to Use
     1. **Upload your data** using the file uploader or select demo data
-    2. **Optionally add a dictionary** to define custom validation rules
+    2. **Optionally add a dictionary** (JSON or PDF) to define custom validation rules
     3. **Click Analyze** to run the quality checks
-    4. **Review the results** including issues and recommendations
-    5. **Export findings** to Excel or JSON for further analysis
+    4. **Review the results** including issues, recommendations, and visual heatmap
+    5. **Export findings** to Excel (with highlighting) or JSON for further analysis
 
     ### 🛠 Technical Details
     Built with Streamlit and powered by the Model Context Protocol (MCP) for
-    advanced data analysis capabilities.
+    advanced data analysis capabilities. Features include:
+    - Interactive Plotly visualizations
+    - PDF parsing with PyPDF2
+    - Excel generation with cell highlighting and comments
+    - Efficient dictionary caching system
 
+    ### 🔄 Data Flow Architecture
+    """)
+
+    # Load and render the Mermaid diagram
+    try:
+        with open('assets/data_flow_diagram.mmd', 'r') as f:
+            mermaid_code = f.read()
+
+        # Try different methods to render Mermaid
+        if MERMAID_AVAILABLE:
+            # Use streamlit-mermaid package
+            st_mermaid(mermaid_code, height=400)
+        else:
+            # Fallback to custom renderer
+            render_mermaid(mermaid_code, height=600)
+    except FileNotFoundError:
+        st.info("Data flow diagram not found. Please ensure 'assets/data_flow_diagram.mmd' exists.")
+    except Exception as e:
+        st.error(f"Error rendering diagram: {str(e)}")
+        # Show the raw diagram code as fallback
+        if 'mermaid_code' in locals():
+            st.code(mermaid_code, language='mermaid')
+
+    st.markdown("""
     ---
-    *Version 2.0 - Clean UI Edition*
+    *Version 2.1 - Enhanced UI with PDF Dictionary Support*
     """)
