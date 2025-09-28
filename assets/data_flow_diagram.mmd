@@ -1,0 +1,91 @@
+graph TB
+    %% Data Sources
+    subgraph "Data Sources"
+        CSV[CSV Files]
+        JSON[JSON Files]
+        Excel[Excel Files]
+        Text[Text Files]
+    end
+
+    %% Data Dictionary Sources
+    subgraph "Dictionary Sources"
+        DDUpload[Upload Dictionary]
+        DDDemo[Demo Dictionaries]
+        DDFormats[CSV/JSON/REDCap/Clinical]
+    end
+
+    %% LLM Processing
+    subgraph "LLM Processing"
+        direction TB
+        AzureOpenAI[Azure OpenAI<br/>GPT-4o-mini]
+        CodeGen[Python Code Generation]
+        Parser[Parser Execution]
+        Cache[File Cache<br/>1 Year TTL]
+    end
+
+    %% MCP Server
+    subgraph "MCP Server"
+        DataLoader[Data Loader]
+        QualityChecker[Quality Checker]
+        DictParser[Dictionary Parser]
+    end
+
+    %% Analysis Pipeline
+    subgraph "Analysis Pipeline"
+        TypeCheck[Data Type Validation]
+        RangeCheck[Range Validation]
+        AllowedCheck[Allowed Values Check]
+        StatsCalc[Statistics Calculation]
+    end
+
+    %% Web Interface
+    subgraph "Web Interface"
+        Upload[File Upload]
+        SchemaUI[Schema Editor]
+        RulesUI[Rules Editor]
+        Results[Results Dashboard]
+    end
+
+    %% Flow connections
+    CSV --> Upload
+    JSON --> Upload
+    Excel --> Upload
+    Text --> Upload
+
+    Upload --> DataLoader
+    DDUpload --> DictParser
+    DDDemo --> DictParser
+    DDFormats --> DictParser
+
+    DictParser --> |"Generate Parser Code"| AzureOpenAI
+    AzureOpenAI --> |"Python Code"| CodeGen
+    CodeGen --> |"Execute in Sandbox"| Parser
+    Parser --> |"Success"| Cache
+    Cache --> |"Cache Hit"| Parser
+    Parser --> |"Schema & Rules"| SchemaUI
+    Parser --> |"Schema & Rules"| RulesUI
+
+    DataLoader --> QualityChecker
+    SchemaUI --> QualityChecker
+    RulesUI --> QualityChecker
+
+    QualityChecker --> TypeCheck
+    QualityChecker --> RangeCheck
+    QualityChecker --> AllowedCheck
+    QualityChecker --> StatsCalc
+
+    TypeCheck --> Results
+    RangeCheck --> Results
+    AllowedCheck --> Results
+    StatsCalc --> Results
+
+    %% Styling
+    classDef llm fill:#e1f5fe,stroke:#01579b,stroke-width:3px
+    classDef data fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef process fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef ui fill:#fff3e0,stroke:#e65100,stroke-width:2px
+
+    class AzureOpenAI,CodeGen llm
+    class CSV,JSON,Excel,Text,DDUpload,DDDemo,DDFormats data
+    class DataLoader,QualityChecker,DictParser,TypeCheck,RangeCheck,AllowedCheck,StatsCalc,Parser,Cache process
+    class Upload,SchemaUI,RulesUI,Results ui

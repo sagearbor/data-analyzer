@@ -1,6 +1,6 @@
 """
 Azure Web Application for Data Analysis
-Supports multiple data formats with data dictionary parsing
+Supports CSV analysis with extensibility for other data formats
 Uses the MCP server for analysis functionality
 """
 
@@ -17,17 +17,6 @@ from typing import Dict, Any, Optional
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
-import streamlit.components.v1 as components
-
-# Import custom modules
-from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
-from mermaid_renderer import render_mermaid
-
-# Try importing optional navigation menu
-try:
-    from streamlit_option_menu import option_menu
-except ImportError:
-    option_menu = None
 
 # Configure Streamlit page
 st.set_page_config(
@@ -39,11 +28,11 @@ st.set_page_config(
 
 class MCPClient:
     """Client to communicate with MCP server for data analysis"""
-
+    
     def __init__(self, server_script_path: str = "mcp_server.py", use_real_mcp: bool = False):
         self.server_script_path = server_script_path
         self.use_real_mcp = use_real_mcp
-
+    
     async def analyze_data(self, data_content: str, file_format: str = "csv", schema: Dict = None, rules: Dict = None, min_rows: int = 1, debug: bool = False):
         """Call MCP server to analyze data"""
         try:
@@ -57,17 +46,17 @@ class MCPClient:
                 args["schema"] = schema
             if rules:
                 args["rules"] = rules
-
+            
             # Create a temporary file with the request
             request_data = {
                 "tool": "analyze_data",
                 "arguments": args
             }
-
+            
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 json.dump(request_data, f)
                 temp_file = f.name
-
+            
             try:
                 if self.use_real_mcp:
                     # Call the real MCP server
@@ -78,160 +67,20 @@ class MCPClient:
                 return result
             finally:
                 os.unlink(temp_file)
-
+                
         except Exception as e:
             return {"error": str(e), "type": "mcp_error"}
-
-    async def parse_data_dictionary(self, dictionary_content: str,
-                                   format_hint: str = "auto",
-                                   use_cache: bool = True,
-                                   debug: bool = False) -> Dict:
-        """Parse data dictionary using MCP server or simulation"""
-        request_data = {
-            "tool": "parse_data_dictionary",
-            "arguments": {
-                "dictionary_content": dictionary_content,
-                "format_hint": format_hint,
-                "use_cache": use_cache,
-                "debug": debug
-            }
-        }
-
-        if self.use_real_mcp:
-            return await self._call_real_mcp_server(request_data, debug)
-        else:
-            return self._simulate_dictionary_parsing(dictionary_content, format_hint, debug)
-
-    def _simulate_dictionary_parsing(self, dictionary_content: str, format_hint: str, debug: bool = False) -> Dict:
-        """Simulate dictionary parsing for demo purposes"""
-        try:
-            # Check if it's PDF or other complex format that needs real LLM
-            if format_hint in ['pdf', 'excel', 'xlsx', 'json']:
-                return {
-                    "success": False,
-                    "error": f"Format '{format_hint}' requires Azure OpenAI for parsing. Please enable '🚀 Use Real MCP Server' in the sidebar to use your Azure OpenAI configuration.",
-                    "validation": {
-                        "is_valid": False,
-                        "errors": [f"Enable 'Use Real MCP Server' in sidebar to parse {format_hint.upper()} files with Azure OpenAI"],
-                        "warnings": ["Your Azure OpenAI credentials are configured in .env file"],
-                        "confidence_score": 0.0
-                    }
-                }
-
-            # For simulation, parse simple CSV/text dictionaries
-            if format_hint in ['csv', 'text', 'auto'] or 'Column' in dictionary_content[:500] or 'Field' in dictionary_content[:500]:
-                lines = dictionary_content.strip().split('\n')
-                if len(lines) < 2:
-                    return {"success": False, "error": "Dictionary too short"}
-
-                # Simple CSV parsing simulation
-                headers = [h.strip() for h in lines[0].split(',')]
-                schema = {}
-                rules = {}
-
-                for line in lines[1:]:
-                    if not line.strip():
-                        continue
-                    parts = [p.strip() for p in line.split(',')]
-                    if len(parts) >= 2:
-                        col_name = parts[0]
-                        col_type = parts[1].lower()
-
-                        # Map types
-                        type_map = {
-                            'integer': 'int', 'int': 'int',
-                            'float': 'float', 'decimal': 'float', 'real': 'float',
-                            'string': 'str', 'text': 'str', 'varchar': 'str',
-                            'boolean': 'bool', 'bool': 'bool',
-                            'date': 'datetime', 'datetime': 'datetime'
-                        }
-                        schema[col_name] = type_map.get(col_type, 'str')
-
-                        # Extract min/max if present
-                        if len(parts) > 3:
-                            if parts[3] and parts[3] != '':
-                                try:
-                                    rules.setdefault(col_name, {})['min'] = float(parts[3])
-                                except:
-                                    pass
-                        if len(parts) > 4:
-                            if parts[4] and parts[4] != '':
-                                try:
-                                    rules.setdefault(col_name, {})['max'] = float(parts[4])
-                                except:
-                                    pass
-
-                # Generate a simple parser code for simulation
-                parser_code = f"""def parse_dictionary(content: str) -> dict:
-    # Auto-generated parser for {format_hint} dictionary
-    lines = content.strip().split('\\n')
-    headers = lines[0].split(',')
-
-    columns = {{}}
-    for line in lines[1:]:
-        parts = line.split(',')
-        if len(parts) >= 2:
-            columns[parts[0]] = {{
-                'type': parts[1],
-                'required': len(parts) > 2 and parts[2].lower() == 'yes'
-            }}
-
-    return {{
-        'columns': columns,
-        'metadata': {{'source_format': '{format_hint}', 'total_columns': len(columns)}}
-    }}
-"""
-
-                return {
-                    "success": True,
-                    "schema": schema,
-                    "rules": rules,
-                    "metadata": {
-                        "source_format": format_hint,
-                        "total_columns": len(schema)
-                    },
-                    "validation": {
-                        "is_valid": True,
-                        "errors": [],
-                        "warnings": [],
-                        "confidence_score": 0.75  # Simulation confidence
-                    },
-                    "confidence_score": 0.75,
-                    "parser_code": parser_code  # Include simulated parser code
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": f"Format {format_hint} not supported in simulation mode. Use real MCP server.",
-                    "validation": {
-                        "is_valid": False,
-                        "errors": ["Simulation only supports CSV dictionaries"],
-                        "warnings": [],
-                        "confidence_score": 0.0
-                    }
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "validation": {
-                    "is_valid": False,
-                    "errors": [str(e)],
-                    "warnings": [],
-                    "confidence_score": 0.0
-                }
-            }
-
+    
     def _auto_detect_types(self, df: pd.DataFrame) -> Dict[str, str]:
         """Auto-detect column types including dates"""
         detected_types = {}
-
+        
         for col in df.columns:
             col_data = df[col].dropna()
             if len(col_data) == 0:
                 detected_types[col] = "unknown"
                 continue
-
+                
             # Check if it's numeric
             try:
                 numeric_data = pd.to_numeric(col_data, errors='coerce')
@@ -244,7 +93,7 @@ class MCPClient:
                     continue
             except:
                 pass
-
+            
             # Check if it's datetime
             try:
                 # Try to parse as datetime, but only if it has valid-looking patterns
@@ -252,7 +101,7 @@ class MCPClient:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     datetime_parsed = pd.to_datetime(col_data, errors='coerce')
-
+                
                 # Check if more than 50% of non-null values were successfully parsed
                 # and at least one value looks like a date
                 valid_dates = datetime_parsed.notna().sum()
@@ -264,28 +113,28 @@ class MCPClient:
                         continue
             except:
                 pass
-
+            
             # Check if it's boolean
             unique_values = set(str(v).lower() for v in col_data.unique())
             if unique_values.issubset({'true', 'false', '1', '0', 'yes', 'no', 't', 'f', 'y', 'n'}):
                 detected_types[col] = "bool"
                 continue
-
+            
             # Default to string
             detected_types[col] = "str"
-
+        
         return detected_types
-
+    
     async def _call_real_mcp_server(self, request_data: Dict, debug: bool = False) -> Dict:
         """Call the real MCP server using subprocess with proper MCP protocol"""
         try:
             import subprocess
             import json
-
+            
             if debug:
                 print("🔧 DEBUG: Calling real MCP server")
                 print(f"🔧 DEBUG: Request: {request_data}")
-
+            
             # Start the MCP server process
             process = subprocess.Popen(
                 ["python", self.server_script_path],
@@ -294,7 +143,7 @@ class MCPClient:
                 stderr=subprocess.PIPE,
                 text=True
             )
-
+            
             # Step 1: Initialize the server
             init_request = {
                 "jsonrpc": "2.0",
@@ -314,14 +163,14 @@ class MCPClient:
                     }
                 }
             }
-
+            
             # Step 2: Send initialized notification
             initialized_notification = {
                 "jsonrpc": "2.0",
                 "method": "notifications/initialized",
                 "params": {}
             }
-
+            
             # Step 3: Make the actual tool call
             tool_request = {
                 "jsonrpc": "2.0",
@@ -332,28 +181,28 @@ class MCPClient:
                     "arguments": request_data["arguments"]
                 }
             }
-
+            
             # Combine all messages
             messages = [
                 json.dumps(init_request),
-                json.dumps(initialized_notification),
+                json.dumps(initialized_notification), 
                 json.dumps(tool_request)
             ]
-
+            
             input_data = "\n".join(messages) + "\n"
-
+            
             if debug:
                 print(f"🔧 DEBUG: Sending MCP messages:")
                 for i, msg in enumerate(messages, 1):
                     print(f"🔧 DEBUG: Message {i}: {msg}")
-
+            
             stdout, stderr = process.communicate(input=input_data, timeout=30)
-
+            
             if debug:
                 print(f"🔧 DEBUG: MCP server stdout: {stdout}")
                 if stderr:
                     print(f"🔧 DEBUG: MCP server stderr: {stderr}")
-
+            
             # Parse the responses (we expect multiple JSON objects)
             if stdout.strip():
                 responses = []
@@ -363,10 +212,10 @@ class MCPClient:
                             responses.append(json.loads(line.strip()))
                         except json.JSONDecodeError:
                             continue
-
+                
                 if debug:
                     print(f"🔧 DEBUG: Parsed responses: {responses}")
-
+                
                 # Look for the tool call response (should be the last one with id=2)
                 for response in responses:
                     if response.get("id") == 2:  # Our tool call response
@@ -376,9 +225,9 @@ class MCPClient:
                             return json.loads(result_content)
                         elif "error" in response:
                             return {"error": response["error"]["message"], "type": "mcp_server_error"}
-
+            
             return {"error": "No valid response from MCP server", "type": "mcp_communication_error"}
-
+            
         except subprocess.TimeoutExpired:
             if debug:
                 print("🔧 DEBUG: MCP server timeout")
@@ -387,12 +236,12 @@ class MCPClient:
             if debug:
                 print(f"🔧 DEBUG: MCP server error: {e}")
             return {"error": str(e), "type": "mcp_call_error"}
-
+    
     def _debug_print(self, message: str, debug: bool):
         """Helper function to print debug messages only when debug mode is on"""
         if debug:
             print(message)
-
+    
     def _simulate_mcp_call(self, request_data: Dict, debug: bool = False) -> Dict:
         """Simulate MCP call for demo purposes"""
         # This is a simplified simulation - in production use proper MCP client
@@ -402,13 +251,13 @@ class MCPClient:
             schema = request_data["arguments"].get("schema", {})
             rules = request_data["arguments"].get("rules", {})
             min_rows = request_data["arguments"].get("min_rows", 1)
-
+            
             # DEBUG OUTPUT
             self._debug_print("🔧 DEBUG: Starting MCP simulation", debug)
             self._debug_print(f"🔧 DEBUG: Schema received: {schema}", debug)
             self._debug_print(f"🔧 DEBUG: Rules received: {rules}", debug)
             self._debug_print(f"🔧 DEBUG: Data preview: {data_content[:100]}...", debug)
-
+            
             # Load data based on format
             if file_format.lower() == "csv":
                 df = pd.read_csv(io.StringIO(data_content))
@@ -419,7 +268,7 @@ class MCPClient:
                     self._debug_print(f"🔧 DEBUG: hire_date values: {df['hire_date'].tolist()}", debug)
             else:
                 raise ValueError(f"Unsupported format: {file_format}")
-
+            
             # Simulate the analysis results
             results = {
                 "timestamp": datetime.now().isoformat(),
@@ -448,7 +297,7 @@ class MCPClient:
                         "issues": []
                     },
                     "value_ranges": {
-                        "check": "value_ranges",
+                        "check": "value_ranges", 
                         "passed": True,
                         "message": "Range validation completed",
                         "issues": []
@@ -458,25 +307,25 @@ class MCPClient:
                 "total_issues": 0 if len(df) >= min_rows else 1,
                 "issues": []
             }
-
+            
             # Add schema validation - use provided schema OR auto-detected types
             auto_detected_types = self._auto_detect_types(df)
             self._debug_print(f"🔧 DEBUG: Auto-detected types: {auto_detected_types}", debug)
-
+            
             # Combine manual schema with auto-detected types for validation
             validation_schema = auto_detected_types.copy()
             if schema:
                 validation_schema.update(schema)  # Manual schema overrides auto-detection
                 self._debug_print(f"🔧 DEBUG: Manual schema provided, merged with auto-detection", debug)
-
+            
             self._debug_print(f"🔧 DEBUG: Final validation schema: {validation_schema}", debug)
-
+            
             if validation_schema:
                 self._debug_print(f"🔧 DEBUG: Processing schema validation for {len(validation_schema)} columns", debug)
                 type_issues = []
                 for column, expected_type in validation_schema.items():
                     self._debug_print(f"🔧 DEBUG: Validating column '{column}' as type '{expected_type}'", debug)
-
+                    
                     if column not in df.columns:
                         self._debug_print(f"🔧 DEBUG: Column '{column}' missing from DataFrame", debug)
                         type_issues.append({
@@ -485,12 +334,12 @@ class MCPClient:
                             "expected_type": expected_type
                         })
                         continue
-
+                    
                     # Type validation
                     col_data = df[column].dropna()
                     self._debug_print(f"🔧 DEBUG: Column '{column}' has {len(col_data)} non-null values", debug)
                     self._debug_print(f"🔧 DEBUG: Sample values: {col_data.head(3).tolist()}", debug)
-
+                    
                     if len(col_data) > 0:
                         try:
                             if expected_type == "int":
@@ -544,7 +393,7 @@ class MCPClient:
                                 }
                                 type_issues.append(issue)
                                 self._debug_print(f"🔧 DEBUG: Added type mismatch issue: {issue}", debug)
-
+                
                 results["checks"]["data_types"]["issues"] = type_issues
                 results["checks"]["data_types"]["passed"] = len(type_issues) == 0
                 results["checks"]["data_types"]["message"] = f"Type validation: {len(type_issues)} issues found"
@@ -556,19 +405,19 @@ class MCPClient:
                     self._debug_print(f"🔧 DEBUG: Updated total issues to: {results['total_issues']}", debug)
             else:
                 self._debug_print("🔧 DEBUG: No schema provided, skipping type validation", debug)
-
+            
             # Add range validation if provided
             if rules:
                 range_issues = []
                 for column, rule in rules.items():
                     if column in df.columns:
                         col_data = df[column].dropna()
-
+                        
                         # Check numeric ranges (min/max)
                         if "min" in rule or "max" in rule:
                             try:
                                 numeric_data = pd.to_numeric(col_data, errors='coerce')
-
+                                
                                 if "min" in rule:
                                     violations = numeric_data < rule["min"]
                                     if violations.any():
@@ -579,7 +428,7 @@ class MCPClient:
                                             "violation_count": violations.sum(),
                                             "violating_rows": violating_rows[:10]
                                         })
-
+                                
                                 if "max" in rule:
                                     violations = numeric_data > rule["max"]
                                     if violations.any():
@@ -596,13 +445,13 @@ class MCPClient:
                                     "rule": "numeric_range",
                                     "issue": "column_not_numeric"
                                 })
-
+                        
                         # Check allowed values
                         if "allowed" in rule:
                             allowed_values = set(rule["allowed"])
                             actual_values = set(col_data.unique())
                             invalid_values = actual_values - allowed_values
-
+                            
                             if invalid_values:
                                 mask = col_data.isin(invalid_values)
                                 violating_rows = df[mask].index.tolist()
@@ -613,21 +462,22 @@ class MCPClient:
                                     "violation_count": mask.sum(),
                                     "violating_rows": violating_rows[:10]
                                 })
-
+                
                 results["checks"]["value_ranges"]["issues"] = range_issues
                 results["checks"]["value_ranges"]["passed"] = len(range_issues) == 0
                 if range_issues:
                     results["overall_passed"] = False
                     results["total_issues"] += len(range_issues)
-
+            
             return results
-
+            
         except Exception as e:
             return {"error": str(e), "type": "analysis_error"}
 
 # Initialize MCP client
 def get_mcp_client(use_real_mcp: bool = False):
     return MCPClient(use_real_mcp=use_real_mcp)
+
 def create_schema_editor():
     """Create an interactive schema editor"""
     st.subheader("📋 Schema Definition")
@@ -923,183 +773,125 @@ def display_results(results: Dict[str, Any]):
         numeric_df = pd.DataFrame(numeric_data)
         st.dataframe(numeric_df, use_container_width=True)
 
-
-def render_about_page():
-    """Render the About page with tool description and architecture"""
-    st.title("🆘 About Data Analyzer")
-
-    # Tool Description
-    st.markdown("""
-    ## What is Data Analyzer?
-
-    Data Analyzer is an AI-powered data quality validation tool that helps you:
-
-    🔍 **Validate Data Quality**
-    - Check data types, ranges, and allowed values
-    - Identify missing values and duplicates
-    - Generate comprehensive statistics
-
-    🤖 **Parse Data Dictionaries with AI**
-    - Upload dictionaries in various formats (CSV, JSON, REDCap, Clinical)
-    - AI generates deterministic Python code to parse dictionaries
-    - Code is cached for reuse (1 year cache lifetime)
-
-    📊 **Support Multiple Formats**
-    - Currently supports CSV, JSON, Excel, Parquet
-    - Extensible architecture for adding new formats
-
-    ⚙️ **Configure Validation Rules**
-    - Set expected data types for columns
-    - Define min/max ranges for numeric data
-    - Specify allowed values for categorical data
-
-    ## How It Works
-
-    The tool uses **Azure OpenAI (GPT-4o-mini)** to generate Python code that parses data dictionaries.
-    This approach provides:
-    - ✅ **Deterministic results** - Same input always produces same output
-    - 🔍 **Verifiable code** - Generated code can be inspected and tested
-    - 📦 **Cacheable parsers** - Reuse parsers for similar dictionaries
-    - 📊 **High confidence** - ~95% accuracy through validation
-    """)
-
-    # Architecture Diagram
-    st.markdown("## 🏭 System Architecture")
-    st.markdown("""The diagram below shows how data flows through the system and where AI comes into play:""")
-
-    # Create columns for the flow diagram
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("""
-        ### 📁 Input Stage
-        - **Data Files**
-          - CSV (supported)
-          - JSON (supported)
-          - Excel (supported)
-          - Parquet (supported)
-
-        - **Dictionaries**
-          - CSV format
-          - JSON format
-          - REDCap format
-          - Clinical specs
-        """)
-
-    with col2:
-        st.markdown("""
-        ### 🤖 AI Processing
-        - **Azure OpenAI**
-          - GPT-4o-mini model
-          - Code generation
-          - Python parsers
-
-        - **Caching**
-          - 1-year lifetime
-          - File-based cache
-          - Instant retrieval
-        """)
-
-    with col3:
-        st.markdown("""
-        ### 📊 Output Stage
-        - **Validation**
-          - Type checking
-          - Range validation
-          - Allowed values
-
-        - **Results**
-          - Dashboard view
-          - Issue tracking
-          - Statistics
-        """)
-
-    # Show the detailed flow
-    with st.expander("🔄 View Detailed Data Flow"):
-        st.markdown("""
-        ```
-        1. User uploads data file (CSV/JSON/Excel/Parquet)
-           ↓
-        2. User uploads/selects data dictionary
-           ↓
-        3. Dictionary sent to Azure OpenAI
-           ↓
-        4. LLM generates Python parser code
-           ↓
-        5. Code executed in sandbox (600s timeout)
-           ↓
-        6. Schema & rules extracted
-           ↓
-        7. Cache parser for reuse (1 year)
-           ↓
-        8. Apply rules to data validation
-           ↓
-        9. Display results in dashboard
-        ```
-        """)
-
-    # Display Mermaid diagram
-    st.markdown("### 📊 Interactive Architecture Diagram")
-
-    try:
-        with open('assets/data_flow_diagram.mmd', 'r') as f:
-            mermaid_code = f.read()
-
-        # Render Mermaid diagram visually using our custom renderer
-        render_mermaid(mermaid_code, height=700)
-
-        # Option to view/copy the code
-        with st.expander("🔍 View Diagram Source Code"):
-            st.code(mermaid_code, language='mermaid')
-
-            # Copy button with actual functionality
-            if st.button("📋 Copy to Clipboard", key="copy_mermaid"):
-                st.code(mermaid_code)
-                st.info("📎 Select and copy the code above")
-
-    except FileNotFoundError:
-        st.warning("Architecture diagram file not found. Please ensure assets/data_flow_diagram.mmd exists.")
-
-    # Key Features
-    st.markdown("""
-    ## 🌟 Key Features
-
-    ### LLM Integration
-    - Uses Azure OpenAI to generate parser code
-    - Code generation instead of direct parsing
-    - 600-second timeout for complex operations
-
-    ### Caching System
-    - File-based cache with 1-year lifetime
-    - Cache key based on dictionary structure
-    - Instant retrieval for similar dictionaries
-
-    ### Security
-    - Subprocess isolation for code execution
-    - No network access in parser code
-    - Future: Docker containerization planned
-
-    ### Demo Data
-    - Culturally diverse datasets (Western, Asian, Clinical)
-    - Matching demo dictionaries
-    - Intentional errors for testing validation
-    """)
-
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    **Version**: 1.0.0 | **License**: MIT | **GitHub**: [data-analyzer](https://github.com/yourusername/data-analyzer)
-    """)
-
-
-def render_home_page():
-    """Render the main Home page with data analysis functionality"""
+def main():
+    """Main Streamlit application"""
     
-    # Main content area - no duplicate title since main() shows it
+    st.title("📊 Multi-Format Data Quality Analyzer")
+    st.markdown("Upload a CSV file and configure validation rules to check data quality")
     
-    # Check if we have uploaded file or example data
-    uploaded_file = st.session_state.get('uploaded_file', None)
+    # Sidebar configuration
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        
+        # File upload
+        uploaded_file = st.file_uploader(
+            "Choose a data file",
+            type=['csv', 'json', 'xlsx', 'xls', 'parquet'],
+            help="Upload a CSV, JSON, Excel, or Parquet file to analyze"
+        )
+        
+        # Minimum rows setting
+        min_rows = st.number_input(
+            "Minimum Required Rows",
+            min_value=1,
+            value=1,
+            help="Minimum number of rows required for the dataset"
+        )
+        
+        # Encoding selection
+        encoding = st.selectbox(
+            "File Encoding",
+            ["utf-8", "latin1", "cp1252", "iso-8859-1"],
+            help="Select the encoding of your CSV file"
+        )
+        
+        st.divider()
+        
+        # Debug mode toggle
+        debug_mode = st.checkbox(
+            "🔧 Debug Mode",
+            value=False,
+            help="Enable debug output in browser console (F12 → Console)"
+        )
+        
+        # MCP mode toggle
+        use_real_mcp = st.checkbox(
+            "🚀 Use Real MCP Server",
+            value=False,
+            help="Use actual MCP server instead of simulation (requires MCP dependencies)"
+        )
+        
+        st.divider()
+
+        # Quick example data with format selector
+        st.subheader("📝 Demo Data")
+        demo_format = st.selectbox(
+            "Choose demo data format:",
+            ["CSV", "JSON", "Excel", "Parquet"]
+        )
+
+        if st.button(f"Load {demo_format} Example Data"):
+            if demo_format == "CSV":
+                # Create example CSV content with date field
+                example_data = """id,name,age,country,salary,hire_date
+1,John Doe,25,USA,50000,2023-01-15
+2,Jane Smith,30,CAN,55000,2022-03-20
+3,Bob Johnson,35,MEX,60000,2021-07-10
+4,Alice Brown,28,USA,52000,invalid_date
+5,Charlie Wilson,150,INVALID,75000,2020-12-05"""
+                st.session_state.example_format = "csv"
+
+            elif demo_format == "JSON":
+                # Create example JSON content
+                example_json = {
+                    "employees": [
+                        {"id": 1, "name": "John Doe", "age": 25, "country": "USA", "salary": 50000, "hire_date": "2023-01-15"},
+                        {"id": 2, "name": "Jane Smith", "age": 30, "country": "CAN", "salary": 55000, "hire_date": "2022-03-20"},
+                        {"id": 3, "name": "Bob Johnson", "age": 35, "country": "MEX", "salary": 60000, "hire_date": "2021-07-10"},
+                        {"id": 4, "name": "Alice Brown", "age": 28, "country": "USA", "salary": 52000, "hire_date": "invalid_date"},
+                        {"id": 5, "name": "Charlie Wilson", "age": 150, "country": "INVALID", "salary": 75000, "hire_date": "2020-12-05"}
+                    ]
+                }
+                example_data = json.dumps(example_json, indent=2)
+                st.session_state.example_format = "json"
+
+            elif demo_format == "Excel":
+                # Create example Excel data (as DataFrame to be saved as Excel)
+                df_excel = pd.DataFrame({
+                    "id": [1, 2, 3, 4, 5],
+                    "name": ["John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson"],
+                    "age": [25, 30, 35, 28, 150],
+                    "country": ["USA", "CAN", "MEX", "USA", "INVALID"],
+                    "salary": [50000, 55000, 60000, 52000, 75000],
+                    "hire_date": ["2023-01-15", "2022-03-20", "2021-07-10", "invalid_date", "2020-12-05"]
+                })
+                # Convert to Excel bytes
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_excel.to_excel(writer, index=False, sheet_name="Employees")
+                example_data = base64.b64encode(output.getvalue()).decode()
+                st.session_state.example_format = "excel"
+
+            elif demo_format == "Parquet":
+                # Create example Parquet data
+                df_parquet = pd.DataFrame({
+                    "id": [1, 2, 3, 4, 5],
+                    "name": ["John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson"],
+                    "age": [25, 30, 35, 28, 150],
+                    "country": ["USA", "CAN", "MEX", "USA", "INVALID"],
+                    "salary": [50000, 55000, 60000, 52000, 75000],
+                    "hire_date": ["2023-01-15", "2022-03-20", "2021-07-10", "invalid_date", "2020-12-05"]
+                })
+                # Convert to Parquet bytes
+                output = io.BytesIO()
+                df_parquet.to_parquet(output, index=False)
+                example_data = base64.b64encode(output.getvalue()).decode()
+                st.session_state.example_format = "parquet"
+
+            st.session_state.example_data = example_data
+            st.success(f"{demo_format} example data loaded!")
     
+    # Main content area
     if uploaded_file is not None:
         try:
             # Determine file format from extension
@@ -1109,7 +901,7 @@ def render_home_page():
 
             # Read the uploaded file based on format
             if file_format == 'csv':
-                file_content = uploaded_file.read().decode(st.session_state.get('encoding', 'utf-8'))
+                file_content = uploaded_file.read().decode(encoding)
             else:
                 # For binary formats (JSON, Excel, Parquet)
                 uploaded_file.seek(0)  # Reset file pointer
@@ -1181,7 +973,7 @@ def render_home_page():
                 if st.button(f"🔍 Analyze {file_format.upper()} Data", type="primary", use_container_width=True):
                     with st.spinner(f"Analyzing {file_format.upper()} data..."):
                         # Get MCP client
-                        client = get_mcp_client(use_real_mcp=st.session_state.get('use_real_mcp', False))
+                        client = get_mcp_client(use_real_mcp=use_real_mcp)
 
                         # Run analysis
                         results = asyncio.run(client.analyze_data(
@@ -1189,8 +981,8 @@ def render_home_page():
                             file_format=file_format,
                             schema=schema if schema else None,
                             rules=rules if rules else None,
-                            min_rows=st.session_state.get('min_rows', 1),
-                            debug=st.session_state.get('debug_mode', False)
+                            min_rows=min_rows,
+                            debug=debug_mode
                         ))
                         
                         # Display results
@@ -1270,7 +1062,7 @@ def render_home_page():
             if st.button(f"🔍 Analyze {example_format.upper()} Example Data", type="primary", use_container_width=True):
                 with st.spinner(f"Analyzing {example_format.upper()} data..."):
                     # Get MCP client
-                    client = get_mcp_client(use_real_mcp=st.session_state.get('use_real_mcp', False))
+                    client = get_mcp_client(use_real_mcp=use_real_mcp)
 
                     # Run analysis
                     results = asyncio.run(client.analyze_data(
@@ -1278,8 +1070,8 @@ def render_home_page():
                         file_format=example_format,
                         schema=schema if schema else None,
                         rules=rules if rules else None,
-                        min_rows=st.session_state.get('min_rows', 1),
-                        debug=st.session_state.get('debug_mode', False)
+                        min_rows=min_rows,
+                        debug=debug_mode
                     ))
                     
                     # Display results
@@ -1298,196 +1090,23 @@ def render_home_page():
         - **⚙️ Custom Rules**: Set up range checks and allowed value lists
         - **📈 Comprehensive Reports**: Visual dashboards with detailed issue tracking
         - **🔍 Missing Value Analysis**: Identify and visualize missing data patterns
-        - **🤖 AI Dictionary Parsing**: Parse data dictionaries using Azure OpenAI
         
         ### Get Started:
-        1. Upload a data file using the sidebar
+        1. Upload a data file (CSV, JSON, Excel, or Parquet) using the sidebar
         2. Or select a demo format and click "Load Example Data" to try it out
         3. Configure schema and validation rules
         4. Run the analysis to get detailed quality reports
         
-        ### Supported File Formats:
-        - CSV (Comma-Separated Values)
-        - JSON (JavaScript Object Notation) 
-        - Excel (XLSX/XLS spreadsheets)
-        - Parquet (Columnar data format)
+        ### Supported Validations:
+        - **Row Count**: Ensure minimum number of rows
+        - **Data Types**: Validate int, float, string, boolean, datetime columns
+        - **Value Ranges**: Set min/max bounds for numeric columns
+        - **Allowed Values**: Define categorical value lists
+        - **Missing Values**: Detect and quantify missing data
+        - **Duplicates**: Identify duplicate rows
         
         Ready to get started? Upload a file or load the example data! 🚀
         """)
-
-def main():
-    """Main Streamlit application with navigation"""
-
-    # Custom CSS for better styling
-    st.markdown("""
-    <style>
-    /* Navbar styling */
-    section[data-testid="stSidebar"] {
-        top: 0;
-    }
-    .navbar {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # Create navigation menu
-    st.markdown("## 📊 Data Quality Analyzer")
-
-    if option_menu:
-        # Use streamlit-option-menu for a professional navbar
-        selected = option_menu(
-            menu_title=None,  # No title
-            options=["🏠 Home", "ℹ️ About"],
-            icons=None,  # Icons already in option text
-            menu_icon=None,
-            default_index=0,
-            orientation="horizontal",
-            styles={
-                "container": {"padding": "0!important", "background-color": "#fafafa"},
-                "icon": {"color": "orange", "font-size": "25px"},
-                "nav-link": {
-                    "font-size": "16px",
-                    "text-align": "center",
-                    "margin": "0px",
-                    "--hover-color": "#eee",
-                },
-                "nav-link-selected": {"background-color": "#667eea"},
-            }
-        )
-    else:
-        # Fallback to simple radio if option-menu not available
-        st.warning("Install streamlit-option-menu for better navigation: pip install streamlit-option-menu")
-        selected = st.radio("Navigate to:", ["🏠 Home", "ℹ️ About"], horizontal=True)
-
-    # Sidebar configuration (stays consistent across pages)
-    with st.sidebar:
-        st.header("⚙️ Configuration")
-        
-        # File upload
-        uploaded_file = st.file_uploader(
-            "Choose a data file",
-            type=['csv', 'json', 'xlsx', 'xls', 'parquet'],
-            help="Upload a data file to analyze (CSV, JSON, Excel, or Parquet)"
-        )
-        
-        # Store in session state for access in render functions
-        st.session_state['uploaded_file'] = uploaded_file
-        
-        # Minimum rows setting
-        min_rows = st.number_input(
-            "Minimum Required Rows",
-            min_value=1,
-            value=1,
-            help="Minimum number of rows required for the dataset"
-        )
-        st.session_state['min_rows'] = min_rows
-        
-        # Encoding selection
-        encoding = st.selectbox(
-            "File Encoding",
-            ["utf-8", "latin1", "cp1252", "iso-8859-1"],
-            help="Select the encoding of your CSV file"
-        )
-        st.session_state['encoding'] = encoding
-        
-        st.divider()
-        
-        # Debug mode toggle
-        debug_mode = st.checkbox(
-            "🔧 Debug Mode",
-            value=False,
-            help="Enable debug output in browser console (F12 → Console)"
-        )
-        st.session_state['debug_mode'] = debug_mode
-        
-        # MCP mode toggle
-        use_real_mcp = st.checkbox(
-            "🚀 Use Real MCP Server",
-            value=False,
-            help="Use actual MCP server instead of simulation (requires MCP dependencies)"
-        )
-        st.session_state['use_real_mcp'] = use_real_mcp
-        
-        st.divider()
-
-        # Quick example data with format selector
-        st.subheader("📝 Demo Data")
-        demo_format = st.selectbox(
-            "Choose demo data format:",
-            ["CSV - Western", "CSV - Asian", "JSON - Mixed", "CSV - Clinical Trial"]
-        )
-
-        if st.button(f"Load {demo_format} Data"):
-            example_data = ""
-            
-            if demo_format == "CSV - Western":
-                # Western names with diverse data types and some errors
-                example_data = """employee_id,first_name,last_name,age,salary,hire_date,last_login_datetime,bonus_percentage,department,is_active,skills,email,phone
-1001,John,Smith,28,75000.50,2023-01-15,2024-01-20 09:30:00,15.5,Engineering,true,"Python;SQL;Docker",john.smith@techcorp.com,+1-555-0101
-1002,Sarah,Johnson,32,82000.00,2022-06-10,2024-01-19 14:45:30,18.2,Marketing,true,"Analytics;SEO;Content",sarah.j@techcorp.com,+1-555-0102
-1003,Michael,Williams,-5,68000.75,2021-11-22,2024-01-18 08:15:45,12.0,Sales,false,"CRM;Excel;Communication",m.williams@techcorp.com,INVALID_PHONE
-1004,Emma,Brown,29,91000.00,invalid_date,2024-01-20 16:20:00,22.5,Engineering,true,"Java;AWS;Kubernetes",emma.brown@techcorp.com,+1-555-0104
-1005,David,Martinez,45,105000.00,2020-03-08,2024-01-19 11:30:00,25.0,Management,true,"Leadership;Strategy;Finance",d.martinez@techcorp.com,+1-555-0105"""
-
-            elif demo_format == "CSV - Asian":
-                # Asian names with different data patterns
-                example_data = """staff_id,given_name,family_name,age,monthly_salary,join_date,last_activity,performance_score,dept_code,active_status,certifications,work_email,mobile
-2001,Wei,Zhang,26,8500.00,2023-03-20,2024-01-20T10:45:00Z,4.2,DEV,1,"AWS-SA;CCNA;PMP",wei.zhang@company.cn,+86-138-0000-0001
-2002,Yuki,Tanaka,30,9200.50,2022-09-15,2024-01-19T15:30:00Z,4.5,MKT,1,"Google-Ads;HubSpot",y.tanaka@company.jp,+81-90-1234-5678
-2003,Priya,Sharma,28,7800.00,2021-12-01,2024-01-18T09:00:00Z,3.8,OPS,1,"Six-Sigma;Lean",priya.sharma@company.in,+91-98765-43210
-2004,Min-jun,Kim,999,10500.00,2020-06-18,INVALID_TIME,4.7,DEV,1,"Java;Spring;React",minjun.kim@company.kr,+82-10-9876-5432"""
-
-            elif demo_format == "JSON - Mixed":
-                # JSON format with nested data and mixed cultures
-                example_data = '''[
-  {"id": 3001, "name": {"first": "Maria", "last": "Garcia"}, "age": 29, "salary": 72000, "hired": "2023-02-28", "active": true, "scores": [85, 90, 88], "department": "Research"},
-  {"id": 3002, "name": {"first": "Ahmed", "last": "Hassan"}, "age": 31, "salary": 78000, "hired": "2022-11-15", "active": true, "scores": [92, 88, 91], "department": "Engineering"},
-  {"id": 3003, "name": {"first": "Olga", "last": "Ivanova"}, "age": -10, "salary": 69000, "hired": "2021-07-20", "active": false, "scores": [78, 82], "department": "Quality"}
-]'''
-
-            elif demo_format == "CSV - Clinical Trial":
-                # Clinical trial data with medical/pharmaceutical fields
-                example_data = """subject_id,site_id,enrollment_date,visit_date,age,gender,bmi,treatment_arm,adverse_event,lab_value,compliance_pct,completed_study
-S001,SITE01,2023-01-15,2023-02-15,45,M,24.5,Treatment,None,120.5,95.5,Y
-S002,SITE01,2023-01-20,2023-02-20,52,F,28.3,Placebo,Mild Headache,135.2,88.0,Y
-S003,SITE02,2023-02-01,invalid_date,38,M,22.1,Treatment,None,118.0,92.5,Y
-S004,SITE02,2023-02-05,2023-03-05,-5,F,31.2,Placebo,Nausea,142.8,76.5,N"""
-
-            st.session_state.example_data = example_data
-            # Store the format type for proper parsing
-            if "JSON" in demo_format:
-                st.session_state.example_format = "json"
-            else:
-                st.session_state.example_format = "csv"
-            st.success(f"{demo_format} data loaded!")
-
-        st.divider()
-
-        # Data Dictionary Upload Section
-        st.markdown("### 📚 Data Dictionary")
-
-        # Option to load demo dictionary
-        dict_demo_format = st.selectbox(
-            "Load demo dictionary:",
-            ["None"] + list(DEMO_DICTIONARIES.keys()),
-            key="dict_demo_selector",
-            help="Load a demo dictionary that matches the demo datasets"
-        )
-
-        if dict_demo_format != "None" and st.button("📁 Load Dictionary"):
-            st.session_state['dict_content'] = get_demo_dictionary(dict_demo_format)
-            st.session_state['dict_format'] = dict_demo_format
-            st.success(f"Loaded {dict_demo_format} dictionary!")
-
-    # Route to appropriate page
-    if selected == "🏠 Home":
-        render_home_page()
-    elif selected == "ℹ️ About":
-        render_about_page()
 
 if __name__ == "__main__":
     main()
