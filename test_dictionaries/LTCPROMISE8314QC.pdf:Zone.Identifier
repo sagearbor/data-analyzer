@@ -1,0 +1,4 @@
+[ZoneTransfer]
+ZoneId=2
+ReferrerUrl=https://redcap.dcri.duke.edu/redcap/redcap_v15.0.34/Design/data_dictionary_codebook.php?pid=43
+HostUrl=https://redcap.dcri.duke.edu/redcap/redcap_v15.0.34/index.php?route=PdfController:index&annotated=1&pid=43
