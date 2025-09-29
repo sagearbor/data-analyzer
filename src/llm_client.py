@@ -77,8 +77,11 @@ class LLMDictionaryParser:
         """Count tokens in text"""
         return len(self.encoding.encode(text))
 
-    def chunk_text(self, text: str, max_tokens: int = 3000) -> List[str]:
-        """Split text into chunks that fit within token limits"""
+    def chunk_text(self, text: str, max_tokens: int = 4500) -> List[str]:
+        """
+        Split text into chunks that fit within token limits
+        Increased to 4500 tokens for better field extraction from large dictionaries
+        """
         # Split by common delimiters first
         sections = re.split(r'\n{2,}|\f', text)
 
@@ -133,7 +136,8 @@ For each field, extract:
 - business_rules: Any validation rules or business logic
 
 Return a JSON array of field definitions. Be precise with field names.
-Focus on extracting actual data fields, not metadata or headers.
+Extract ALL data fields you can identify, even if incomplete.
+IMPORTANT for clinical/research dictionaries: Look for fields with patterns like _stop, _date, _dc, _id, etc.
 """
 
         continuation_prompt = """Continue extracting field definitions from this dictionary section.
@@ -214,6 +218,7 @@ Return JSON array of field definitions:"""
         try:
             prompt = self.create_extraction_prompt(text_chunk, is_continuation)
 
+            print(f"[LLM] Sending chunk ({len(text_chunk)} chars) to Azure OpenAI...")
             response = self.client.chat.completions.create(
                 model=self.deployment,
                 messages=[
@@ -225,8 +230,10 @@ Return JSON array of field definitions:"""
             )
 
             response_text = response.choices[0].message.content
+            print(f"[LLM] Received response from Azure OpenAI")
             fields = self.parse_llm_response(response_text)
 
+            print(f"[LLM] Extracted {len(fields)} fields from this chunk")
             logger.info(f"Extracted {len(fields)} fields from chunk")
             return fields
 
@@ -245,10 +252,16 @@ Return JSON array of field definitions:"""
         Returns:
             Dictionary with extracted schema and metadata
         """
+        import time
+        start_time = time.time()
+
+        # Log to console for browser debugging
+        print(f"[LLM] Starting dictionary parsing - {len(dictionary_text)} characters at {time.strftime('%H:%M:%S')}")
         logger.info(f"Parsing dictionary with {len(dictionary_text)} characters")
 
         # Chunk the text
         chunks = self.chunk_text(dictionary_text)
+        print(f"[LLM] Split text into {len(chunks)} chunks for processing")
         logger.info(f"Split into {len(chunks)} chunks")
 
         all_fields = []
@@ -268,10 +281,15 @@ Return JSON array of field definitions:"""
                     all_fields.append(field)
                     field_names_seen.add(field.field_name)
 
+            print(f"[LLM] Processed chunk {i+1}/{len(chunks)}, extracted {len(fields)} fields, total: {len(all_fields)}")
             logger.info(f"Processed chunk {i+1}/{len(chunks)}, total fields: {len(all_fields)}")
 
         # Convert to schema format
         schema = self.fields_to_schema(all_fields)
+
+        elapsed_time = time.time() - start_time
+        print(f"[LLM] Parsing complete - extracted {len(all_fields)} fields in {elapsed_time:.2f} seconds")
+        logger.info(f"Parsing complete - extracted {len(all_fields)} fields in {elapsed_time:.2f} seconds")
 
         return {
             "fields": [f.to_dict() for f in all_fields],
@@ -279,7 +297,8 @@ Return JSON array of field definitions:"""
             "metadata": {
                 "total_fields": len(all_fields),
                 "chunks_processed": len(chunks),
-                "source": "LLM Parser"
+                "source": "LLM Parser",
+                "processing_time_seconds": elapsed_time
             }
         }
 

@@ -192,7 +192,7 @@ st.markdown("""
 class MCPClient:
     """Simulated MCP Client for demo purposes"""
 
-    async def analyze_data_quality(self, data: pd.DataFrame, rules: Optional[Dict] = None) -> Dict[str, Any]:
+    async def analyze_data_quality(self, data: pd.DataFrame, dictionary: Optional[Dict] = None) -> Dict[str, Any]:
         """Simulate MCP analyze_data call"""
         issues = []
 
@@ -249,7 +249,12 @@ class MCPClient:
                         })
 
         # Apply custom rules if provided
-        if rules:
+        # Extract rules from dictionary structure
+        rules = None
+        if dictionary and isinstance(dictionary, dict):
+            rules = dictionary.get('rules', dictionary.get('schema', {}))
+
+        if rules and isinstance(rules, dict):
             for col, col_rules in rules.items():
                 if col in data.columns:
                     if 'min' in col_rules:
@@ -324,6 +329,24 @@ def load_demo_data(dataset_name: str):
             'department': ['Engineering', 'Marketing', 'invalid', 'Sales', 'Finance'],
             'is_active': [True, True, False, None, True],
             'email': ['john@company.com', 'invalid', 'mike@company.com', 'bob@company.com', 'alice@company.com']
+        }),
+        'clinical': pd.DataFrame({
+            'patient_id': ['P001', 'P002', 'P003', 'P004', 'P005', 'P006', 'P007', 'P008'],
+            'age': [45, 62, 73, 28, 155, 39, 67, 51],  # 155 is invalid age
+            'gender': ['M', 'F', 'M', 'F', 'X', 'F', 'M', 'invalid'],  # X and invalid are issues
+            'diagnosis_code': ['I21.0', 'J18.9', 'N18.9', 'K92.2', 'invalid', 'G20.9', 'E11.9', ''],
+            'admission_date': ['2024-01-15', '2024-01-16', '2024-01-17', '2024-01-18', 'invalid-date', '2024-01-20', '2024-01-21', '2024-01-22'],
+            'discharge_date': ['2024-01-20', '2024-01-22', '2024-01-25', '2024-01-19', None, '2024-01-21', '', '2024-01-23'],
+            'treatment_type': ['Emergency', 'Inpatient', 'Inpatient', 'Observation', 'invalid', 'Outpatient', 'Inpatient', 'Unknown'],
+            'lab_result_wbc': [7.5, 12.3, 6.8, 8.2, 50.0, 7.8, 10.5, None],  # 50.0 is out of range
+            'lab_result_hemoglobin': [14.2, 12.8, 10.5, 13.5, 'invalid', 14.5, None, 13.2],
+            'blood_pressure_systolic': [130, 145, 155, 110, 250, 125, 165, 135],  # 250 is too high
+            'blood_pressure_diastolic': [85, 92, 95, 70, 130, 80, 98, 82],  # 130 is too high
+            'temperature': [37.2, 38.5, 36.8, 36.9, 45.0, 36.7, 37.3, None],  # 45.0 is impossible
+            'heart_rate': [88, 96, 78, 72, 200, 75, 90, 68],  # 200 is too high
+            'follow_up_required': ['Yes', 'Yes', 'Yes', 'No', 'Maybe', 'Yes', 'Yes', None],  # Maybe is invalid
+            'outcome_status': ['Improved', 'Recovered', 'Stable', 'Recovered', 'invalid', 'Stable', 'Ongoing', 'Improved'],
+            'length_of_stay': [5, 6, 8, 1, 500, 1, None, 1]  # 500 days is unrealistic
         }),
         'asian': pd.DataFrame({
             'staff_id': [2001, 2002, 2003, 2004, 2005],
@@ -561,19 +584,23 @@ with tab1:
         # Demo data selector below file uploader
         demo_option = st.selectbox(
             "Or load demo data:",
-            ["None", "CSV - Western", "CSV - Asian", "JSON - Mixed"],
-            key="demo_selector"
+            ["None", "CSV - Western", "CSV - Asian", "CSV - Clinical", "JSON - Mixed"],
+            key="demo_selector",
+            help="Clinical data includes matching dictionary in demo_data/clinical_dict.json"
         )
 
         if demo_option != "None":
             dataset_map = {
                 "CSV - Western": "western",
                 "CSV - Asian": "asian",
+                "CSV - Clinical": "clinical",
                 "JSON - Mixed": "mixed"
             }
             if demo_option in dataset_map:
                 st.session_state.data = load_demo_data(dataset_map[demo_option])
                 st.success(f"✅ Loaded {demo_option} demo data")
+                if demo_option == "CSV - Clinical":
+                    st.info("📖 Matching dictionary available: Upload 'demo_data/clinical_dict.json' for validation rules")
 
     with col2:
         st.markdown("### 📋 Dictionary")
@@ -587,21 +614,53 @@ with tab1:
             help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, or TXT)"
         )
 
-        # Add LLM parsing option if available
+        # Add LLM parsing option if available - default OFF to save API costs
         if LLM_AVAILABLE and dict_file:
             use_llm = st.checkbox(
-                "🤖 Use AI-powered parsing",
-                value=True,
-                help="Use Azure OpenAI GPT-4 to intelligently extract field definitions from any format"
+                "🤖 Use AI-powered parsing (Azure OpenAI)",
+                value=False,  # Default to OFF to save API costs during development
+                help="⚠️ Uses Azure OpenAI GPT-4 (may incur API costs). For development, consider using demo dictionaries or manual parsing."
             )
         else:
             use_llm = False
 
         if dict_file:
             try:
-                # Use LLM parsing if enabled
-                if use_llm and LLM_AVAILABLE:
-                    with st.spinner("🤖 Using AI to extract field definitions..."):
+                # Calculate file hash for caching (works for all file types)
+                dict_file.seek(0)
+                raw_content = dict_file.read()
+                file_hash = hashlib.md5(raw_content).hexdigest()
+                dict_file.seek(0)  # Reset for reading
+
+                # Create cache key with LLM flag
+                cache_key = f"{file_hash}_llm" if use_llm else file_hash
+                cache_file = st.session_state.cache_dir / f"{cache_key}.pkl"
+
+                # Check if already cached
+                if cache_key in st.session_state.dict_cache:
+                    # Use in-memory cache
+                    st.session_state.dictionary = st.session_state.dict_cache[cache_key]
+                    st.success(f"⚡ Using cached dictionary (instant load)")
+                    if use_llm:
+                        fields_count = len(st.session_state.dictionary.get('fields', []))
+                        st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
+                    else:
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                elif cache_file.exists():
+                    # Load from persistent cache file
+                    with open(cache_file, 'rb') as f:
+                        st.session_state.dictionary = pickle.load(f)
+                        st.session_state.dict_cache[cache_key] = st.session_state.dictionary
+                    st.success(f"⚡ Loaded dictionary from disk cache (no API calls)")
+                    if use_llm:
+                        fields_count = len(st.session_state.dictionary.get('fields', []))
+                        st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
+                    else:
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                # Use LLM parsing if enabled and not cached
+                elif use_llm and LLM_AVAILABLE:
+                    # More informative spinner with warning about processing time
+                    with st.spinner("🤖 Using AI to extract field definitions... This may take 30-60 seconds for large PDFs."):
                         # Read file content
                         file_content = ""
                         if dict_file.name.endswith('.pdf'):
@@ -621,7 +680,9 @@ with tab1:
 
                         # Parse with LLM
                         llm_parser = LLMDictionaryParser()
-                        parsed_result = llm_parser.parse_dictionary(file_content[:50000])  # Limit text length
+                        # Don't truncate - the LLM parser handles chunking internally
+                        # Process more fields for comprehensive extraction
+                        parsed_result = llm_parser.parse_dictionary(file_content, max_fields=500)
 
                         # Store the parsed dictionary
                         st.session_state.dictionary = {
@@ -632,11 +693,22 @@ with tab1:
                             "metadata": parsed_result.get("metadata", {})
                         }
 
-                        st.success(f"✅ AI extracted {len(parsed_result.get('fields', []))} field definitions")
+                        # Cache the result both in memory and to disk
+                        st.session_state.dict_cache[cache_key] = st.session_state.dictionary
+                        with open(cache_file, 'wb') as f:
+                            pickle.dump(st.session_state.dictionary, f)
+                        st.info(f"💾 Dictionary cached - future loads will be instant (no API calls)")
+
+                        # Add processing time to success message
+                        processing_time = parsed_result.get('metadata', {}).get('processing_time_seconds', 0)
+                        chunks_processed = parsed_result.get('metadata', {}).get('chunks_processed', 0)
+                        st.success(f"✅ AI extracted {len(parsed_result.get('fields', []))} field definitions from {chunks_processed} chunks in {processing_time:.1f} seconds")
 
                         # Show extracted fields
                         if parsed_result.get('fields'):
-                            with st.expander(f"📋 Extracted Fields ({len(parsed_result['fields'])})", expanded=False):
+                            # Expand by default if we got results, especially for large dictionaries
+                            expand_fields = len(parsed_result['fields']) <= 20
+                            with st.expander(f"📋 Extracted Fields ({len(parsed_result['fields'])})", expanded=expand_fields):
                                 for field in parsed_result['fields'][:10]:
                                     field_info = f"**{field['field_name']}** ({field['data_type']})"
                                     if field.get('required'):
@@ -649,13 +721,29 @@ with tab1:
                                         field_info += f"\n   Values: {', '.join(field['allowed_values'][:5])}"
                                     st.markdown(field_info)
                                 if len(parsed_result['fields']) > 10:
-                                    st.text(f"... and {len(parsed_result['fields']) - 10} more")
+                                    st.info(f"📊 Showing first 10 of {len(parsed_result['fields'])} extracted fields")
+
+                                    # Add button to show all fields
+                                    col1, col2, col3 = st.columns([1, 2, 1])
+                                    with col1:
+                                        if st.button("Show all fields", key="show_all_fields"):
+                                            st.session_state.show_all_dict_fields = True
+
+                                    # Show remaining fields if button clicked
+                                    if st.session_state.get('show_all_dict_fields', False):
+                                        st.markdown("### All Fields:")
+                                        for field in parsed_result['fields'][10:]:
+                                            field_info = f"**{field['field_name']}** ({field['data_type']})"
+                                            if field.get('required'):
+                                                field_info += " *[Required]*"
+                                            if field.get('description'):
+                                                # Truncate long descriptions
+                                                desc = field['description'][:100] + "..." if len(field['description']) > 100 else field['description']
+                                                field_info += f"\n   {desc}"
+                                            st.markdown(field_info)
 
                 elif dict_file.name.endswith('.pdf'):
-                    # Calculate file hash for caching
-                    dict_file.seek(0)
-                    file_content = dict_file.read()
-                    file_hash = hashlib.md5(file_content).hexdigest()
+                    # PDF without LLM - already have hash from above
                     dict_file.seek(0)  # Reset for reading
 
                     # Check persistent file cache first
@@ -801,16 +889,21 @@ with tab1:
             help="Ready when data is loaded"
         ):
             if st.session_state.data is not None:
-                with st.spinner("Analyzing data quality..."):
-                    # Run analysis
-                    results = asyncio.run(
-                        st.session_state.mcp_client.analyze_data_quality(
-                            st.session_state.data,
-                            st.session_state.dictionary
+                with st.spinner("🔍 Analyzing data quality... Please wait."):
+                    try:
+                        # Run analysis
+                        results = asyncio.run(
+                            st.session_state.mcp_client.analyze_data_quality(
+                                st.session_state.data,
+                                st.session_state.dictionary
+                            )
                         )
-                    )
-                    st.session_state.analysis_results = results
-                    st.success("✅ Analysis complete!")
+                        st.session_state.analysis_results = results
+                        st.success("✅ Analysis complete!")
+                    except Exception as e:
+                        st.error(f"❌ Analysis failed: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
         # Export dropdown - in same column, saves vertical space
         if st.session_state.analysis_results:

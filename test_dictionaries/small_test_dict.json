@@ -1,0 +1,71 @@
+{
+  "dictionary_name": "Small Test Dictionary for Development",
+  "description": "A minimal dictionary for testing without high API costs",
+  "version": "1.0",
+  "fields": [
+    {
+      "field_name": "patient_id",
+      "data_type": "str",
+      "required": true,
+      "description": "Unique patient identifier"
+    },
+    {
+      "field_name": "age",
+      "data_type": "int",
+      "required": true,
+      "description": "Patient age in years",
+      "min_value": 0,
+      "max_value": 120
+    },
+    {
+      "field_name": "gender",
+      "data_type": "str",
+      "required": true,
+      "description": "Patient gender",
+      "allowed_values": ["M", "F", "Other"]
+    },
+    {
+      "field_name": "test_date",
+      "data_type": "date",
+      "required": false,
+      "description": "Date of test",
+      "format_pattern": "YYYY-MM-DD"
+    },
+    {
+      "field_name": "test_result",
+      "data_type": "float",
+      "required": false,
+      "description": "Numeric test result",
+      "min_value": 0.0,
+      "max_value": 100.0
+    }
+  ],
+  "schema": {
+    "patient_id": {
+      "type": "str",
+      "required": true
+    },
+    "age": {
+      "type": "int",
+      "required": true,
+      "min": 0,
+      "max": 120
+    },
+    "gender": {
+      "type": "str",
+      "required": true,
+      "allowed_values": ["M", "F", "Other"]
+    },
+    "test_date": {
+      "type": "date",
+      "required": false,
+      "format": "YYYY-MM-DD"
+    },
+    "test_result": {
+      "type": "float",
+      "required": false,
+      "min": 0.0,
+      "max": 100.0
+    }
+  }
+}

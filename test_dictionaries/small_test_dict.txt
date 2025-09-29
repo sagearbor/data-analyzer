@@ -1,0 +1,45 @@
+DATA DICTIONARY - Small Test File
+==================================
+
+This is a minimal data dictionary for testing purposes.
+Use this for development to avoid API costs.
+
+FIELD DEFINITIONS
+-----------------
+
+Field Name: patient_id
+Type: String
+Required: Yes
+Description: Unique patient identifier
+
+Field Name: age
+Type: Integer
+Required: Yes
+Description: Patient age in years
+Valid Range: 0-120
+
+Field Name: gender
+Type: String
+Required: Yes
+Description: Patient gender
+Valid Values: M, F, Other
+
+Field Name: test_date
+Type: Date
+Required: No
+Description: Date of test
+Format: YYYY-MM-DD
+
+Field Name: test_result
+Type: Float
+Required: No
+Description: Numeric test result
+Valid Range: 0.0-100.0
+
+Field Name: status
+Type: String
+Required: Yes
+Description: Current patient status
+Valid Values: Active, Inactive, Pending
+
+END OF DICTIONARY
