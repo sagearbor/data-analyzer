@@ -27,6 +27,8 @@ from pathlib import Path
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
+# Import real validation classes from mcp_server (no MCP server needed to run)
+from mcp_server import QualityPipeline, QualityChecker
 # Force use of custom renderer for better compatibility
 MERMAID_AVAILABLE = False
 from mermaid_renderer import render_mermaid
@@ -189,14 +191,108 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-class MCPClient:
-    """Simulated MCP Client for demo purposes"""
+class DataQualityAnalyzer:
+    """
+    Wrapper for real QualityPipeline validation logic.
+    Uses actual validation classes from mcp_server.py (no MCP server needed).
+    """
 
     async def analyze_data_quality(self, data: pd.DataFrame, dictionary: Optional[Dict] = None) -> Dict[str, Any]:
-        """Simulate MCP analyze_data call"""
+        """
+        Run data quality analysis using real QualityPipeline.
+
+        Args:
+            data: DataFrame to analyze
+            dictionary: Optional dictionary with validation rules and schema
+                       Can have 'rules' and/or 'schema' keys, or direct field definitions
+
+        Returns:
+            Dict with summary, issues, and recommendations
+        """
+        # Parse dictionary to extract schema and rules for QualityPipeline
+        schema = None
+        rules = None
+
+        if dictionary and isinstance(dictionary, dict):
+            # Handle different dictionary formats
+            if 'rules' in dictionary:
+                dict_rules = dictionary['rules']
+                # Convert web_app dictionary format to QualityChecker format
+                schema = {}
+                rules = {}
+                for field_name, field_spec in dict_rules.items():
+                    if isinstance(field_spec, dict):
+                        # Extract type for schema
+                        if 'type' in field_spec:
+                            schema[field_name] = field_spec['type']
+
+                        # Extract validation rules
+                        field_rules = {}
+                        if 'min' in field_spec and pd.notna(field_spec['min']):
+                            try:
+                                field_rules['min'] = float(field_spec['min'])
+                            except (ValueError, TypeError):
+                                pass
+                        if 'max' in field_spec and pd.notna(field_spec['max']):
+                            try:
+                                field_rules['max'] = float(field_spec['max'])
+                            except (ValueError, TypeError):
+                                pass
+                        if 'allowed_values' in field_spec and field_spec['allowed_values']:
+                            field_rules['allowed'] = field_spec['allowed_values']
+
+                        if field_rules:
+                            rules[field_name] = field_rules
+
+            elif 'schema' in dictionary:
+                schema = dictionary.get('schema')
+                rules = dictionary.get('validation_rules', {})
+
+        # Run QualityPipeline analysis
+        pipeline = QualityPipeline(data, schema=schema, rules=rules)
+        results = pipeline.run_all_checks(min_rows=1)
+
+        # Transform QualityPipeline results to web_app expected format
         issues = []
 
-        # Check for missing values
+        # Transform QualityPipeline issues (which have 'column', 'rule', 'violating_rows')
+        # into web UI format (which needs 'type', 'severity', 'message', 'row', 'value')
+        for qp_issue in results.get('issues', []):
+            column = qp_issue.get('column')
+            rule = qp_issue.get('rule', '')
+            violating_rows = qp_issue.get('violating_rows', [])
+
+            # Determine issue type and severity based on the rule
+            if 'min >=' in rule or 'max <=' in rule:
+                issue_type = "range_violation"
+                severity = "error"
+            elif 'allowed_values' in rule:
+                issue_type = "invalid_categorical_value"
+                severity = "error"
+            elif qp_issue.get('issue') == 'type_mismatch':
+                issue_type = "type_mismatch"
+                severity = "error"
+            elif qp_issue.get('issue') == 'datetime_validation_failed':
+                issue_type = "invalid_date"
+                severity = "error"
+            else:
+                issue_type = qp_issue.get('issue', 'validation_error')
+                severity = "error"
+
+            # Create individual issue for each violating row
+            for row_idx in violating_rows:
+                value = data[column].iloc[row_idx] if column in data.columns and row_idx < len(data) else None
+
+                issues.append({
+                    "type": issue_type,
+                    "severity": severity,
+                    "column": column,
+                    "row": int(row_idx),
+                    "value": value,
+                    "message": f"Value {value} in column '{column}' violates rule: {rule}"
+                })
+
+        # Add missing value issues
         for col in data.columns:
             missing = data[col].isnull().sum()
             if missing > 0:
@@ -209,89 +305,30 @@ class MCPClient:
                     "message": f"Column '{col}' has {missing} missing values ({round(missing/len(data)*100, 2)}%)"
                 })
 
-        # Check for invalid values (including "invalid", "error", malformed dates, suspicious numbers)
-        for col in data.columns:
-            for idx, val in data[col].items():
-                if pd.notna(val):
-                    val_str = str(val).lower().strip()
-                    # Check for known invalid text values
-                    if val_str in ['invalid', 'error', 'n/a', 'null', 'none', 'invalid-date']:
-                        issues.append({
-                            "type": "invalid_value",
-                            "severity": "error",
-                            "column": col,
-                            "row": idx,
-                            "value": val,
-                            "message": f"Invalid value '{val}' in column '{col}' at row {idx}"
-                        })
-                    # Check for malformed dates (contains 'oops' or other text in date)
-                    elif 'date' in col.lower() or '-' in str(val):
-                        if 'oops' in val_str or 'text' in val_str:
-                            issues.append({
-                                "type": "invalid_date",
-                                "severity": "error",  # Critical error for malformed dates
-                                "column": col,
-                                "row": idx,
-                                "value": val,
-                                "message": f"Malformed date '{val}' in column '{col}' at row {idx}"
-                            })
-                    # Check for suspicious numeric values (e.g., 666 in specific columns)
-                    elif str(val) == '666' or (isinstance(val, str) and '666' in val and len(val) <= 4):
-                        # Flag 666 as error in specific validation columns, warning otherwise
-                        severity = "error" if any(x in col.lower() for x in ['length', 'options', 'score']) else "warning"
-                        issues.append({
-                            "type": "suspicious_value",
-                            "severity": severity,
-                            "column": col,
-                            "row": idx,
-                            "value": val,
-                            "message": f"Suspicious test value '{val}' in column '{col}' at row {idx}"
-                        })
-
-        # Apply custom rules if provided
-        # Extract rules from dictionary structure
-        rules = None
-        if dictionary and isinstance(dictionary, dict):
-            rules = dictionary.get('rules', dictionary.get('schema', {}))
-
-        if rules and isinstance(rules, dict):
-            for col, col_rules in rules.items():
-                if col in data.columns:
-                    if 'min' in col_rules:
-                        mask = pd.to_numeric(data[col], errors='coerce') < col_rules['min']
-                        violations = data[mask]
-                        for idx in violations.index:
-                            issues.append({
-                                "type": "range_violation",
-                                "severity": "error",
-                                "column": col,
-                                "row": int(idx),
-                                "value": data[col][idx],
-                                "message": f"Value {data[col][idx]} in column '{col}' is below minimum {col_rules['min']}"
-                            })
-
-        # Generate summary
+        # Build summary
         summary = {
             "total_rows": len(data),
             "total_columns": len(data.columns),
             "issues_found": len(issues),
-            "critical_issues": sum(1 for i in issues if i['severity'] == 'error'),
-            "warnings": sum(1 for i in issues if i['severity'] == 'warning'),
-            "data_types": {col: str(data[col].dtype) for col in data.columns},
+            "critical_issues": sum(1 for i in issues if i.get('severity') == 'error'),
+            "warnings": sum(1 for i in issues if i.get('severity') == 'warning'),
+            "data_types": results.get('summary_stats', {}).get('dtypes', {col: str(data[col].dtype) for col in data.columns}),
             "completeness": round((1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100, 2)
         }
 
         return {
             "summary": summary,
             "issues": issues,
-            "recommendations": self._generate_recommendations(issues)
+            "recommendations": self._generate_recommendations(issues),
+            "quality_checks": results.get('checks', {}),
+            "summary_stats": results.get('summary_stats', {})
         }
 
     def _generate_recommendations(self, issues):
         """Generate recommendations based on issues found"""
         recommendations = []
 
-        issue_types = set(i['type'] for i in issues)
+        issue_types = set(i.get('type', i.get('issue', 'unknown')) for i in issues)
 
         if 'missing_values' in issue_types:
             recommendations.append({
@@ -300,18 +337,25 @@ class MCPClient:
                 "message": "Consider implementing data imputation strategies for columns with missing values"
             })
 
-        if 'invalid_value' in issue_types:
+        if any(t in issue_types for t in ['type_mismatch', 'datetime_validation_failed', 'invalid_value']):
             recommendations.append({
                 "type": "data_validation",
                 "priority": "critical",
-                "message": "Invalid values detected. Review data source and implement validation at ingestion"
+                "message": "Data type issues detected. Review data source and implement validation at ingestion"
             })
 
-        if 'range_violation' in issue_types:
+        if 'range_violation' in issue_types or any('violation' in str(t) for t in issue_types):
             recommendations.append({
                 "type": "business_rules",
                 "priority": "high",
                 "message": "Values outside expected ranges detected. Review business rules and data constraints"
+            })
+
+        if any('allowed' in str(t) for t in issue_types):
+            recommendations.append({
+                "type": "categorical_validation",
+                "priority": "high",
+                "message": "Invalid categorical values found. Verify allowed values match business requirements"
             })
 
         return recommendations
@@ -321,14 +365,18 @@ def load_demo_data(dataset_name: str):
     demo_data = {
         'western': pd.DataFrame({
             'employee_id': [1001, 1002, 1003, 1004, 1005],
-            'first_name': ['John', 'Jane', 'invalid', 'Bob', 'Alice'],
-            'last_name': ['Smith', 'Doe', 'Johnson', 'invalid', 'Wilson'],
-            'age': [35, 28, 67, 45, 32],  # 67 is outside range
-            'salary': [75000, 85000, 45000, 95000, None],  # 45000 below min
-            'hire_date': ['2022-03-15', '2023-01-10', 'invalid-date', '2021-07-22', '2022-11-30'],
-            'department': ['Engineering', 'Marketing', 'invalid', 'Sales', 'Finance'],
-            'is_active': [True, True, False, None, True],
-            'email': ['john@company.com', 'invalid', 'mike@company.com', 'bob@company.com', 'alice@company.com']
+            'first_name': ['John', 'Jane', 'Mike', 'Bob', 'Alice'],
+            'last_name': ['Smith', 'Doe', 'Johnson', 'Brown', 'Wilson'],
+            'age': [35, 28, 67, 45, 32],  # ERROR: 67 is outside range (max 65)
+            'salary': [75000, 85000, 45000, 95000, None],  # ERROR: 45000 below min (50000), WARNING: None is missing
+            'hire_date': ['2022-03-15', '2023-01-10', '2023-99-99', '2021-07-22', '2022-11-30'],  # ERROR: invalid date 2023-99-99
+            'last_login_datetime': ['2023-01-15 10:30:00', '2023-02-20 14:45:00', '2023-03-10 09:15:00', '2023-04-05 16:20:00', '2023-05-12 11:00:00'],
+            'bonus_percentage': [5.5, 10.0, 15.5, 8.0, 12.5],
+            'department': ['Engineering', 'Marketing', 'InvalidDept', 'Sales', 'Finance'],  # ERROR: InvalidDept not in allowed values
+            'is_active': [True, True, False, None, True],  # WARNING: None is missing
+            'skills': ['Python;SQL', 'Marketing;Analytics', 'Java;AWS', 'Sales;CRM', 'Python;Leadership'],
+            'email': ['john@company.com', 'jane@company.com', 'mike@company.com', 'bob@company.com', 'alice@company.com'],
+            'phone': ['+1-555-1234', '+1-555-5678', '+1-555-9012', None, '+1-555-3456']  # WARNING: None is missing
         }),
         'clinical': pd.DataFrame({
             'patient_id': ['P001', 'P002', 'P003', 'P004', 'P005', 'P006', 'P007', 'P008'],
@@ -536,7 +584,7 @@ if 'dictionary' not in st.session_state:
 if 'analysis_results' not in st.session_state:
     st.session_state.analysis_results = None
 if 'mcp_client' not in st.session_state:
-    st.session_state.mcp_client = MCPClient()
+    st.session_state.mcp_client = DataQualityAnalyzer()
 if 'dict_cache' not in st.session_state:
     st.session_state.dict_cache = {}  # Cache for parsed dictionaries
 if 'last_dict_file' not in st.session_state:
@@ -871,8 +919,38 @@ with tab1:
         )
 
         if demo_dict != "None":
-            st.session_state.dictionary = get_demo_dictionary(demo_dict)
-            st.success(f"✅ Loaded {demo_dict}")
+            # Get demo dictionary CSV string and parse it
+            demo_csv_string = get_demo_dictionary(demo_dict)
+
+            # Parse CSV string into rules dictionary (same logic as CSV upload)
+            import io
+            df = pd.read_csv(io.StringIO(demo_csv_string))
+            rules = {}
+            for _, row in df.iterrows():
+                if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                    field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                    if field_name:
+                        rule = {}
+                        if 'Type' in row or 'type' in row:
+                            rule['type'] = str(row.get('Type') or row.get('type'))
+                        if 'Min' in row or 'min' in row:
+                            rule['min'] = row.get('Min') or row.get('min')
+                        if 'Max' in row or 'max' in row:
+                            rule['max'] = row.get('Max') or row.get('max')
+                        if 'Required' in row or 'required' in row:
+                            rule['required'] = row.get('Required') or row.get('required')
+                        if 'Allowed_Values' in row or 'allowed_values' in row:
+                            allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                            if allowed and not pd.isna(allowed):
+                                rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                        rules[field_name] = rule
+
+            st.session_state.dictionary = {
+                "source": "Demo Dictionary",
+                "filename": demo_dict,
+                "rules": rules
+            }
+            st.success(f"✅ Loaded {demo_dict} ({len(rules)} field definitions)")
 
     with col3:
         st.markdown("### ⚡ Analyze")

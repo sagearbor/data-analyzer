@@ -10,3 +10,8 @@ pyarrow>=14.0.0
 chardet>=5.2.0
 matplotlib>=3.7.0
 PyPDF2>=3.0.0
+
+# LLM Integration Requirements
+openai>=1.0.0
+tiktoken>=0.5.0
+python-dotenv>=1.0.0

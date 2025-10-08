@@ -48,15 +48,24 @@ source venv/bin/activate  # Linux/Mac
 # venv\Scripts\activate   # Windows
 
 # Install dependencies
-pip install -r requirements.txt       # Web app dependencies
+pip install -r requirements.txt       # Web app dependencies (includes LLM support)
 pip install -r mcp_requirements.txt   # MCP server dependencies
 
 # Run MCP server locally
 python mcp_server.py
 
-# Run web application locally
-streamlit run web_app.py
+# Run web application with LLM support
+# Option 1: Use the launch script (recommended)
+./run_app.sh
+
+# Option 2: Use Python wrapper
+python run_streamlit.py
+
+# Option 3: Manual activation and run
+source venv/bin/activate && streamlit run web_app.py
 ```
+
+**IMPORTANT:** Always use one of the above methods to ensure LLM functionality works correctly. Do NOT run `streamlit run web_app.py` directly without activating the virtual environment first.
 
 ### Docker Development
 ```bash

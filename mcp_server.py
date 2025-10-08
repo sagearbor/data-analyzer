@@ -24,7 +24,19 @@ from mcp.server.models import InitializationOptions
 import mcp.server.stdio
 import mcp.types as types
 
-# Data quality check modules (adapted from csvChecker, extensible for other formats)
+# ============================================================================
+# PART 1: STANDALONE DATA QUALITY CLASSES
+# ============================================================================
+# These classes (DataLoader, QualityChecker, QualityPipeline) can be imported
+# and used directly in any Python application without running an MCP server.
+# They provide all core data validation functionality.
+#
+# Example usage without MCP server:
+#   from mcp_server import QualityPipeline
+#   pipeline = QualityPipeline(df, schema=schema_dict, rules=rules_dict)
+#   results = pipeline.run_all_checks()
+# ============================================================================
+
 class DataLoader:
     """Load and validate data files (CSV, JSON, Excel, Parquet)"""
     
@@ -179,9 +191,155 @@ class DataLoader:
         else:
             raise ValueError(f"Unsupported file format: {file_format}. Supported: CSV, JSON, Excel, Parquet")
 
+class DataDictionaryParser:
+    """Parse REDCap-style data dictionaries to extract schema and validation rules"""
+
+    @staticmethod
+    def parse_redcap_dictionary(dict_df: pd.DataFrame) -> tuple[Dict[str, str], Dict[str, Dict]]:
+        """
+        Parse REDCap data dictionary CSV to extract schema types and validation rules.
+
+        Returns:
+            tuple: (schema_dict, rules_dict)
+                - schema_dict: {field_name: data_type}
+                - rules_dict: {field_name: {allowed: [...], min: X, max: Y}}
+        """
+        schema = {}
+        rules = {}
+
+        # Expected column names (with variations)
+        field_col = None
+        type_col = None
+        choices_col = None
+        validation_col = None
+        min_col = None
+        max_col = None
+
+        # Find the right column names (case-insensitive)
+        cols_lower = {col.lower(): col for col in dict_df.columns}
+
+        for key in ['variable / field name', 'variable', 'field name', 'variable_field_name']:
+            if key in cols_lower:
+                field_col = cols_lower[key]
+                break
+
+        for key in ['field type', 'type', 'field_type']:
+            if key in cols_lower:
+                type_col = cols_lower[key]
+                break
+
+        for key in ['choices, calculations, or slider labels', 'choices', 'field_choices']:
+            if key in cols_lower:
+                choices_col = cols_lower[key]
+                break
+
+        for key in ['text validation type or show slider number', 'validation', 'text_validation_type_or_show_slider_number']:
+            if key in cols_lower:
+                validation_col = cols_lower[key]
+                break
+
+        for key in ['text validation min', 'min', 'text_validation_min']:
+            if key in cols_lower:
+                min_col = cols_lower[key]
+                break
+
+        for key in ['text validation max', 'max', 'text_validation_max']:
+            if key in cols_lower:
+                max_col = cols_lower[key]
+                break
+
+        if not field_col:
+            raise ValueError("Could not find field name column in data dictionary")
+
+        # Parse each field
+        for idx, row in dict_df.iterrows():
+            field_name = row[field_col]
+            if pd.isna(field_name) or field_name == '':
+                continue
+
+            # Extract field type
+            field_type = row[type_col] if type_col and not pd.isna(row[type_col]) else 'text'
+
+            # Map REDCap types to our types
+            if field_type in ['text', 'notes']:
+                # Check if there's a validation type
+                if validation_col and not pd.isna(row[validation_col]):
+                    validation = str(row[validation_col]).lower()
+                    if 'date' in validation:
+                        schema[field_name] = 'datetime'
+                    elif 'number' in validation or 'integer' in validation:
+                        if 'integer' in validation:
+                            schema[field_name] = 'int'
+                        else:
+                            schema[field_name] = 'float'
+                    else:
+                        schema[field_name] = 'str'
+                else:
+                    schema[field_name] = 'str'
+            elif field_type in ['radio', 'dropdown', 'checkbox']:
+                # These have allowed values in the choices column
+                schema[field_name] = 'int'  # Usually coded as integers
+
+                # Extract allowed values from choices
+                if choices_col and not pd.isna(row[choices_col]):
+                    choices_str = str(row[choices_col])
+                    # Parse format: "1, Male | 2, Female" or "1, Yes | 0, No"
+                    allowed_values = []
+                    for choice in choices_str.split('|'):
+                        choice = choice.strip()
+                        if ',' in choice:
+                            code = choice.split(',')[0].strip()
+                            try:
+                                # Try to convert to int
+                                allowed_values.append(int(code))
+                            except ValueError:
+                                # If not int, store as string
+                                allowed_values.append(code)
+
+                    if allowed_values:
+                        # For checkbox fields, REDCap expands them to field___1, field___2, etc.
+                        # Each checkbox column can only be 0 (unchecked) or 1 (checked)
+                        if field_type == 'checkbox':
+                            # Create rules for each expanded checkbox field
+                            for code in allowed_values:
+                                checkbox_field = f"{field_name}___{code}"
+                                schema[checkbox_field] = 'int'
+                                rules[checkbox_field] = {"allowed": [0, 1]}
+                        else:
+                            # Radio/dropdown: use original field name with full allowed values
+                            rules[field_name] = {"allowed": allowed_values}
+            elif field_type == 'calc':
+                schema[field_name] = 'float'
+            elif field_type == 'yesno':
+                schema[field_name] = 'int'
+                rules[field_name] = {"allowed": [0, 1]}
+            elif field_type == 'truefalse':
+                schema[field_name] = 'bool'
+
+            # Extract min/max ranges
+            if min_col and not pd.isna(row[min_col]):
+                try:
+                    min_val = float(row[min_col])
+                    if field_name not in rules:
+                        rules[field_name] = {}
+                    rules[field_name]["min"] = min_val
+                except (ValueError, TypeError):
+                    pass
+
+            if max_col and not pd.isna(row[max_col]):
+                try:
+                    max_val = float(row[max_col])
+                    if field_name not in rules:
+                        rules[field_name] = {}
+                    rules[field_name]["max"] = max_val
+                except (ValueError, TypeError):
+                    pass
+
+        return schema, rules
+
 class QualityChecker:
     """Perform data quality checks on structured data (CSV, future: other formats)"""
-    
+
     def __init__(self, df: pd.DataFrame, schema: Optional[Dict] = None, rules: Optional[Dict] = None):
         self.df = df
         self.schema = schema or {}
@@ -259,9 +417,13 @@ class QualityChecker:
                             import warnings
                             with warnings.catch_warnings():
                                 warnings.simplefilter("ignore")
-                                parsed_dates = pd.to_datetime(self.df[column].dropna(), errors='coerce')
-                            if parsed_dates.isna().any():
-                                raise ValueError(f"Invalid datetime values found")
+                                col_data = self.df[column].dropna()
+                                parsed_dates = pd.to_datetime(col_data, errors='coerce')
+                            # Count how many values failed to parse (became NaT)
+                            failed_count = parsed_dates.isna().sum()
+                            # If any values failed to parse, this is a type error
+                            if failed_count > 0:
+                                raise ValueError(f"Invalid datetime values found: {failed_count} values could not be parsed")
                     except:
                         # For datetime issues, provide more specific information
                         if expected_type == "datetime":
@@ -356,20 +518,53 @@ class QualityChecker:
             
             # Check allowed values
             if "allowed" in rule:
-                allowed_values = set(rule["allowed"])
-                actual_values = set(col_data.unique())
+                # Normalize allowed values - convert to numeric if possible
+                allowed_values = set()
+                for val in rule["allowed"]:
+                    try:
+                        # Try numeric conversion
+                        allowed_values.add(int(val))
+                        allowed_values.add(float(val))
+                    except (ValueError, TypeError):
+                        pass
+                    # Also add original value
+                    allowed_values.add(val)
+
+                # Normalize actual values - convert to numeric if possible
+                normalized_actual = []
+                for val in col_data.unique():
+                    try:
+                        # Try to convert to numeric
+                        numeric_val = pd.to_numeric(val, errors='raise')
+                        normalized_actual.append(numeric_val)
+                    except (ValueError, TypeError):
+                        # Keep as-is if not numeric
+                        normalized_actual.append(val)
+
+                actual_values = set(normalized_actual)
                 invalid_values = actual_values - allowed_values
-                
+
                 if invalid_values:
                     # Find rows with invalid values
-                    mask = col_data.isin(invalid_values)
-                    violating_rows = self.df[mask].index.tolist()
-                    
+                    # Build mask based on full dataframe
+                    invalid_mask = pd.Series([False] * len(self.df), index=self.df.index)
+
+                    for idx in col_data.index:
+                        val = col_data.loc[idx]
+                        try:
+                            normalized = pd.to_numeric(val, errors='raise')
+                        except (ValueError, TypeError):
+                            normalized = val
+                        if normalized in invalid_values:
+                            invalid_mask.loc[idx] = True
+
+                    violating_rows = self.df[invalid_mask].index.tolist()
+
                     range_issues.append({
                         "column": column,
-                        "rule": f"allowed_values: {rule['allowed']}",
-                        "invalid_values": list(invalid_values),
-                        "violation_count": mask.sum(),
+                        "rule": f"allowed_values: {sorted(rule['allowed'])}",
+                        "invalid_values": sorted([str(v) for v in invalid_values]),
+                        "violation_count": invalid_mask.sum(),
                         "violating_rows": violating_rows[:10]  # First 10
                     })
         
@@ -505,10 +700,25 @@ class QualityPipeline:
         results["overall_passed"] = all_checks_passed
         results["total_issues"] = len(self.checker.issues)
         results["issues"] = self.checker.issues
-        
+
         return results
 
-# MCP Server Implementation
+# ============================================================================
+# PART 2: MCP SERVER WRAPPER (OPTIONAL)
+# ============================================================================
+# This section wraps the standalone classes above as an MCP (Model Context Protocol)
+# server for external access by AI assistants and other MCP clients.
+#
+# The classes above work fine WITHOUT this server running - this is only needed
+# if you want to expose the validation functionality via MCP protocol.
+#
+# To run as MCP server:
+#   python mcp_server.py
+#
+# To use without MCP server (recommended for web_app.py):
+#   Just import the classes directly (see PART 1 comments above)
+# ============================================================================
+
 app = Server("data-analyzer")
 
 @app.list_tools()
