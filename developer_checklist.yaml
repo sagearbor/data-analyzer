@@ -1,328 +1,804 @@
-# Developer Checklist for Data Analyzer
+# Developer Checklist for Data Analyzer - ACTIVE TASKS ONLY
 # Status: TODO | INPROGRESS | DONE
+# Completed tasks moved to: archive/developer_checklist_archived.yaml
 # AI agents: Please update status and add notes when working on tasks
 
 project_info:
-  name: Data Analyzer
+  name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2025-01-19
+  last_updated: 2025-09-28T20:00:00Z
 
-phases:
-  # Phase 1: Core Functionality & Testing
-  phase_1_core:
-    name: "Core Infrastructure"
-    status: INPROGRESS
-    tasks:
-      - id: core_1
-        name: "MCP Client Integration"
-        description: "Replace simulated MCP calls with actual MCP client in web_app.py"
-        status: TODO
-        priority: CRITICAL
-        effort: "3-5 days"
-        dependencies: []
-        files:
-          - web_app.py
-        notes: "Currently using _simulate_mcp_call() method"
+# =========================================================
+# CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
+# =========================================================
+# FIXES COMPLETED TODAY BY CLAUDE:
+# 1. ✅ Export dropdown - Shows download button immediately
+# 2. ✅ PDF dictionary caching - Saves to ~/.data_analyzer_cache/
+# 3. ✅ PDF progress - Shows every page update (not batched)
+# 4. ✅ Port issue - Fixed multiple instances, runs on 8501
+# 5. ⚠️  Mermaid diagram - STILL BROKEN (see core_1c below)
+#
+# MAJOR DISCOVERIES - IMPORTANT:
+# - MCPClient is 100% SIMULATED - NO real MCP (see core_1)
+# - Azure OpenAI was NEVER IMPLEMENTED (see core_1b)
+# - Dictionary parsing uses BASIC REGEX ONLY
+# - The app has been running on simulations all along!
+# =========================================================
 
-      - id: core_2
-        name: "Testing Framework Setup"
-        description: "Implement comprehensive test suite"
-        status: TODO
-        priority: HIGH
-        effort: "2-3 days"
-        dependencies: []
-        subtasks:
-          - "Create tests/test_mcp_server.py"
-          - "Create tests/test_web_app.py"
-          - "Create tests/test_integration.py"
-          - "Add pytest to requirements"
-          - "Setup CI/CD test runners"
+# PRIORITY 1: Frontend Cleanup & Visual Improvements
+phase_frontend_cleanup:
+  name: "Frontend Visual Overhaul"
+  status: TODO
+  priority: CRITICAL
+  tasks:
+    - id: ui_cleanup_1
+      name: "Fix Navigation Bar"
+      description: "Professional navbar with better styling and responsiveness"
+      status: DONE
+      priority: CRITICAL
+      effort: "4 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Implemented horizontal navigation with streamlit-option-menu, custom gradient styling"
+      subtasks:
+        - "Fix navbar spacing and alignment"
+        - "Add hover effects and transitions"
+        - "Ensure mobile responsiveness"
+        - "Fix active page highlighting"
+        - "Add logo/branding area"
+        - "Implement breadcrumb navigation"
 
-      - id: core_3
-        name: "Error Handling Enhancement"
-        description: "Improve error handling and user feedback"
-        status: TODO
-        priority: MEDIUM
-        effort: "1-2 days"
-        dependencies: []
-        notes: ""
+    - id: ui_cleanup_2
+      name: "Sidebar Reorganization"
+      description: "Streamline sidebar to reduce clutter"
+      status: TODO
+      priority: CRITICAL
+      effort: "3 hours"
+      subtasks:
+        - "Group related controls in expanders"
+        - "Move debug/advanced options to collapsible section"
+        - "Add icons to all controls"
+        - "Implement smart defaults"
+        - "Add tooltips for all options"
+        - "Create 'Quick Start' section at top"
 
-  # Phase 2: Data Format Support
-  phase_2_formats:
-    name: "Multi-Format Support"
-    status: TODO
-    tasks:
-      - id: format_1
-        name: "JSON Support"
-        description: "Add JSON file analysis capabilities"
-        status: TODO
-        priority: HIGH
-        effort: "2-3 days"
-        dependencies: ["core_1"]
-        files:
-          - mcp_server.py
-          - web_app.py
-        subtasks:
-          - "Implement JSON loader in DataLoader class"
-          - "Handle nested JSON structures"
-          - "Add JSON-specific validation rules"
-          - "Update UI for JSON configuration"
+    - id: ui_cleanup_3
+      name: "Main Content Area Restructuring"
+      description: "Reduce scrolling and improve information hierarchy"
+      status: DONE
+      priority: CRITICAL
+      effort: "6 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Implemented tabbed interface for Analysis page (Upload, Analyze, Results, Export tabs)"
+      subtasks:
+        - "Replace vertical layout with tabbed interface"
+        - "Create summary dashboard as first view"
+        - "Move detailed results to secondary tabs"
+        - "Implement lazy loading for heavy content"
+        - "Add 'Jump to Section' navigation"
+        - "Create collapsible result cards"
 
-      - id: format_2
-        name: "Excel Support"
-        description: "Add Excel file analysis with multi-sheet support"
-        status: TODO
-        priority: HIGH
-        effort: "3-4 days"
-        dependencies: ["core_1"]
-        files:
-          - mcp_server.py
-          - web_app.py
-        subtasks:
-          - "Add openpyxl or xlrd dependency"
-          - "Implement Excel loader in DataLoader"
-          - "Handle multiple sheets"
-          - "Add sheet selection UI"
+    - id: ui_cleanup_4
+      name: "Schema/Rules Editor Overhaul"
+      description: "Replace individual inputs with table-based editor"
+      status: TODO
+      priority: HIGH
+      effort: "5 hours"
+      dependencies: []
+      subtasks:
+        - "Install streamlit-aggrid for Excel-like editing"
+        - "Create bulk edit interface"
+        - "Add copy/paste support"
+        - "Implement undo/redo functionality"
+        - "Add import from clipboard feature"
+        - "Create schema templates dropdown"
 
-      - id: format_3
-        name: "Parquet Support"
-        description: "Add Parquet columnar format support"
-        status: TODO
-        priority: MEDIUM
-        effort: "2 days"
-        dependencies: ["core_1"]
-        files:
-          - mcp_server.py
-          - web_app.py
-        subtasks:
-          - "Add pyarrow dependency"
-          - "Implement Parquet loader"
-          - "Handle schema extraction"
+    - id: ui_cleanup_5
+      name: "Results Dashboard Redesign"
+      description: "Professional analytics dashboard"
+      status: TODO
+      priority: HIGH
+      effort: "6 hours"
+      subtasks:
+        - "Create status cards with metrics"
+        - "Add progress indicators during analysis"
+        - "Implement color-coded severity levels"
+        - "Create interactive issue explorer"
+        - "Add filtering and sorting for issues"
+        - "Implement issue grouping by type/column"
 
-      - id: format_4
-        name: "XML Support"
-        description: "Add XML hierarchical data support"
-        status: TODO
-        priority: LOW
-        effort: "3-4 days"
-        dependencies: ["core_1"]
-        notes: "Complex due to hierarchical nature"
+    - id: ui_cleanup_6
+      name: "Visual Polish & Theming"
+      description: "Professional appearance with consistent design"
+      status: DONE
+      priority: MEDIUM
+      effort: "4 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Added gradient backgrounds, professional cards, hover effects, modern button styling"
+      subtasks:
+        - "Implement consistent color scheme"
+        - "Add Tailwind CSS or Bootstrap integration"
+        - "Create custom CSS for components"
+        - "Add smooth animations and transitions"
+        - "Implement dark mode toggle"
+        - "Fix spacing and padding throughout"
 
-  # Phase 3: Authentication & Security
-  phase_3_security:
-    name: "Security & Authentication"
-    status: TODO
-    tasks:
-      - id: sec_1
-        name: "API Key Authentication"
-        description: "Implement API key based authentication"
-        status: TODO
-        priority: HIGH
-        effort: "2-3 days"
-        dependencies: ["core_1"]
-        notes: ""
+    - id: ui_cleanup_7
+      name: "Responsive Design"
+      description: "Ensure works well on all screen sizes"
+      status: DONE
+      priority: MEDIUM
+      effort: "3 hours"
+      completed_date: "2025-09-28T07:48:00Z"
+      notes: "Added comprehensive media queries for mobile, tablet, and desktop views"
+      subtasks:
+        - "Test on mobile devices"
+        - "Implement responsive grid layouts"
+        - "Create mobile-friendly navigation"
+        - "Optimize for tablet views"
+        - "Add viewport meta tags"
 
-      - id: sec_2
-        name: "OAuth2 Integration"
-        description: "Add OAuth2 support for enterprise users"
-        status: TODO
-        priority: MEDIUM
-        effort: "4-5 days"
-        dependencies: ["sec_1"]
-        notes: ""
+    - id: ui_cleanup_8
+      name: "Loading States & Feedback"
+      description: "Better user feedback during operations"
+      status: DONE
+      priority: HIGH
+      effort: "2 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Implemented progress bars, spinners, and status messages during analysis"
+      subtasks:
+        - "Add skeleton loaders"
+        - "Implement progress bars for long operations"
+        - "Add success/error toast notifications"
+        - "Create loading overlays"
+        - "Add operation time estimates"
 
-      - id: sec_3
-        name: "Data Encryption"
-        description: "Encrypt sensitive data in transit and at rest"
-        status: TODO
-        priority: HIGH
-        effort: "3-4 days"
-        dependencies: []
-        notes: ""
+# PRIORITY 2: Download with Error Highlighting Feature
+phase_error_export:
+  name: "Export Data with Error Highlighting"
+  status: TODO
+  priority: HIGH
+  tasks:
+    - id: export_1
+      name: "Excel Export with Error Highlighting"
+      description: "Download Excel files with errors highlighted in red"
+      status: TODO
+      priority: HIGH
+      effort: "1 day"
+      subtasks:
+        - "Use openpyxl for Excel manipulation"
+        - "Apply red background to error cells"
+        - "Add error comments to cells"
+        - "Create error summary sheet"
+        - "Include validation report as separate sheet"
+        - "Add conditional formatting for warnings"
 
-  # Phase 4: Performance & Scalability
-  phase_4_performance:
-    name: "Performance Optimization"
-    status: TODO
-    tasks:
-      - id: perf_1
-        name: "Streaming Processing"
-        description: "Handle files > 200MB with streaming"
-        status: TODO
-        priority: MEDIUM
-        effort: "4-5 days"
-        dependencies: []
-        subtasks:
-          - "Implement chunked reading"
-          - "Add progress indicators"
-          - "Memory-efficient processing"
+    - id: export_2
+      name: "CSV Export with Error Markers"
+      description: "Mark errors in CSV format"
+      status: TODO
+      priority: HIGH
+      effort: "4 hours"
+      subtasks:
+        - "Add _ERROR suffix to problematic values"
+        - "Create companion error report file"
+        - "Add error line numbers in separate column"
+        - "Generate error mapping file"
 
-      - id: perf_2
-        name: "Caching Layer"
-        description: "Add caching for repeated analyses"
-        status: TODO
-        priority: LOW
-        effort: "2-3 days"
-        dependencies: []
-        notes: ""
+    - id: export_3
+      name: "JSON Export with Error Annotations"
+      description: "Annotate JSON with error metadata"
+      status: TODO
+      priority: MEDIUM
+      effort: "4 hours"
+      subtasks:
+        - "Add _errors field to objects with issues"
+        - "Include error types and messages"
+        - "Maintain original structure"
+        - "Create error summary at root level"
 
-      - id: perf_3
-        name: "Parallel Processing"
-        description: "Use multiprocessing for large datasets"
-        status: TODO
-        priority: MEDIUM
-        effort: "3-4 days"
-        dependencies: []
-        notes: ""
+    - id: export_4
+      name: "HTML Report Generation"
+      description: "Interactive HTML report with errors"
+      status: TODO
+      priority: MEDIUM
+      effort: "6 hours"
+      subtasks:
+        - "Create HTML template with styling"
+        - "Highlight errors with CSS"
+        - "Add interactive filtering"
+        - "Include charts and visualizations"
+        - "Make report self-contained (inline CSS/JS)"
 
-  # Phase 5: UI/UX Enhancements
-  phase_5_ui:
-    name: "User Interface Improvements"
-    status: TODO
-    tasks:
-      - id: ui_1
-        name: "Data Profiling Dashboard"
-        description: "Enhanced visualization dashboard"
-        status: TODO
-        priority: MEDIUM
-        effort: "3-4 days"
-        dependencies: []
-        subtasks:
-          - "Add interactive charts"
-          - "Distribution plots"
-          - "Correlation matrices"
+    - id: export_5
+      name: "Download UI Integration"
+      description: "Add download buttons to interface"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Add download section to results"
+        - "Provide format selection dropdown"
+        - "Show download size estimate"
+        - "Add batch download for all formats"
 
-      - id: ui_2
-        name: "Export Reports"
-        description: "Export analysis results to PDF/HTML"
-        status: TODO
-        priority: MEDIUM
-        effort: "2-3 days"
-        dependencies: []
-        notes: ""
+# PRIORITY 3: Testing & Debugging Core Functionality
+phase_testing_debugging:
+  name: "Fix Core Bugs and Test All Features"
+  status: INPROGRESS
+  priority: CRITICAL
+  tasks:
+    - id: test_debug_1
+      name: "Fix JSON Format Support"
+      description: "JSON analysis currently broken - showing 'Unsupported format: json'"
+      status: TODO
+      priority: CRITICAL
+      effort: "2 hours"
+      bug_reported: "User reported: JSON Mixed demo data causes error"
+      subtasks:
+        - "Debug _simulate_mcp_call method for JSON handling"
+        - "Fix JSON data loading in web_app.py"
+        - "Test with all JSON demo formats"
+        - "Handle nested JSON structures properly"
+        - "Fix JSON preview display"
 
-      - id: ui_3
-        name: "Rule Templates"
-        description: "Pre-built validation rule templates"
-        status: TODO
-        priority: LOW
-        effort: "2 days"
-        dependencies: []
-        notes: ""
+    - id: test_debug_2
+      name: "Test All Demo Data Formats"
+      description: "Systematically test each demo data format"
+      status: TODO
+      priority: CRITICAL
+      effort: "3 hours"
+      subtasks:
+        - "Test CSV - Western demo data"
+        - "Test CSV - Asian demo data"
+        - "Test JSON - Mixed demo data"
+        - "Test CSV - Clinical Trial demo data"
+        - "Document all errors found"
+        - "Fix each format's specific issues"
 
-  # Phase 6: Production Readiness
-  phase_6_production:
-    name: "Production Deployment"
-    status: TODO
-    tasks:
-      - id: prod_1
-        name: "Monitoring & Logging"
-        description: "Comprehensive application monitoring"
-        status: TODO
-        priority: HIGH
-        effort: "3-4 days"
-        dependencies: ["core_1", "core_2"]
-        subtasks:
-          - "Application Insights integration"
-          - "Custom metrics"
-          - "Alert configuration"
+    - id: test_debug_3
+      name: "Data Dictionary Testing"
+      description: "Test data dictionary parsing and application"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Test loading each demo dictionary"
+        - "Verify schema extraction works"
+        - "Test rules extraction"
+        - "Apply dictionaries to matching demo data"
+        - "Fix any parsing errors"
+        - "Test dictionary UI integration"
 
-      - id: prod_2
-        name: "Load Testing"
-        description: "Performance benchmarking and optimization"
-        status: TODO
-        priority: MEDIUM
-        effort: "2-3 days"
-        dependencies: ["core_2"]
-        files:
-          - tests/test_performance.py
+    - id: test_debug_4
+      name: "File Upload Testing"
+      description: "Test various file upload scenarios"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Test CSV file uploads"
+        - "Test Excel file uploads"
+        - "Test JSON file uploads"
+        - "Test Parquet file uploads"
+        - "Test large file handling"
+        - "Test invalid file formats"
+        - "Test empty files"
 
-      - id: prod_3
-        name: "Documentation"
-        description: "Complete API and user documentation"
-        status: INPROGRESS
-        priority: MEDIUM
-        effort: "3-4 days"
-        dependencies: []
-        notes: |
-          INPROGRESS:
-          - Basic README.md exists
-          - API.md partially complete
-          - Need: User guide, deployment guide, troubleshooting guide
+    - id: test_debug_5
+      name: "Schema and Rules Validation Testing"
+      description: "Verify schema and rules work correctly"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Test manual schema creation"
+        - "Test auto-detection of types"
+        - "Test rules with min/max values"
+        - "Test allowed values validation"
+        - "Test datetime validation"
+        - "Fix validation error messages"
 
-      - id: prod_4
-        name: "CI/CD Pipeline"
-        description: "Automated testing and deployment"
-        status: TODO
-        priority: HIGH
-        effort: "2-3 days"
-        dependencies: ["core_2"]
-        subtasks:
-          - "GitHub Actions workflow"
-          - "Automated testing"
-          - "Container build & push"
-          - "Azure deployment automation"
+    - id: test_debug_6
+      name: "Error Display Testing"
+      description: "Ensure errors are displayed correctly"
+      status: TODO
+      priority: HIGH
+      effort: "1 hour"
+      subtasks:
+        - "Test error highlighting in results"
+        - "Verify error counts are accurate"
+        - "Test error message clarity"
+        - "Check error navigation"
+        - "Test error export functionality"
 
-# Bug Fixes & Known Issues
+    - id: test_debug_7
+      name: "Cross-Browser Testing"
+      description: "Test application in different browsers"
+      status: TODO
+      priority: MEDIUM
+      effort: "1 hour"
+      subtasks:
+        - "Test in Chrome"
+        - "Test in Firefox"
+        - "Test in Safari"
+        - "Test in Edge"
+        - "Document browser-specific issues"
+
+    - id: test_debug_8
+      name: "Performance Testing"
+      description: "Test with various data sizes"
+      status: TODO
+      priority: MEDIUM
+      effort: "2 hours"
+      subtasks:
+        - "Test with 100 rows"
+        - "Test with 1,000 rows"
+        - "Test with 10,000 rows"
+        - "Test with 100,000 rows"
+        - "Monitor memory usage"
+        - "Check for memory leaks"
+
+# PRIORITY 4: Performance & UX Improvements
+phase_performance_ux:
+  name: "Performance and User Experience"
+  status: TODO
+  tasks:
+    - id: perf_ux_1
+      name: "Implement Caching"
+      description: "Cache analysis results and schemas"
+      status: TODO
+      priority: MEDIUM
+      effort: "4 hours"
+      subtasks:
+        - "Use st.cache_data for analysis results"
+        - "Cache uploaded file processing"
+        - "Store user preferences in session"
+        - "Implement smart cache invalidation"
+
+    - id: perf_ux_2
+      name: "Streaming for Large Files"
+      description: "Handle files > 100MB efficiently"
+      status: TODO
+      priority: HIGH
+      effort: "1 day"
+      subtasks:
+        - "Implement chunked file reading"
+        - "Add streaming preview"
+        - "Progressive analysis with updates"
+        - "Memory usage monitoring"
+
+    - id: perf_ux_3
+      name: "Keyboard Shortcuts"
+      description: "Power user features"
+      status: TODO
+      priority: LOW
+      effort: "2 hours"
+      subtasks:
+        - "Ctrl+Enter to run analysis"
+        - "Tab navigation between sections"
+        - "Escape to close modals"
+        - "Ctrl+S to save configuration"
+
+    - id: perf_ux_4
+      name: "Configuration Save/Load"
+      description: "Save and reuse configurations"
+      status: TODO
+      priority: MEDIUM
+      effort: "3 hours"
+      subtasks:
+        - "Export schema/rules as JSON"
+        - "Import saved configurations"
+        - "Create configuration library"
+        - "Share configurations via URL"
+
+# PRIORITY 5A: LLM Integration (IMMEDIATE)
+phase_llm_integration:
+  name: "LLM/Azure OpenAI Implementation"
+  status: DONE
+  description: "Get actual AI working with API keys in .env"
+  completed: "2025-09-28"
+  tasks:
+    - id: llm_1
+      name: "Basic Azure OpenAI Connection"
+      description: "Connect to Azure OpenAI using existing .env credentials"
+      status: DONE
+      priority: CRITICAL
+      effort: "2-3 hours"
+      notes: |
+        # COMPLETED:
+        # ✅ Created src/llm_client.py with Azure OpenAI integration
+        # ✅ Successfully connected to Azure OpenAI endpoint
+        # ✅ Using gpt-4o-mini model for cost-effective processing
+        # ✅ Implemented token counting and chunking for large documents
+        # 4. Create connection class
+        # 5. Test with simple prompt
+
+        # Required .env variables:
+        # AZURE_OPENAI_API_KEY=xxx
+        # AZURE_OPENAI_ENDPOINT=xxx
+        # AZURE_OPENAI_DEPLOYMENT_NAME=xxx
+
+    - id: llm_2
+      name: "Dictionary Parser with LLM"
+      description: "Replace regex parsing with GPT-4 extraction"
+      status: DONE
+      priority: HIGH
+      effort: "3-4 days"
+      notes: |
+        # COMPLETED:
+        # ✅ Implemented LLMDictionaryParser class in src/llm_client.py
+        # ✅ Added support for CSV, PDF, JSON, TXT dictionaries
+        # ✅ Integrated into web app with checkbox toggle
+        # ✅ Extracts field names, types, ranges, allowed values
+        # ✅ Successfully tested with sample dictionaries
+        # ✅ Returns structured schema for validation
+        #    - Skip patterns (basic, not full logic)
+        # 3. Return structured JSON schema
+        # 4. Cache results to avoid API costs
+
+    - id: llm_3
+      name: "Enhanced Data Quality Checks"
+      description: "Use LLM to detect complex data issues"
+      status: DONE
+      priority: MEDIUM
+      effort: "2-3 days"
+      notes: |
+        # COMPLETED:
+        # ✅ Implemented validate_data_with_llm() method
+        # ✅ Detects semantic inconsistencies
+        # ✅ Identifies data entry errors
+        # ✅ Finds range violations and missing required fields
+        # ✅ Provides detailed issue reports with severity levels
+        # ✅ Generates actionable recommendations
+        # ✅ Successfully tested with sample data
+
+# PRIORITY 5B: Logic Validation (COMPLEX)
+phase_logic_validation:
+  name: "Conditional Logic Engine"
+  status: TODO
+  description: "The hardest problem - validating conditional rules"
+  tasks:
+    - id: logic_1
+      name: "Template-Based Logic Detection"
+      description: "Start with common patterns"
+      status: TODO
+      priority: HIGH
+      effort: "3-4 days"
+      notes: |
+        # Phase 1 - Simple templates
+        # Detect patterns like:
+        # - "If X = Y, then Z is required"
+        # - "Skip to Q if condition"
+        # - "Show only if"
+
+        # Create src/logic_templates.py
+
+    - id: logic_2
+      name: "Statistical Logic Discovery"
+      description: "Learn patterns from data"
+      status: TODO
+      priority: MEDIUM
+      effort: "5-7 days"
+      notes: |
+        # Analyze actual data to find patterns
+        # When field A=X, field B is always blank
+        # Build confidence scores
+        # Flag violations
+
+    - id: logic_3
+      name: "LLM Logic Extraction"
+      description: "Use GPT-4 to understand complex logic"
+      status: TODO
+      priority: HIGH
+      effort: "1 week"
+      notes: |
+        # Send dictionary sections to GPT-4
+        # Extract complex conditional rules
+        # Generate Python validation code
+        # This is part of core_1b2 task
+
+# PRIORITY 5C: Core Infrastructure
+phase_core_remaining:
+  name: "Core Infrastructure Improvements"
+  status: TODO
+  tasks:
+    - id: core_1
+      name: "MCP Client Integration"
+      description: "Replace simulated MCP calls with actual client"
+      status: TODO
+      priority: MEDIUM
+      effort: "3-5 days"
+      notes: |
+        CRITICAL CONTEXT - MUST READ:
+        # Current State (as of 2025-09-28):
+        # - The ENTIRE MCPClient class in web_app.py (line 181) is SIMULATED
+        # - NO real MCP server connection exists
+        # - analyze_data_quality() method uses basic pattern matching, NOT AI
+        # - This is NOT a bug - it was intentionally left as simulation
+
+        # What's Being Simulated:
+        # 1. Data quality analysis - just regex checks for "invalid", "error", etc.
+        # 2. Range validation - simple numeric comparisons
+        # 3. Missing value detection - basic pandas isnull() checks
+        # 4. NO machine learning or AI analysis happening
+
+        # To Implement Real MCP:
+        # - Install actual MCP client library
+        # - Replace MCPClient class with real implementation
+        # - Connect to actual MCP server (mcp_server.py exists but not connected)
+        # - Remove all simulation code
+
+    - id: core_1b
+      name: "Azure OpenAI/LLM Dictionary Parsing"
+      description: "Implement AI-powered dictionary parsing"
+      status: TODO
+      priority: HIGH
+      effort: "5-7 days"
+      notes: |
+        IMPORTANT: This feature was NEVER IMPLEMENTED despite being in docs
+        # Current State (as of 2025-09-28):
+        # - NO Azure OpenAI code exists in repository (verified with grep)
+        # - NO LLM integration exists
+        # - PDF dictionary parsing uses BASIC REGEX ONLY:
+        #   * Date fields: looks for "date" in field names
+        #   * Ranges: looks for "range/between" + two numbers
+        #   * That's it! Very primitive.
+
+        # Original Plan (never built):
+        # - Use Azure OpenAI GPT-4o-mini to generate Python parser code
+        # - Parse complex dictionaries (REDCap, Clinical, etc.)
+        # - Generate deterministic, verifiable parser code
+        # - Cache parsers for reuse
+
+        # Why It Matters:
+        # - Current regex parsing is almost useless for real dictionaries
+        # - Can't detect: data types, enumerations, patterns, dependencies
+        # - Can't understand complex formats or nested structures
+
+        # To Implement:
+        # 1. Add openai Python library to requirements
+        # 2. Add Azure OpenAI credentials to .env
+        # 3. Create LLM prompt for dictionary parsing
+        # 4. Generate Python parser code via LLM
+        # 5. Execute parser in sandbox with timeout
+        # 6. Cache successful parsers
+
+    - id: core_1b2
+      name: "Conditional Logic Validation Engine"
+      description: "Detect and validate conditional logic rules in data"
+      status: TODO
+      priority: CRITICAL
+      effort: "10-15 days"
+      notes: |
+        MAJOR FEATURE: This is one of the hardest problems in data quality
+        # The Problem:
+        # - Data dictionaries contain conditional logic (skip patterns, branching)
+        # - Example: "If Question 3 = 'No', skip to Question 7"
+        # - Example: "If Age < 18, ParentConsent must be 'Yes'"
+        # - Example: "If Treatment = 'Placebo', DoseAmount should be blank"
+        # - EVERY dictionary expresses this differently!
+
+        # Why It's Hard:
+        # 1. No standard format for expressing logic
+        # 2. Logic can be in text, tables, or separate documents
+        # 3. Complex nested conditions (IF A=1 AND B=2 THEN C must be blank)
+        # 4. Temporal dependencies (If Visit1_Status = 'Complete', Visit2 can be entered)
+
+        # APPROACH 1: LLM-Powered Rule Extraction
+        # =========================================
+        # Use GPT-4 to extract logical rules and generate validation code
+        #
+        # Pros:
+        # - Can understand natural language descriptions
+        # - Handles various formats (REDCap, Clinical, custom)
+        # - Can generate Python validation functions
+        #
+        # Cons:
+        # - Expensive (API calls)
+        # - Not 100% accurate
+        # - Need to verify generated code
+        #
+        # Implementation:
+        # 1. Send dictionary pages to GPT-4 with specialized prompt
+        # 2. Extract rules in structured format (JSON)
+        # 3. Generate Python validation functions
+        # 4. Test on sample data
+        # 5. Cache successful validators
+
+        # APPROACH 2: Statistical Pattern Learning
+        # =========================================
+        # Learn patterns from the data itself (unsupervised)
+        #
+        # Pros:
+        # - No need to parse dictionary
+        # - Finds actual patterns in real data
+        # - Can detect undocumented rules
+        #
+        # Cons:
+        # - Needs sufficient data
+        # - May find spurious correlations
+        # - Can't distinguish required vs coincidental patterns
+        #
+        # Implementation:
+        # 1. Analyze field combinations in actual data
+        # 2. Find patterns: "When A=X, B is always Y or blank"
+        # 3. Calculate confidence scores (95% = likely rule)
+        # 4. Flag violations of high-confidence patterns
+        # 5. Present findings for human review
+
+        # APPROACH 3: Hybrid Template + Learning
+        # =========================================
+        # Combine template matching with ML pattern discovery
+        #
+        # Pros:
+        # - Best of both worlds
+        # - Can handle known and unknown patterns
+        # - More robust than either alone
+        #
+        # Cons:
+        # - Most complex to implement
+        # - Requires both dictionary AND data
+        # - Needs careful tuning
+        #
+        # Implementation:
+        # 1. Pre-built templates for common patterns:
+        #    - "If [field] = [value], then [field2] = [value2/blank]"
+        #    - "Skip to [field] if [condition]"
+        #    - "Required if [condition]"
+        # 2. Use regex/NLP to match templates in dictionary
+        # 3. Validate patterns against actual data
+        # 4. Use ML to find additional patterns not in templates
+        # 5. Combine findings with confidence scores
+
+        # Example Logic Patterns to Detect:
+        # - Skip logic: "Skip Q5-Q10 if Q4='No'"
+        # - Conditional requirements: "If pregnant='Yes', due_date required"
+        # - Mutual exclusivity: "If option_A selected, option_B must be blank"
+        # - Range dependencies: "If age<18, parent_signature required"
+        # - Cascade logic: "If country='US', show state dropdown"
+
+        # Recommended Starting Point:
+        # Start with Approach 3 (Hybrid) because:
+        # - Can begin with simple template matching
+        # - Add LLM enhancement later
+        # - Statistical validation provides safety net
+        # - Most practical for production use
+
+    - id: core_1c
+      name: "Fix Mermaid Diagram Rendering"
+      description: "Mermaid diagram shows as text instead of flowchart"
+      status: TODO
+      priority: LOW
+      effort: "2-3 hours"
+      notes: |
+        # Issue (as of 2025-09-28):
+        # - Mermaid diagram in About page shows raw text not visual
+        # - Located in assets/data_flow_diagram.mmd
+        # - render_mermaid() function creates iframe but Mermaid.js fails
+        # - Error: "transform: Expected number, translate(undefined, NaN)"
+
+        # Attempted Fixes That Failed:
+        # 1. Simplified diagram syntax (graph LR)
+        # 2. Installed streamlit-mermaid package
+        # 3. Used st_mermaid() function
+        # 4. All result in empty iframe or text display
+
+        # Possible Solutions:
+        # - Use graphviz instead of Mermaid
+        # - Use static PNG/SVG image instead
+        # - Try different Mermaid.js version
+        # - Use Streamlit's native diagram support if available
+
+    - id: core_2
+      name: "Error Recovery"
+      description: "Graceful error handling throughout"
+      status: TODO
+      priority: HIGH
+      effort: "1 day"
+      subtasks:
+        - "Add try-catch blocks everywhere"
+        - "Provide helpful error messages"
+        - "Add retry mechanisms"
+        - "Log errors for debugging"
+
+# PRIORITY 6: Testing & Documentation
+phase_testing_docs:
+  name: "Testing and Documentation"
+  status: TODO
+  tasks:
+    - id: test_1
+      name: "UI Testing"
+      description: "Test all UI components"
+      status: TODO
+      priority: MEDIUM
+      effort: "1 day"
+      subtasks:
+        - "Test file upload scenarios"
+        - "Verify all buttons work"
+        - "Check responsive design"
+        - "Test error states"
+
+    - id: doc_1
+      name: "User Guide"
+      description: "Comprehensive user documentation"
+      status: TODO
+      priority: HIGH
+      effort: "4 hours"
+      subtasks:
+        - "Getting started tutorial"
+        - "Feature walkthroughs"
+        - "Video demonstrations"
+        - "FAQ section"
+
+# Known Bugs to Fix
 bugs:
   - id: bug_1
-    description: "Date validation shows numpy warnings"
-    status: DONE
-    fixed_in_commit: "0500e15"
-    notes: "Suppressed warnings and improved error messages"
-
-  - id: bug_2
     description: "Large files (>200MB) cause memory issues"
     status: TODO
     priority: HIGH
-    related_task: "perf_1"
 
-  - id: bug_3
+  - id: bug_2
     description: "Special characters in CSV headers cause issues"
     status: TODO
     priority: MEDIUM
-    notes: ""
 
-# Technical Debt
-tech_debt:
-  - id: debt_1
-    description: "Refactor DataLoader for better extensibility"
+  - id: bug_3
+    description: "Navbar doesn't highlight active page correctly"
+    status: TODO
+    priority: HIGH
+
+  - id: bug_4
+    description: "Schema editor allows duplicate column names"
     status: TODO
     priority: MEDIUM
-    notes: "Current implementation tightly coupled to pandas"
 
-  - id: debt_2
-    description: "Standardize error response format"
+  - id: bug_5
+    description: "File upload doesn't clear previous analysis"
     status: TODO
-    priority: LOW
-    notes: ""
+    priority: HIGH
 
-  - id: debt_3
-    description: "Add type hints throughout codebase"
-    status: TODO
-    priority: LOW
-    notes: ""
+# Immediate Action Items (For Tonight's Work)
+immediate_tasks:
+  order_of_execution:
+    1: "test_debug_1 - Fix JSON Format Support (CRITICAL BUG)"
+    2: "test_debug_2 - Test All Demo Data Formats"
+    3: "test_debug_3 - Data Dictionary Testing"
+    4: "ui_cleanup_1 - Fix Navigation Bar"
+    5: "ui_cleanup_2 - Sidebar Reorganization"
+    6: "ui_cleanup_3 - Main Content Area Restructuring"
+    7: "ui_cleanup_6 - Visual Polish (CSS/theming)"
+    8: "ui_cleanup_5 - Results Dashboard Redesign"
+    9: "export_1 - Excel Export with Error Highlighting"
+    10: "export_5 - Download UI Integration"
 
-# Notes for AI Agents
+  estimated_time: "10-12 hours total"
+
+  notes: |
+    CRITICAL: Fix JSON support bug first - user reported this is broken!
+    Then ensure all core functionality works before UI improvements.
+    Focus on making the UI clean, professional, and less cluttered.
+    Priority is reducing scrolling and improving visual hierarchy.
+    The download feature with error highlighting is a key differentiator.
+
+# AI Agent Instructions
 ai_instructions:
-  update_process: |
-    When working on tasks:
-    1. Change status from TODO to INPROGRESS when starting
-    2. Add detailed notes about what's been done and what remains
-    3. Update subtasks individually if present
-    4. Change to DONE only when fully complete and tested
-    5. Update last_updated field at top of file
+  approach: |
+    1. Start with ui_cleanup_1 through ui_cleanup_3 for maximum impact
+    2. Use streamlit native components where possible
+    3. Add streamlit-aggrid only for schema editor
+    4. Test each change before moving to next task
+    5. Commit after each major task completion
+    6. Focus on user experience over perfect code
 
-  example_inprogress_note: |
-    INPROGRESS:
-    - Completed: Basic JSON loading functionality
-    - Completed: Unit tests for JSON loader
-    - Remaining: UI integration for JSON config
-    - Remaining: Handle deeply nested structures
-    - Blocked: Waiting for MCP client integration (core_1)
+  style_guide: |
+    - Use consistent spacing (st.markdown("&nbsp;") for gaps)
+    - Apply color coding: green=success, yellow=warning, red=error
+    - Use icons from emoji set consistently
+    - Keep sidebar width reasonable (don't overcrowd)
+    - Ensure all text is readable (good contrast)
 
-  priority_guide:
-    CRITICAL: "Blocks other work or breaks core functionality"
-    HIGH: "Important for release or heavily requested"
-    MEDIUM: "Nice to have, improves user experience"
-    LOW: "Future enhancement, not urgent"
+  testing: |
+    - Test with demo data after each change
+    - Verify no functionality is broken
+    - Check responsive design at different widths
+    - Ensure loading states work properly

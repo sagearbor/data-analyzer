@@ -1,0 +1,4 @@
+[ZoneTransfer]
+ZoneId=2
+ReferrerUrl=https://redcap.dcri.duke.edu/redcap/redcap_v15.0.34/DataExport/index.php?pid=43
+HostUrl=https://redcap.dcri.duke.edu/redcap/redcap_v15.0.34/index.php?pid=43&route=FileRepositoryController:download&id=5584

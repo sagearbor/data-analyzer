@@ -1,0 +1,218 @@
+{
+  "dictionary_name": "Clinical Data Dictionary",
+  "description": "Validation rules for clinical patient data",
+  "version": "1.0",
+  "fields": [
+    {
+      "field_name": "patient_id",
+      "data_type": "str",
+      "required": true,
+      "description": "Unique patient identifier",
+      "format_pattern": "^P\\d{3}$"
+    },
+    {
+      "field_name": "age",
+      "data_type": "int",
+      "required": true,
+      "description": "Patient age in years",
+      "min_value": 0,
+      "max_value": 120
+    },
+    {
+      "field_name": "gender",
+      "data_type": "str",
+      "required": true,
+      "description": "Patient gender",
+      "allowed_values": ["M", "F", "Other"]
+    },
+    {
+      "field_name": "diagnosis_code",
+      "data_type": "str",
+      "required": false,
+      "description": "ICD-10 diagnosis code",
+      "format_pattern": "^[A-Z]\\d{2}\\.?\\d*$"
+    },
+    {
+      "field_name": "admission_date",
+      "data_type": "date",
+      "required": true,
+      "description": "Date of hospital admission",
+      "format": "YYYY-MM-DD"
+    },
+    {
+      "field_name": "discharge_date",
+      "data_type": "date",
+      "required": false,
+      "description": "Date of hospital discharge",
+      "format": "YYYY-MM-DD"
+    },
+    {
+      "field_name": "treatment_type",
+      "data_type": "str",
+      "required": true,
+      "description": "Type of treatment provided",
+      "allowed_values": ["Emergency", "Inpatient", "Outpatient", "Observation", "Surgical", "Maternity", "ICU"]
+    },
+    {
+      "field_name": "lab_result_wbc",
+      "data_type": "float",
+      "required": false,
+      "description": "White blood cell count (x10^9/L)",
+      "min_value": 3.0,
+      "max_value": 30.0
+    },
+    {
+      "field_name": "lab_result_hemoglobin",
+      "data_type": "float",
+      "required": false,
+      "description": "Hemoglobin level (g/dL)",
+      "min_value": 8.0,
+      "max_value": 18.0
+    },
+    {
+      "field_name": "blood_pressure_systolic",
+      "data_type": "int",
+      "required": false,
+      "description": "Systolic blood pressure (mmHg)",
+      "min_value": 70,
+      "max_value": 200
+    },
+    {
+      "field_name": "blood_pressure_diastolic",
+      "data_type": "int",
+      "required": false,
+      "description": "Diastolic blood pressure (mmHg)",
+      "min_value": 40,
+      "max_value": 120
+    },
+    {
+      "field_name": "temperature",
+      "data_type": "float",
+      "required": false,
+      "description": "Body temperature (Celsius)",
+      "min_value": 35.0,
+      "max_value": 42.0
+    },
+    {
+      "field_name": "heart_rate",
+      "data_type": "int",
+      "required": false,
+      "description": "Heart rate (beats per minute)",
+      "min_value": 40,
+      "max_value": 150
+    },
+    {
+      "field_name": "medication_1",
+      "data_type": "str",
+      "required": false,
+      "description": "Primary medication prescribed"
+    },
+    {
+      "field_name": "medication_2",
+      "data_type": "str",
+      "required": false,
+      "description": "Secondary medication prescribed"
+    },
+    {
+      "field_name": "follow_up_required",
+      "data_type": "str",
+      "required": false,
+      "description": "Whether follow-up is required",
+      "allowed_values": ["Yes", "No"]
+    },
+    {
+      "field_name": "outcome_status",
+      "data_type": "str",
+      "required": false,
+      "description": "Patient outcome status",
+      "allowed_values": ["Recovered", "Improved", "Stable", "Critical", "Ongoing", "Deceased"]
+    },
+    {
+      "field_name": "length_of_stay",
+      "data_type": "int",
+      "required": false,
+      "description": "Length of hospital stay in days",
+      "min_value": 0,
+      "max_value": 365
+    }
+  ],
+  "schema": {
+    "patient_id": {
+      "type": "str",
+      "required": true,
+      "format": "^P\\d{3}$"
+    },
+    "age": {
+      "type": "int",
+      "required": true,
+      "min": 0,
+      "max": 120
+    },
+    "gender": {
+      "type": "str",
+      "required": true,
+      "allowed_values": ["M", "F", "Other"]
+    },
+    "diagnosis_code": {
+      "type": "str",
+      "required": false,
+      "format": "^[A-Z]\\d{2}\\.?\\d*$"
+    },
+    "admission_date": {
+      "type": "date",
+      "required": true
+    },
+    "discharge_date": {
+      "type": "date",
+      "required": false
+    },
+    "treatment_type": {
+      "type": "str",
+      "required": true,
+      "allowed_values": ["Emergency", "Inpatient", "Outpatient", "Observation", "Surgical", "Maternity", "ICU"]
+    },
+    "lab_result_wbc": {
+      "type": "float",
+      "min": 3.0,
+      "max": 30.0
+    },
+    "lab_result_hemoglobin": {
+      "type": "float",
+      "min": 8.0,
+      "max": 18.0
+    },
+    "blood_pressure_systolic": {
+      "type": "int",
+      "min": 70,
+      "max": 200
+    },
+    "blood_pressure_diastolic": {
+      "type": "int",
+      "min": 40,
+      "max": 120
+    },
+    "temperature": {
+      "type": "float",
+      "min": 35.0,
+      "max": 42.0
+    },
+    "heart_rate": {
+      "type": "int",
+      "min": 40,
+      "max": 150
+    },
+    "follow_up_required": {
+      "type": "str",
+      "allowed_values": ["Yes", "No"]
+    },
+    "outcome_status": {
+      "type": "str",
+      "allowed_values": ["Recovered", "Improved", "Stable", "Critical", "Ongoing", "Deceased"]
+    },
+    "length_of_stay": {
+      "type": "int",
+      "min": 0,
+      "max": 365
+    }
+  }
+}

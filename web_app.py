@@ -1,7 +1,6 @@
 """
-Azure Web Application for Data Analysis
-Supports CSV analysis with extensibility for other data formats
-Uses the MCP server for analysis functionality
+Data Quality Analyzer - Clean UI with Proper Layout
+Fixed navbar, three-column layout, no sidebar issues
 """
 
 import streamlit as st
@@ -10,1103 +9,1326 @@ import json
 import base64
 import io
 import asyncio
-import subprocess
-import tempfile
-import os
+import csv
 from typing import Dict, Any, Optional
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+import PyPDF2
+import re
+import plotly.graph_objects as go
+import plotly.express as px
+import hashlib
+import pickle
+import os
+import tempfile
+from pathlib import Path
+
+# Import custom modules
+from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
+# Import real validation classes from mcp_server (no MCP server needed to run)
+from mcp_server import QualityPipeline, QualityChecker
+# Force use of custom renderer for better compatibility
+MERMAID_AVAILABLE = False
+from mermaid_renderer import render_mermaid
+
+# Import LLM parser
+try:
+    from src.llm_client import LLMDictionaryParser
+    LLM_AVAILABLE = True
+except ImportError:
+    LLM_AVAILABLE = False
+    print("LLM client not available. Install openai package to enable.")
+
+# Browser console logging helper
+def log_to_browser_console(message: str, data: dict = None):
+    """Inject JavaScript to log to browser console (visible in Chrome DevTools)"""
+    import streamlit.components.v1 as components
+    import json
+    log_data = json.dumps(data) if data else "{}"
+    html = f"""
+    <script>
+        console.log('[Data Analyzer] {message}', {log_data});
+    </script>
+    """
+    components.html(html, height=0, width=0)
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="Multi-Format Data Quality Analyzer",
+    page_title="Data Quality Analyzer",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"  # Keep sidebar collapsed by default
 )
 
-class MCPClient:
-    """Client to communicate with MCP server for data analysis"""
-    
-    def __init__(self, server_script_path: str = "mcp_server.py", use_real_mcp: bool = False):
-        self.server_script_path = server_script_path
-        self.use_real_mcp = use_real_mcp
-    
-    async def analyze_data(self, data_content: str, file_format: str = "csv", schema: Dict = None, rules: Dict = None, min_rows: int = 1, debug: bool = False):
-        """Call MCP server to analyze data"""
-        try:
-            # Prepare the arguments
-            args = {
-                "data_content": data_content,
-                "file_format": file_format,
-                "min_rows": min_rows
-            }
-            if schema:
-                args["schema"] = schema
-            if rules:
-                args["rules"] = rules
-            
-            # Create a temporary file with the request
-            request_data = {
-                "tool": "analyze_data",
-                "arguments": args
-            }
-            
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                json.dump(request_data, f)
-                temp_file = f.name
-            
-            try:
-                if self.use_real_mcp:
-                    # Call the real MCP server
-                    result = await self._call_real_mcp_server(request_data, debug=debug)
-                else:
-                    # Use simulation for development
-                    result = self._simulate_mcp_call(request_data, debug=debug)
-                return result
-            finally:
-                os.unlink(temp_file)
-                
-        except Exception as e:
-            return {"error": str(e), "type": "mcp_error"}
-    
-    def _auto_detect_types(self, df: pd.DataFrame) -> Dict[str, str]:
-        """Auto-detect column types including dates"""
-        detected_types = {}
-        
-        for col in df.columns:
-            col_data = df[col].dropna()
-            if len(col_data) == 0:
-                detected_types[col] = "unknown"
-                continue
-                
-            # Check if it's numeric
-            try:
-                numeric_data = pd.to_numeric(col_data, errors='coerce')
-                if not numeric_data.isna().all():
-                    # Check if all values are integers
-                    if (numeric_data % 1 == 0).all():
-                        detected_types[col] = "int"
-                    else:
-                        detected_types[col] = "float"
-                    continue
-            except:
-                pass
-            
-            # Check if it's datetime
-            try:
-                # Try to parse as datetime, but only if it has valid-looking patterns
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    datetime_parsed = pd.to_datetime(col_data, errors='coerce')
-                
-                # Check if more than 50% of non-null values were successfully parsed
-                # and at least one value looks like a date
-                valid_dates = datetime_parsed.notna().sum()
-                if valid_dates > len(col_data) * 0.5 and valid_dates > 0:
-                    # Double-check with strict parsing to catch invalid dates
-                    sample_values = col_data.head(3).tolist()
-                    if any(any(char in str(val) for char in ['-', '/', ':', ' ']) for val in sample_values):
-                        detected_types[col] = "datetime"
-                        continue
-            except:
-                pass
-            
-            # Check if it's boolean
-            unique_values = set(str(v).lower() for v in col_data.unique())
-            if unique_values.issubset({'true', 'false', '1', '0', 'yes', 'no', 't', 'f', 'y', 'n'}):
-                detected_types[col] = "bool"
-                continue
-            
-            # Default to string
-            detected_types[col] = "str"
-        
-        return detected_types
-    
-    async def _call_real_mcp_server(self, request_data: Dict, debug: bool = False) -> Dict:
-        """Call the real MCP server using subprocess with proper MCP protocol"""
-        try:
-            import subprocess
-            import json
-            
-            if debug:
-                print("🔧 DEBUG: Calling real MCP server")
-                print(f"🔧 DEBUG: Request: {request_data}")
-            
-            # Start the MCP server process
-            process = subprocess.Popen(
-                ["python", self.server_script_path],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            
-            # Step 1: Initialize the server
-            init_request = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "roots": {
-                            "listChanged": True
-                        },
-                        "sampling": {}
-                    },
-                    "clientInfo": {
-                        "name": "data-analyzer-client",
-                        "version": "1.0.0"
-                    }
-                }
-            }
-            
-            # Step 2: Send initialized notification
-            initialized_notification = {
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-                "params": {}
-            }
-            
-            # Step 3: Make the actual tool call
-            tool_request = {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": request_data["tool"],
-                    "arguments": request_data["arguments"]
-                }
-            }
-            
-            # Combine all messages
-            messages = [
-                json.dumps(init_request),
-                json.dumps(initialized_notification), 
-                json.dumps(tool_request)
-            ]
-            
-            input_data = "\n".join(messages) + "\n"
-            
-            if debug:
-                print(f"🔧 DEBUG: Sending MCP messages:")
-                for i, msg in enumerate(messages, 1):
-                    print(f"🔧 DEBUG: Message {i}: {msg}")
-            
-            stdout, stderr = process.communicate(input=input_data, timeout=30)
-            
-            if debug:
-                print(f"🔧 DEBUG: MCP server stdout: {stdout}")
-                if stderr:
-                    print(f"🔧 DEBUG: MCP server stderr: {stderr}")
-            
-            # Parse the responses (we expect multiple JSON objects)
-            if stdout.strip():
-                responses = []
-                for line in stdout.strip().split('\n'):
-                    if line.strip():
-                        try:
-                            responses.append(json.loads(line.strip()))
-                        except json.JSONDecodeError:
-                            continue
-                
-                if debug:
-                    print(f"🔧 DEBUG: Parsed responses: {responses}")
-                
-                # Look for the tool call response (should be the last one with id=2)
-                for response in responses:
-                    if response.get("id") == 2:  # Our tool call response
-                        if "result" in response:
-                            # Parse the result content
-                            result_content = response["result"]["content"][0]["text"]
-                            return json.loads(result_content)
-                        elif "error" in response:
-                            return {"error": response["error"]["message"], "type": "mcp_server_error"}
-            
-            return {"error": "No valid response from MCP server", "type": "mcp_communication_error"}
-            
-        except subprocess.TimeoutExpired:
-            if debug:
-                print("🔧 DEBUG: MCP server timeout")
-            return {"error": "MCP server timeout", "type": "mcp_timeout_error"}
-        except Exception as e:
-            if debug:
-                print(f"🔧 DEBUG: MCP server error: {e}")
-            return {"error": str(e), "type": "mcp_call_error"}
-    
-    def _debug_print(self, message: str, debug: bool):
-        """Helper function to print debug messages only when debug mode is on"""
-        if debug:
-            print(message)
-    
-    def _simulate_mcp_call(self, request_data: Dict, debug: bool = False) -> Dict:
-        """Simulate MCP call for demo purposes"""
-        # This is a simplified simulation - in production use proper MCP client
-        try:
-            data_content = request_data["arguments"]["data_content"]
-            file_format = request_data["arguments"].get("file_format", "csv")
-            schema = request_data["arguments"].get("schema", {})
-            rules = request_data["arguments"].get("rules", {})
-            min_rows = request_data["arguments"].get("min_rows", 1)
-            
-            # DEBUG OUTPUT
-            self._debug_print("🔧 DEBUG: Starting MCP simulation", debug)
-            self._debug_print(f"🔧 DEBUG: Schema received: {schema}", debug)
-            self._debug_print(f"🔧 DEBUG: Rules received: {rules}", debug)
-            self._debug_print(f"🔧 DEBUG: Data preview: {data_content[:100]}...", debug)
-            
-            # Load data based on format
-            if file_format.lower() == "csv":
-                df = pd.read_csv(io.StringIO(data_content))
-                self._debug_print(f"🔧 DEBUG: Loaded DataFrame shape: {df.shape}", debug)
-                self._debug_print(f"🔧 DEBUG: Columns: {list(df.columns)}", debug)
-                self._debug_print(f"🔧 DEBUG: DataFrame dtypes:\n{df.dtypes}", debug)
-                if 'hire_date' in df.columns:
-                    self._debug_print(f"🔧 DEBUG: hire_date values: {df['hire_date'].tolist()}", debug)
-            else:
-                raise ValueError(f"Unsupported format: {file_format}")
-            
-            # Simulate the analysis results
-            results = {
-                "timestamp": datetime.now().isoformat(),
-                "file_format": file_format,
-                "summary_stats": {
-                    "shape": {"rows": len(df), "columns": len(df.columns)},
-                    "columns": list(df.columns),
-                    "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-                "auto_detected_types": self._auto_detect_types(df),
-                    "missing_values": df.isnull().sum().to_dict(),
-                    "duplicate_rows": int(df.duplicated().sum()),
-                    "memory_usage_mb": round(df.memory_usage(deep=True).sum() / 1024 / 1024, 2)
-                },
-                "checks": {
-                    "row_count": {
-                        "check": "row_count",
-                        "passed": len(df) >= min_rows,
-                        "row_count": len(df),
-                        "min_required": min_rows,
-                        "message": f"Found {len(df)} rows (minimum: {min_rows})"
-                    },
-                    "data_types": {
-                        "check": "data_types",
-                        "passed": True,
-                        "message": "Type validation completed",
-                        "issues": []
-                    },
-                    "value_ranges": {
-                        "check": "value_ranges", 
-                        "passed": True,
-                        "message": "Range validation completed",
-                        "issues": []
-                    }
-                },
-                "overall_passed": len(df) >= min_rows,
-                "total_issues": 0 if len(df) >= min_rows else 1,
-                "issues": []
-            }
-            
-            # Add schema validation - use provided schema OR auto-detected types
-            auto_detected_types = self._auto_detect_types(df)
-            self._debug_print(f"🔧 DEBUG: Auto-detected types: {auto_detected_types}", debug)
-            
-            # Combine manual schema with auto-detected types for validation
-            validation_schema = auto_detected_types.copy()
-            if schema:
-                validation_schema.update(schema)  # Manual schema overrides auto-detection
-                self._debug_print(f"🔧 DEBUG: Manual schema provided, merged with auto-detection", debug)
-            
-            self._debug_print(f"🔧 DEBUG: Final validation schema: {validation_schema}", debug)
-            
-            if validation_schema:
-                self._debug_print(f"🔧 DEBUG: Processing schema validation for {len(validation_schema)} columns", debug)
-                type_issues = []
-                for column, expected_type in validation_schema.items():
-                    self._debug_print(f"🔧 DEBUG: Validating column '{column}' as type '{expected_type}'", debug)
-                    
-                    if column not in df.columns:
-                        self._debug_print(f"🔧 DEBUG: Column '{column}' missing from DataFrame", debug)
-                        type_issues.append({
-                            "column": column,
-                            "issue": "missing_column",
-                            "expected_type": expected_type
-                        })
-                        continue
-                    
-                    # Type validation
-                    col_data = df[column].dropna()
-                    self._debug_print(f"🔧 DEBUG: Column '{column}' has {len(col_data)} non-null values", debug)
-                    self._debug_print(f"🔧 DEBUG: Sample values: {col_data.head(3).tolist()}", debug)
-                    
-                    if len(col_data) > 0:
-                        try:
-                            if expected_type == "int":
-                                pd.to_numeric(col_data, errors='raise', downcast='integer')
-                                self._debug_print(f"🔧 DEBUG: Column '{column}' passed int validation", debug)
-                            elif expected_type == "float":
-                                pd.to_numeric(col_data, errors='raise')
-                                self._debug_print(f"🔧 DEBUG: Column '{column}' passed float validation", debug)
-                            elif expected_type == "datetime":
-                                self._debug_print(f"🔧 DEBUG: Testing datetime validation for '{column}'", debug)
-                                parsed_dates = pd.to_datetime(col_data, errors='coerce')
-                                self._debug_print(f"🔧 DEBUG: Parsed dates: {parsed_dates.tolist()}", debug)
-                                self._debug_print(f"🔧 DEBUG: Any NA values: {parsed_dates.isna().any()}", debug)
-                                self._debug_print(f"🔧 DEBUG: NA positions: {parsed_dates.isna().tolist()}", debug)
-                                if parsed_dates.isna().any():
-                                    self._debug_print(f"🔧 DEBUG: DATETIME VALIDATION FAILED - will create issue", debug)
-                                    raise ValueError(f"Invalid datetime values found")
-                                else:
-                                    self._debug_print(f"🔧 DEBUG: Column '{column}' passed datetime validation", debug)
-                            elif expected_type == "bool":
-                                # Check if values can be converted to bool
-                                unique_vals = set(str(v).lower() for v in col_data.unique())
-                                if not unique_vals.issubset({'true', 'false', '1', '0', 'yes', 'no', 't', 'f', 'y', 'n'}):
-                                    raise ValueError("Invalid boolean values")
-                                self._debug_print(f"🔧 DEBUG: Column '{column}' passed bool validation", debug)
-                            # str type always passes
-                        except Exception as e:
-                            self._debug_print(f"🔧 DEBUG: VALIDATION EXCEPTION for '{column}': {e}", debug)
-                            # For datetime issues, provide more specific information
-                            if expected_type == "datetime":
-                                invalid_dates = col_data[pd.to_datetime(col_data, errors='coerce').isna()]
-                                self._debug_print(f"🔧 DEBUG: Invalid dates found: {invalid_dates.tolist()}", debug)
-                                issue = {
-                                    "column": column,
-                                    "issue": "datetime_validation_failed",
-                                    "expected_type": expected_type,
-                                    "actual_type": str(df[column].dtype),
-                                    "invalid_values": invalid_dates.tolist(),
-                                    "valid_sample": col_data[pd.to_datetime(col_data, errors='coerce').notna()].head(2).tolist(),
-                                    "description": f"Found {len(invalid_dates)} invalid date values in column '{column}'"
-                                }
-                                type_issues.append(issue)
-                                self._debug_print(f"🔧 DEBUG: Added datetime issue: {issue}", debug)
-                            else:
-                                issue = {
-                                    "column": column,
-                                    "issue": "type_mismatch",
-                                    "expected_type": expected_type,
-                                    "actual_type": str(df[column].dtype),
-                                    "sample_values": col_data.head(3).tolist()
-                                }
-                                type_issues.append(issue)
-                                self._debug_print(f"🔧 DEBUG: Added type mismatch issue: {issue}", debug)
-                
-                results["checks"]["data_types"]["issues"] = type_issues
-                results["checks"]["data_types"]["passed"] = len(type_issues) == 0
-                results["checks"]["data_types"]["message"] = f"Type validation: {len(type_issues)} issues found"
-                self._debug_print(f"🔧 DEBUG: Type validation complete - {len(type_issues)} issues found", debug)
-                self._debug_print(f"🔧 DEBUG: Type issues: {type_issues}", debug)
-                if type_issues:
-                    results["overall_passed"] = False
-                    results["total_issues"] += len(type_issues)
-                    self._debug_print(f"🔧 DEBUG: Updated total issues to: {results['total_issues']}", debug)
-            else:
-                self._debug_print("🔧 DEBUG: No schema provided, skipping type validation", debug)
-            
-            # Add range validation if provided
-            if rules:
-                range_issues = []
-                for column, rule in rules.items():
-                    if column in df.columns:
-                        col_data = df[column].dropna()
-                        
-                        # Check numeric ranges (min/max)
-                        if "min" in rule or "max" in rule:
+# Clean, modern CSS without overlapping issues
+st.markdown("""
+<style>
+    /* Hide Streamlit default elements */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display: none;}
+
+    /* Hide sidebar by default */
+    section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+
+    /* Remove excess padding */
+    .block-container {
+        padding-top: 0.2rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Clean modern styling */
+    .stApp {
+        background: #ffffff;
+    }
+
+    /* Style tabs to look like navbar and fix to top */
+    .stTabs [data-baseweb="tab-list"] {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        background-color: #1e293b;
+        padding: 0.5rem 1rem;
+        border-radius: 0;
+        margin-bottom: 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    /* Add title to navbar */
+    .stTabs [data-baseweb="tab-list"]::before {
+        content: "Data Quality Analyzer.";
+        color: #e2e8f0;
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-right: auto;
+        padding-right: 2rem;
+    }
+
+    /* Add minimal spacing below fixed navbar */
+    .stTabs [data-baseweb="tab-panel"] {
+        margin-top: 48px;
+        padding-top: 1rem;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        color: #e2e8f0;
+        font-weight: 500;
+        padding: 0.5rem 1.5rem;
+        background-color: transparent;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #334155;
+        border-radius: 4px;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #3b82f6 !important;
+        border-radius: 4px;
+    }
+
+    /* Upload sections styling */
+    .upload-section {
+        background: #f8fafc;
+        border: 2px dashed #cbd5e1;
+        border-radius: 8px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+
+    .upload-section:hover {
+        border-color: #3b82f6;
+        background: #f0f9ff;
+    }
+
+    /* Button styling */
+    .stButton > button {
+        width: 100%;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Success/Error message styling */
+    .stSuccess, .stError, .stWarning {
+        border-radius: 6px;
+        padding: 1rem;
+    }
+
+    /* Metrics styling */
+    [data-testid="metric-container"] {
+        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+        border: 1px solid #bfdbfe;
+        padding: 1rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* DataFrame styling */
+    .dataframe {
+        font-size: 0.9rem;
+    }
+
+    /* Additional spacing for content */
+    .element-container {
+        margin-top: 0.3rem;
+    }
+
+    /* Ensure headings don't wrap */
+    h3 {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+class DataQualityAnalyzer:
+    """
+    Wrapper for real QualityPipeline validation logic.
+    Uses actual validation classes from mcp_server.py (no MCP server needed).
+    """
+
+    async def analyze_data_quality(self, data: pd.DataFrame, dictionary: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Run data quality analysis using real QualityPipeline.
+
+        Args:
+            data: DataFrame to analyze
+            dictionary: Optional dictionary with validation rules and schema
+                       Can have 'rules' and/or 'schema' keys, or direct field definitions
+
+        Returns:
+            Dict with summary, issues, and recommendations
+        """
+        # Parse dictionary to extract schema and rules for QualityPipeline
+        schema = None
+        rules = None
+
+        if dictionary and isinstance(dictionary, dict):
+            # Handle different dictionary formats
+            if 'rules' in dictionary:
+                dict_rules = dictionary['rules']
+                # Convert web_app dictionary format to QualityChecker format
+                schema = {}
+                rules = {}
+                for field_name, field_spec in dict_rules.items():
+                    if isinstance(field_spec, dict):
+                        # Extract type for schema
+                        if 'type' in field_spec:
+                            schema[field_name] = field_spec['type']
+
+                        # Extract validation rules
+                        field_rules = {}
+                        if 'min' in field_spec and pd.notna(field_spec['min']):
                             try:
-                                numeric_data = pd.to_numeric(col_data, errors='coerce')
-                                
-                                if "min" in rule:
-                                    violations = numeric_data < rule["min"]
-                                    if violations.any():
-                                        violating_rows = df[violations].index.tolist()
-                                        range_issues.append({
-                                            "column": column,
-                                            "rule": f"min >= {rule['min']}",
-                                            "violation_count": violations.sum(),
-                                            "violating_rows": violating_rows[:10]
-                                        })
-                                
-                                if "max" in rule:
-                                    violations = numeric_data > rule["max"]
-                                    if violations.any():
-                                        violating_rows = df[violations].index.tolist()
-                                        range_issues.append({
-                                            "column": column,
-                                            "rule": f"max <= {rule['max']}",
-                                            "violation_count": violations.sum(),
-                                            "violating_rows": violating_rows[:10]
-                                        })
-                            except:
-                                range_issues.append({
-                                    "column": column,
-                                    "rule": "numeric_range",
-                                    "issue": "column_not_numeric"
-                                })
-                        
-                        # Check allowed values
-                        if "allowed" in rule:
-                            allowed_values = set(rule["allowed"])
-                            actual_values = set(col_data.unique())
-                            invalid_values = actual_values - allowed_values
-                            
-                            if invalid_values:
-                                mask = col_data.isin(invalid_values)
-                                violating_rows = df[mask].index.tolist()
-                                range_issues.append({
-                                    "column": column,
-                                    "rule": f"allowed_values: {rule['allowed']}",
-                                    "invalid_values": list(invalid_values),
-                                    "violation_count": mask.sum(),
-                                    "violating_rows": violating_rows[:10]
-                                })
-                
-                results["checks"]["value_ranges"]["issues"] = range_issues
-                results["checks"]["value_ranges"]["passed"] = len(range_issues) == 0
-                if range_issues:
-                    results["overall_passed"] = False
-                    results["total_issues"] += len(range_issues)
-            
-            return results
-            
-        except Exception as e:
-            return {"error": str(e), "type": "analysis_error"}
+                                field_rules['min'] = float(field_spec['min'])
+                            except (ValueError, TypeError):
+                                pass
+                        if 'max' in field_spec and pd.notna(field_spec['max']):
+                            try:
+                                field_rules['max'] = float(field_spec['max'])
+                            except (ValueError, TypeError):
+                                pass
+                        if 'allowed_values' in field_spec and field_spec['allowed_values']:
+                            field_rules['allowed'] = field_spec['allowed_values']
 
-# Initialize MCP client
-def get_mcp_client(use_real_mcp: bool = False):
-    return MCPClient(use_real_mcp=use_real_mcp)
+                        if field_rules:
+                            rules[field_name] = field_rules
 
-def create_schema_editor():
-    """Create an interactive schema editor"""
-    st.subheader("📋 Schema Definition")
-    
-    if 'schema_entries' not in st.session_state:
-        st.session_state.schema_entries = [{"column": "", "type": "str"}]
-    
-    schema = {}
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        for i, entry in enumerate(st.session_state.schema_entries):
-            cols = st.columns([2, 2, 1])
-            
-            with cols[0]:
-                column = st.text_input(f"Column {i+1}", value=entry["column"], key=f"schema_col_{i}")
-            
-            with cols[1]:
-                type_val = st.selectbox(
-                    f"Type {i+1}", 
-                    ["str", "int", "float", "bool", "datetime"],
-                    index=["str", "int", "float", "bool", "datetime"].index(entry["type"]),
-                    key=f"schema_type_{i}"
-                )
-            
-            with cols[2]:
-                if st.button("❌", key=f"remove_schema_{i}"):
-                    st.session_state.schema_entries.pop(i)
-                    st.rerun()
-            
-            if column:
-                schema[column] = type_val
-            
-            st.session_state.schema_entries[i] = {"column": column, "type": type_val}
-    
-    with col2:
-        if st.button("➕ Add Column"):
-            st.session_state.schema_entries.append({"column": "", "type": "str"})
-            st.rerun()
-        
-        if st.button("🗑️ Clear All"):
-            st.session_state.schema_entries = [{"column": "", "type": "str"}]
-            st.rerun()
-    
-    return {k: v for k, v in schema.items() if k}
+            elif 'schema' in dictionary:
+                schema = dictionary.get('schema')
+                rules = dictionary.get('validation_rules', {})
 
-def create_rules_editor():
-    """Create an interactive rules editor"""
-    st.subheader("⚙️ Validation Rules")
-    
-    if 'rules_entries' not in st.session_state:
-        st.session_state.rules_entries = [{"column": "", "rule_type": "range", "config": {}}]
-    
-    rules = {}
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        for i, entry in enumerate(st.session_state.rules_entries):
-            with st.expander(f"Rule {i+1}", expanded=True):
-                cols = st.columns([2, 2])
-                
-                with cols[0]:
-                    column = st.text_input(f"Column", value=entry["column"], key=f"rule_col_{i}")
-                
-                with cols[1]:
-                    rule_type = st.selectbox(
-                        "Rule Type",
-                        ["range", "allowed_values"],
-                        index=0 if entry["rule_type"] == "range" else 1,
-                        key=f"rule_type_{i}"
-                    )
-                
-                rule_config = {}
-                
-                if rule_type == "range":
-                    cols2 = st.columns(2)
-                    with cols2[0]:
-                        min_val = st.number_input("Min Value", value=entry["config"].get("min", 0), key=f"min_{i}")
-                        if min_val is not None:
-                            rule_config["min"] = min_val
-                    
-                    with cols2[1]:
-                        max_val = st.number_input("Max Value", value=entry["config"].get("max", 100), key=f"max_{i}")
-                        if max_val is not None:
-                            rule_config["max"] = max_val
-                
-                elif rule_type == "allowed_values":
-                    allowed_text = st.text_input(
-                        "Allowed Values (comma-separated)",
-                        value=",".join(entry["config"].get("allowed", [])),
-                        key=f"allowed_{i}"
-                    )
-                    if allowed_text:
-                        rule_config["allowed"] = [v.strip() for v in allowed_text.split(",") if v.strip()]
-                
-                if st.button("❌ Remove Rule", key=f"remove_rule_{i}"):
-                    st.session_state.rules_entries.pop(i)
-                    st.rerun()
-                
-                if column:
-                    rules[column] = rule_config
-                
-                st.session_state.rules_entries[i] = {"column": column, "rule_type": rule_type, "config": rule_config}
-    
-    with col2:
-        if st.button("➕ Add Rule"):
-            st.session_state.rules_entries.append({"column": "", "rule_type": "range", "config": {}})
-            st.rerun()
-        
-        if st.button("🗑️ Clear All Rules"):
-            st.session_state.rules_entries = [{"column": "", "rule_type": "range", "config": {}}]
-            st.rerun()
-    
-    return {k: v for k, v in rules.items() if k and v}
+        # Run QualityPipeline analysis
+        pipeline = QualityPipeline(data, schema=schema, rules=rules)
+        results = pipeline.run_all_checks(min_rows=1)
 
-def display_results(results: Dict[str, Any]):
-    """Display analysis results in a comprehensive dashboard"""
-    
-    if "error" in results:
-        st.error(f"Analysis Error: {results['error']}")
-        return
-    
-    # Overall Status
-    st.header("📊 Analysis Results")
-    
-    overall_status = results.get("overall_passed", False)
-    total_issues = results.get("total_issues", 0)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        status_color = "green" if overall_status else "red"
-        status_text = "✅ PASSED" if overall_status else "❌ FAILED"
-        st.markdown(f"### Overall Status: <span style='color:{status_color}'>{status_text}</span>", unsafe_allow_html=True)
-    
-    with col2:
-        st.metric("Total Issues Found", total_issues)
-    
-    with col3:
-        timestamp = results.get("timestamp", "Unknown")
-        st.write(f"**Analysis Time:** {timestamp[:19]}")
-    
-    st.divider()
-    
-    # Summary Statistics
-    st.subheader("📈 Dataset Summary")
-    
-    stats = results.get("summary_stats", {})
-    shape = stats.get("shape", {})
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Rows", shape.get("rows", 0))
-    
-    with col2:
-        st.metric("Columns", shape.get("columns", 0))
-    
-    with col3:
-        st.metric("Duplicates", stats.get("duplicate_rows", 0))
-    
-    with col4:
-        st.metric("Memory (MB)", stats.get("memory_usage_mb", 0))
-    
-    # Missing Values Visualization
-    if "missing_values" in stats:
-        missing_data = stats["missing_values"]
-        if any(v > 0 for v in missing_data.values()):
-            st.subheader("🔍 Missing Values")
-            
-            missing_df = pd.DataFrame(list(missing_data.items()), columns=["Column", "Missing Count"])
-            missing_df = missing_df[missing_df["Missing Count"] > 0]
-            
-            if not missing_df.empty:
-                fig = px.bar(missing_df, x="Column", y="Missing Count", 
-                           title="Missing Values per Column")
-                st.plotly_chart(fig, use_container_width=True)
+        # Transform QualityPipeline results to web_app expected format
+        issues = []
+
+        # Transform QualityPipeline issues (which have 'column', 'rule', 'violating_rows')
+        # into web UI format (which needs 'type', 'severity', 'message', 'row', 'value')
+        for qp_issue in results.get('issues', []):
+            column = qp_issue.get('column')
+            rule = qp_issue.get('rule', '')
+            violating_rows = qp_issue.get('violating_rows', [])
+
+            # Determine issue type and severity based on the rule
+            if 'min >=' in rule or 'max <=' in rule:
+                issue_type = "range_violation"
+                severity = "error"
+            elif 'allowed_values' in rule:
+                issue_type = "invalid_categorical_value"
+                severity = "error"
+            elif qp_issue.get('issue') == 'type_mismatch':
+                issue_type = "type_mismatch"
+                severity = "error"
+            elif qp_issue.get('issue') == 'datetime_validation_failed':
+                issue_type = "invalid_date"
+                severity = "error"
             else:
-                st.success("No missing values found!")
-    
-    # Data Types Table with Auto-Detection
-    if "dtypes" in stats:
-        st.subheader("📋 Column Information")
-        
-        dtype_data = []
-        auto_detected = stats.get("auto_detected_types", {})
-        
-        for col, dtype in stats["dtypes"].items():
-            missing_count = stats.get("missing_values", {}).get(col, 0)
-            detected_type = auto_detected.get(col, "unknown")
-            
-            # Add emoji indicators
-            type_emoji = {
-                "int": "🔢", "float": "🔢", "str": "📝", 
-                "datetime": "📅", "bool": "☑️", "unknown": "❓"
-            }
-            
-            dtype_data.append({
-                "Column": col,
-                "Current Type": dtype,
-                "Auto-Detected": f"{type_emoji.get(detected_type, '❓')} {detected_type}",
-                "Missing Values": missing_count,
-                "Missing %": round(missing_count / shape.get("rows", 1) * 100, 2) if shape.get("rows", 0) > 0 else 0
-            })
-        
-        dtype_df = pd.DataFrame(dtype_data)
-        st.dataframe(dtype_df, use_container_width=True)
-        
-        # Add helpful note about auto-detection
-        st.info("💡 **Auto-Detection**: The 'Auto-Detected' column shows suggested data types based on content analysis. Use these suggestions when defining your schema!")
-    
-    st.divider()
-    
-    # Check Results
-    st.subheader("🔬 Quality Check Results")
-    
-    checks = results.get("checks", {})
-    
-    for check_name, check_result in checks.items():
-        with st.expander(f"{check_name.replace('_', ' ').title()}", expanded=not check_result.get("passed", True)):
-            
-            col1, col2 = st.columns([1, 3])
-            
-            with col1:
-                passed = check_result.get("passed", False)
-                status_icon = "✅" if passed else "❌"
-                status_text = "PASSED" if passed else "FAILED"
-                st.markdown(f"**Status:** {status_icon} {status_text}")
-            
-            with col2:
-                message = check_result.get("message", "No message")
-                st.write(f"**Message:** {message}")
-            
-            # Display issues if any
-            issues = check_result.get("issues", [])
-            if issues:
-                st.subheader("Issues Found:")
-                
-                for i, issue in enumerate(issues):
-                    with st.container():
-                        # Special handling for datetime issues
-                        if issue.get("issue") == "datetime_validation_failed":
-                            st.markdown(f"**🚨 Issue {i+1}: Invalid Date Values**")
-                            st.error(issue.get("description", "Date validation failed"))
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.markdown("**Invalid Values:**")
-                                invalid_vals = issue.get("invalid_values", [])
-                                for val in invalid_vals:
-                                    st.code(f"❌ '{val}'")
-                            
-                            with col2:
-                                st.markdown("**Valid Examples:**")
-                                valid_vals = issue.get("valid_sample", [])
-                                for val in valid_vals:
-                                    st.code(f"✅ '{val}'")
-                        else:
-                            st.markdown(f"**Issue {i+1}:**")
-                            
-                            # Create a clean issue display
-                            issue_data = {}
-                            for key, value in issue.items():
-                                if key not in ["violating_rows", "invalid_values", "valid_sample", "description"]:  # Handle special keys separately
-                                    issue_data[key.replace("_", " ").title()] = value
-                            
-                            # Display as a compact table
-                            issue_df = pd.DataFrame([issue_data])
-                            st.dataframe(issue_df, use_container_width=True, hide_index=True)
-                        
-                        # Show violating rows if present
-                        if "violating_rows" in issue and issue["violating_rows"]:
-                            with st.expander(f"View Violating Rows (showing first {len(issue['violating_rows'])}):"):
-                                st.write(issue["violating_rows"])
-    
-    # Numeric Summary if available
-    numeric_summary = stats.get("numeric_summary", {})
-    if numeric_summary:
-        st.subheader("📊 Numeric Column Statistics")
-        
-        numeric_data = []
-        for col, col_stats in numeric_summary.items():
-            numeric_data.append({
-                "Column": col,
-                "Min": col_stats.get("min"),
-                "Max": col_stats.get("max"),
-                "Mean": round(col_stats.get("mean", 0), 2) if col_stats.get("mean") else None,
-                "Std Dev": round(col_stats.get("std", 0), 2) if col_stats.get("std") else None
-            })
-        
-        numeric_df = pd.DataFrame(numeric_data)
-        st.dataframe(numeric_df, use_container_width=True)
+                issue_type = qp_issue.get('issue', 'validation_error')
+                severity = "error"
 
-def main():
-    """Main Streamlit application"""
-    
-    st.title("📊 Multi-Format Data Quality Analyzer")
-    st.markdown("Upload a CSV file and configure validation rules to check data quality")
-    
-    # Sidebar configuration
-    with st.sidebar:
-        st.header("⚙️ Configuration")
-        
-        # File upload
-        uploaded_file = st.file_uploader(
-            "Choose a data file",
-            type=['csv', 'json', 'xlsx', 'xls', 'parquet'],
-            help="Upload a CSV, JSON, Excel, or Parquet file to analyze"
-        )
-        
-        # Minimum rows setting
-        min_rows = st.number_input(
-            "Minimum Required Rows",
-            min_value=1,
-            value=1,
-            help="Minimum number of rows required for the dataset"
-        )
-        
-        # Encoding selection
-        encoding = st.selectbox(
-            "File Encoding",
-            ["utf-8", "latin1", "cp1252", "iso-8859-1"],
-            help="Select the encoding of your CSV file"
-        )
-        
-        st.divider()
-        
-        # Debug mode toggle
-        debug_mode = st.checkbox(
-            "🔧 Debug Mode",
-            value=False,
-            help="Enable debug output in browser console (F12 → Console)"
-        )
-        
-        # MCP mode toggle
-        use_real_mcp = st.checkbox(
-            "🚀 Use Real MCP Server",
-            value=False,
-            help="Use actual MCP server instead of simulation (requires MCP dependencies)"
-        )
-        
-        st.divider()
+            # Create individual issue for each violating row
+            for row_idx in violating_rows:
+                value = data[column].iloc[row_idx] if column in data.columns and row_idx < len(data) else None
 
-        # Quick example data with format selector
-        st.subheader("📝 Demo Data")
-        demo_format = st.selectbox(
-            "Choose demo data format:",
-            ["CSV", "JSON", "Excel", "Parquet"]
-        )
-
-        if st.button(f"Load {demo_format} Example Data"):
-            if demo_format == "CSV":
-                # Create example CSV content with date field
-                example_data = """id,name,age,country,salary,hire_date
-1,John Doe,25,USA,50000,2023-01-15
-2,Jane Smith,30,CAN,55000,2022-03-20
-3,Bob Johnson,35,MEX,60000,2021-07-10
-4,Alice Brown,28,USA,52000,invalid_date
-5,Charlie Wilson,150,INVALID,75000,2020-12-05"""
-                st.session_state.example_format = "csv"
-
-            elif demo_format == "JSON":
-                # Create example JSON content
-                example_json = {
-                    "employees": [
-                        {"id": 1, "name": "John Doe", "age": 25, "country": "USA", "salary": 50000, "hire_date": "2023-01-15"},
-                        {"id": 2, "name": "Jane Smith", "age": 30, "country": "CAN", "salary": 55000, "hire_date": "2022-03-20"},
-                        {"id": 3, "name": "Bob Johnson", "age": 35, "country": "MEX", "salary": 60000, "hire_date": "2021-07-10"},
-                        {"id": 4, "name": "Alice Brown", "age": 28, "country": "USA", "salary": 52000, "hire_date": "invalid_date"},
-                        {"id": 5, "name": "Charlie Wilson", "age": 150, "country": "INVALID", "salary": 75000, "hire_date": "2020-12-05"}
-                    ]
-                }
-                example_data = json.dumps(example_json, indent=2)
-                st.session_state.example_format = "json"
-
-            elif demo_format == "Excel":
-                # Create example Excel data (as DataFrame to be saved as Excel)
-                df_excel = pd.DataFrame({
-                    "id": [1, 2, 3, 4, 5],
-                    "name": ["John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson"],
-                    "age": [25, 30, 35, 28, 150],
-                    "country": ["USA", "CAN", "MEX", "USA", "INVALID"],
-                    "salary": [50000, 55000, 60000, 52000, 75000],
-                    "hire_date": ["2023-01-15", "2022-03-20", "2021-07-10", "invalid_date", "2020-12-05"]
+                issues.append({
+                    "type": issue_type,
+                    "severity": severity,
+                    "column": column,
+                    "row": int(row_idx),
+                    "value": value,
+                    "message": f"Value {value} in column '{column}' violates rule: {rule}"
                 })
-                # Convert to Excel bytes
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_excel.to_excel(writer, index=False, sheet_name="Employees")
-                example_data = base64.b64encode(output.getvalue()).decode()
-                st.session_state.example_format = "excel"
 
-            elif demo_format == "Parquet":
-                # Create example Parquet data
-                df_parquet = pd.DataFrame({
-                    "id": [1, 2, 3, 4, 5],
-                    "name": ["John Doe", "Jane Smith", "Bob Johnson", "Alice Brown", "Charlie Wilson"],
-                    "age": [25, 30, 35, 28, 150],
-                    "country": ["USA", "CAN", "MEX", "USA", "INVALID"],
-                    "salary": [50000, 55000, 60000, 52000, 75000],
-                    "hire_date": ["2023-01-15", "2022-03-20", "2021-07-10", "invalid_date", "2020-12-05"]
+        # Add missing value issues
+        for col in data.columns:
+            missing = data[col].isnull().sum()
+            if missing > 0:
+                issues.append({
+                    "type": "missing_values",
+                    "severity": "warning",
+                    "column": col,
+                    "count": int(missing),
+                    "percentage": round(missing / len(data) * 100, 2),
+                    "message": f"Column '{col}' has {missing} missing values ({round(missing/len(data)*100, 2)}%)"
                 })
-                # Convert to Parquet bytes
-                output = io.BytesIO()
-                df_parquet.to_parquet(output, index=False)
-                example_data = base64.b64encode(output.getvalue()).decode()
-                st.session_state.example_format = "parquet"
 
-            st.session_state.example_data = example_data
-            st.success(f"{demo_format} example data loaded!")
-    
-    # Main content area
-    if uploaded_file is not None:
-        try:
-            # Determine file format from extension
-            file_format = uploaded_file.name.split('.')[-1].lower()
-            if file_format in ['xlsx', 'xls']:
-                file_format = 'excel'
+        # Build summary
+        summary = {
+            "total_rows": len(data),
+            "total_columns": len(data.columns),
+            "issues_found": len(issues),
+            "critical_issues": sum(1 for i in issues if i.get('severity') == 'error'),
+            "warnings": sum(1 for i in issues if i.get('severity') == 'warning'),
+            "data_types": results.get('summary_stats', {}).get('dtypes', {col: str(data[col].dtype) for col in data.columns}),
+            "completeness": round((1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100, 2)
+        }
 
-            # Read the uploaded file based on format
-            if file_format == 'csv':
-                file_content = uploaded_file.read().decode(encoding)
-            else:
-                # For binary formats (JSON, Excel, Parquet)
-                uploaded_file.seek(0)  # Reset file pointer
-                file_bytes = uploaded_file.read()
-                if file_format == 'json':
-                    file_content = file_bytes.decode('utf-8')
-                else:
-                    # For Excel and Parquet, encode as base64
-                    file_content = base64.b64encode(file_bytes).decode()
-            
-            # Display file info
-            file_size = len(file_bytes) if file_format != 'csv' else len(file_content)
-            st.info(f"File: {uploaded_file.name} ({file_size:,} bytes, Format: {file_format.upper()})")
-            
-            # Preview the data
-            with st.expander("📄 Data Preview", expanded=True):
+        return {
+            "summary": summary,
+            "issues": issues,
+            "recommendations": self._generate_recommendations(issues),
+            "quality_checks": results.get('checks', {}),
+            "summary_stats": results.get('summary_stats', {})
+        }
+
+    def _generate_recommendations(self, issues):
+        """Generate recommendations based on issues found"""
+        recommendations = []
+
+        issue_types = set(i.get('type', i.get('issue', 'unknown')) for i in issues)
+
+        if 'missing_values' in issue_types:
+            recommendations.append({
+                "type": "data_cleaning",
+                "priority": "high",
+                "message": "Consider implementing data imputation strategies for columns with missing values"
+            })
+
+        if any(t in issue_types for t in ['type_mismatch', 'datetime_validation_failed', 'invalid_value']):
+            recommendations.append({
+                "type": "data_validation",
+                "priority": "critical",
+                "message": "Data type issues detected. Review data source and implement validation at ingestion"
+            })
+
+        if 'range_violation' in issue_types or any('violation' in str(t) for t in issue_types):
+            recommendations.append({
+                "type": "business_rules",
+                "priority": "high",
+                "message": "Values outside expected ranges detected. Review business rules and data constraints"
+            })
+
+        if any('allowed' in str(t) for t in issue_types):
+            recommendations.append({
+                "type": "categorical_validation",
+                "priority": "high",
+                "message": "Invalid categorical values found. Verify allowed values match business requirements"
+            })
+
+        return recommendations
+
+def load_demo_data(dataset_name: str):
+    """Load demo dataset matching the dictionary options"""
+    demo_data = {
+        'western': pd.DataFrame({
+            'employee_id': [1001, 1002, 1003, 1004, 1005],
+            'first_name': ['John', 'Jane', 'Mike', 'Bob', 'Alice'],
+            'last_name': ['Smith', 'Doe', 'Johnson', 'Brown', 'Wilson'],
+            'age': [35, 28, 67, 45, 32],  # ERROR: 67 is outside range (max 65)
+            'salary': [75000, 85000, 45000, 95000, None],  # ERROR: 45000 below min (50000), WARNING: None is missing
+            'hire_date': ['2022-03-15', '2023-01-10', '2023-99-99', '2021-07-22', '2022-11-30'],  # ERROR: invalid date 2023-99-99
+            'last_login_datetime': ['2023-01-15 10:30:00', '2023-02-20 14:45:00', '2023-03-10 09:15:00', '2023-04-05 16:20:00', '2023-05-12 11:00:00'],
+            'bonus_percentage': [5.5, 10.0, 15.5, 8.0, 12.5],
+            'department': ['Engineering', 'Marketing', 'InvalidDept', 'Sales', 'Finance'],  # ERROR: InvalidDept not in allowed values
+            'is_active': [True, True, False, None, True],  # WARNING: None is missing
+            'skills': ['Python;SQL', 'Marketing;Analytics', 'Java;AWS', 'Sales;CRM', 'Python;Leadership'],
+            'email': ['john@company.com', 'jane@company.com', 'mike@company.com', 'bob@company.com', 'alice@company.com'],
+            'phone': ['+1-555-1234', '+1-555-5678', '+1-555-9012', None, '+1-555-3456']  # WARNING: None is missing
+        }),
+        'clinical': pd.DataFrame({
+            'patient_id': ['P001', 'P002', 'P003', 'P004', 'P005', 'P006', 'P007', 'P008'],
+            'age': [45, 62, 73, 28, 155, 39, 67, 51],  # 155 is invalid age
+            'gender': ['M', 'F', 'M', 'F', 'X', 'F', 'M', 'invalid'],  # X and invalid are issues
+            'diagnosis_code': ['I21.0', 'J18.9', 'N18.9', 'K92.2', 'invalid', 'G20.9', 'E11.9', ''],
+            'admission_date': ['2024-01-15', '2024-01-16', '2024-01-17', '2024-01-18', 'invalid-date', '2024-01-20', '2024-01-21', '2024-01-22'],
+            'discharge_date': ['2024-01-20', '2024-01-22', '2024-01-25', '2024-01-19', None, '2024-01-21', '', '2024-01-23'],
+            'treatment_type': ['Emergency', 'Inpatient', 'Inpatient', 'Observation', 'invalid', 'Outpatient', 'Inpatient', 'Unknown'],
+            'lab_result_wbc': [7.5, 12.3, 6.8, 8.2, 50.0, 7.8, 10.5, None],  # 50.0 is out of range
+            'lab_result_hemoglobin': [14.2, 12.8, 10.5, 13.5, 'invalid', 14.5, None, 13.2],
+            'blood_pressure_systolic': [130, 145, 155, 110, 250, 125, 165, 135],  # 250 is too high
+            'blood_pressure_diastolic': [85, 92, 95, 70, 130, 80, 98, 82],  # 130 is too high
+            'temperature': [37.2, 38.5, 36.8, 36.9, 45.0, 36.7, 37.3, None],  # 45.0 is impossible
+            'heart_rate': [88, 96, 78, 72, 200, 75, 90, 68],  # 200 is too high
+            'follow_up_required': ['Yes', 'Yes', 'Yes', 'No', 'Maybe', 'Yes', 'Yes', None],  # Maybe is invalid
+            'outcome_status': ['Improved', 'Recovered', 'Stable', 'Recovered', 'invalid', 'Stable', 'Ongoing', 'Improved'],
+            'length_of_stay': [5, 6, 8, 1, 500, 1, None, 1]  # 500 days is unrealistic
+        }),
+        'asian': pd.DataFrame({
+            'staff_id': [2001, 2002, 2003, 2004, 2005],
+            'given_name': ['Akiko', 'Wei', None, 'Raj', 'Mei'],
+            'family_name': ['Tanaka', 'Zhang', 'Kumar', 'invalid', 'Chen'],
+            'age': [30, 21, 45, 38, 62],  # 21 below min, 62 above max
+            'monthly_salary': [8500, 9200, 6000, 10500, None],  # 6000 below min
+            'join_date': ['2020-06-01', 'invalid-date', '2021-03-15', '2022-09-10', '2023-01-20'],
+            'dept_code': ['DEV', 'MKT', 'invalid', 'OPS', 'FIN'],
+            'active_status': [1, 1, 0, None, 1],
+            'work_email': ['akiko@work.com', 'wei@work.com', 'invalid', 'raj@work.com', 'mei@work.com']
+        }),
+        'mixed': pd.DataFrame({
+            'id': [3001, 3002, 3003, 3004, 3005],
+            'name_first': ['Carlos', 'Emma', 'invalid', 'Liu', None],
+            'name_last': ['Rodriguez', 'invalid', 'Brown', 'Wang', 'Lee'],
+            'age': [40, 24, 35, 56, 45],  # 24 below min, 56 above max
+            'salary': [70000, 80000, 60000, 90000, None],  # 60000 below min, 90000 above max
+            'hired': ['2022-05-01', '2023-08-15', 'invalid-date', '2021-12-01', '2023-03-10'],
+            'active': [True, False, None, True, True],
+            'department': ['Research', 'invalid', 'Engineering', 'Quality', 'Sales']
+        })
+    }
+    return demo_data.get(dataset_name, demo_data['western'])
+
+def create_issue_heatmap(df: pd.DataFrame, issues: list):
+    """Create an interactive heatmap with hover tooltips using Plotly"""
+    try:
+        rows, cols = len(df), len(df.columns)
+
+        # Condense large datasets
+        max_display_rows = 60
+        max_display_cols = 100  # Increased for wide datasets
+
+        row_factor = max(1, rows // max_display_rows)
+        col_factor = max(1, cols // max_display_cols)
+
+        display_rows = min(rows, max_display_rows)
+        display_cols = min(cols, max_display_cols)
+
+        # Initialize matrix and hover text
+        issue_matrix = np.zeros((display_rows, display_cols))
+        hover_text = [['' for _ in range(display_cols)] for _ in range(display_rows)]
+
+        # Map issues to matrix
+        for issue in issues:
+            if 'row' in issue and 'column' in issue:
                 try:
-                    # Load data using appropriate loader
-                    if file_format == 'csv':
-                        preview_df = pd.read_csv(io.StringIO(file_content))
-                    elif file_format == 'json':
-                        json_data = json.loads(file_content)
-                        # Handle nested JSON structures
-                        if isinstance(json_data, dict) and len(json_data) == 1:
-                            # If single key with array value, use the array
-                            first_key = list(json_data.keys())[0]
-                            if isinstance(json_data[first_key], list):
-                                preview_df = pd.DataFrame(json_data[first_key])
-                            else:
-                                preview_df = pd.json_normalize(json_data)
-                        elif isinstance(json_data, list):
-                            preview_df = pd.DataFrame(json_data)
-                        else:
-                            preview_df = pd.json_normalize(json_data)
-                    elif file_format == 'excel':
-                        preview_df = pd.read_excel(io.BytesIO(base64.b64decode(file_content)))
-                    elif file_format == 'parquet':
-                        preview_df = pd.read_parquet(io.BytesIO(base64.b64decode(file_content)))
-                    else:
-                        st.error(f"Unsupported file format: {file_format}")
-                        return
+                    col_idx = df.columns.get_loc(issue['column'])
+                    row_idx = issue['row']
 
-                    st.dataframe(preview_df.head(10), use_container_width=True)
-                    st.caption(f"Showing first 10 rows of {len(preview_df)} total rows")
+                    # Map to display coordinates
+                    display_row = min(row_idx // row_factor, display_rows - 1)
+                    display_col = min(col_idx // col_factor, display_cols - 1)
+
+                    # Set severity (2 for error, 1 for warning)
+                    severity_value = 2 if issue['severity'] == 'error' else 1
+                    issue_matrix[display_row, display_col] = max(issue_matrix[display_row, display_col], severity_value)
+
+                    # Build hover text
+                    issue_info = f"<b>{issue['type'].replace('_', ' ').title()}</b><br>"
+                    issue_info += f"Row: {row_idx}<br>"
+                    issue_info += f"Column: {issue['column']}<br>"
+                    issue_info += f"Value: {issue.get('value', 'N/A')}<br>"
+                    issue_info += f"Severity: {issue['severity']}"
+
+                    if hover_text[display_row][display_col]:
+                        hover_text[display_row][display_col] += "<br><br>" + issue_info
+                    else:
+                        hover_text[display_row][display_col] = issue_info
+                except:
+                    pass
+
+        # Calculate aspect ratio for proper dimensions
+        aspect_ratio = cols / rows
+        if aspect_ratio > 1:
+            # Wide dataset
+            fig_width = 300
+            fig_height = max(50, 300 / aspect_ratio)
+        else:
+            # Tall dataset
+            fig_height = 300
+            fig_width = max(50, 300 * aspect_ratio)
+
+        # Create interactive Plotly heatmap
+        fig = go.Figure(data=go.Heatmap(
+            z=issue_matrix,
+            text=hover_text,
+            hovertemplate='%{text}<extra></extra>',
+            colorscale=[
+                [0, '#ffffff'],      # White for no issue
+                [0.5, '#fbbf24'],    # Yellow for warning
+                [1, '#ef4444']       # Red for error
+            ],
+            showscale=False,
+            xgap=1,
+            ygap=1
+        ))
+
+        # Update layout
+        fig.update_layout(
+            title={
+                'text': f'{rows} rows × {cols} cols' + (f' (scale {row_factor}:{col_factor})' if rows > max_display_rows or cols > max_display_cols else ''),
+                'font': {'size': 10}
+            },
+            width=fig_width,
+            height=fig_height,
+            margin=dict(l=20, r=20, t=30, b=20),
+            xaxis={'showticklabels': False, 'showgrid': False},
+            yaxis={'showticklabels': False, 'showgrid': False},
+            paper_bgcolor='white',
+            plot_bgcolor='white'
+        )
+
+        # Display with Streamlit
+        st.plotly_chart(fig, use_container_width=False)
+
+        # Show summary
+        error_count = np.sum(issue_matrix == 2)
+        warning_count = np.sum(issue_matrix == 1)
+        if error_count > 0 or warning_count > 0:
+            st.caption(f"🔴 {int(error_count)} cells with errors, 🟡 {int(warning_count)} cells with warnings")
+
+    except Exception as e:
+        st.caption(f"Issue map unavailable: {str(e)}")
+
+def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
+    """Export data to Excel with error cells highlighted"""
+    output = io.BytesIO()
+
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Data', index=False)
+
+        # Create issues summary sheet
+        issues_df = pd.DataFrame(issues)
+        if not issues_df.empty:
+            issues_df.to_excel(writer, sheet_name='Issues', index=False)
+
+        # Get workbook and worksheet
+        workbook = writer.book
+        worksheet = workbook['Data']
+
+        # Apply highlighting to cells with issues
+        from openpyxl.styles import PatternFill, Font
+
+        error_fill = PatternFill(start_color="FFCCCB", end_color="FFCCCB", fill_type="solid")
+        warning_fill = PatternFill(start_color="FFE5B4", end_color="FFE5B4", fill_type="solid")
+
+        for issue in issues:
+            if 'row' in issue and 'column' in issue:
+                try:
+                    col_idx = df.columns.get_loc(issue['column']) + 1
+                    row_idx = issue['row'] + 2  # +2 for header and 0-index
+                    cell = worksheet.cell(row=row_idx, column=col_idx)
+
+                    if issue['severity'] == 'error':
+                        cell.fill = error_fill
+                    elif issue['severity'] == 'warning':
+                        cell.fill = warning_fill
+
+                    # Add comment with issue details
+                    from openpyxl.comments import Comment
+                    cell.comment = Comment(issue['message'], "Data Analyzer")
+                except:
+                    pass
+
+        # Auto-adjust column widths
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    return output.getvalue()
+
+# Initialize session state
+if 'data' not in st.session_state:
+    st.session_state.data = None
+if 'dictionary' not in st.session_state:
+    st.session_state.dictionary = None
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = None
+if 'mcp_client' not in st.session_state:
+    st.session_state.mcp_client = DataQualityAnalyzer()
+if 'dict_cache' not in st.session_state:
+    st.session_state.dict_cache = {}  # Cache for parsed dictionaries
+if 'last_dict_file' not in st.session_state:
+    st.session_state.last_dict_file = None  # Track last uploaded dictionary
+if 'cache_dir' not in st.session_state:
+    # Create persistent cache directory (user-specific to avoid multi-user conflicts)
+    import getpass
+    try:
+        username = getpass.getuser()
+    except:
+        # Fallback if getuser() fails
+        import os
+        username = os.environ.get('USER', os.environ.get('USERNAME', 'default'))
+
+    cache_dir = Path.home() / f'.data_analyzer_cache_{username}'
+    cache_dir.mkdir(exist_ok=True)
+    st.session_state.cache_dir = cache_dir
+
+    print(f"\n📦 Cache directory: {cache_dir}")
+    print(f"   (User-specific to avoid multi-user conflicts)\n")
+
+# Create simple navigation tabs - no right-click support but clean UI
+tab1, tab2 = st.tabs(["📊 Analyze", "ℹ️ About"])
+
+with tab1:
+    # Subtitle only - title is now in navbar
+    st.markdown("Upload your data, optionally add validation rules, and analyze")
+
+    # Create three columns for the main components
+    col1, col2, col3 = st.columns([2, 2, 1.5])
+
+    with col1:
+        st.markdown("### 📁 Upload Data")
+
+        # File uploader first
+        uploaded_file = st.file_uploader(
+            " ",  # Empty label to avoid duplication
+            type=['csv', 'json', 'txt'],
+            key="data_uploader",
+            label_visibility="collapsed"
+        )
+
+        if uploaded_file:
+            with st.spinner(f"Processing {uploaded_file.name}..."):
+                try:
+                    if uploaded_file.name.endswith('.csv'):
+                        st.session_state.data = pd.read_csv(uploaded_file)
+                    elif uploaded_file.name.endswith('.json'):
+                        st.session_state.data = pd.read_json(uploaded_file)
+                    else:
+                        st.session_state.data = pd.read_csv(uploaded_file, sep='\t')
+                    st.success(f"✅ Loaded {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
                 except Exception as e:
-                    st.error(f"Error reading {file_format.upper()} file: {str(e)}")
-                    return
-            
-            # Configuration tabs
-            tab1, tab2, tab3 = st.tabs(["📋 Schema", "⚙️ Rules", "🚀 Analysis"])
-            
-            with tab1:
-                schema = create_schema_editor()
-                if schema:
-                    st.success(f"Schema configured for {len(schema)} columns")
-                    with st.expander("View Current Schema"):
-                        st.json(schema)
-            
-            with tab2:
-                rules = create_rules_editor()
-                if rules:
-                    st.success(f"Rules configured for {len(rules)} columns")
-                    with st.expander("View Current Rules"):
-                        st.json(rules)
-            
-            with tab3:
-                st.subheader("🚀 Run Analysis")
-                
-                if st.button(f"🔍 Analyze {file_format.upper()} Data", type="primary", use_container_width=True):
-                    with st.spinner(f"Analyzing {file_format.upper()} data..."):
-                        # Get MCP client
-                        client = get_mcp_client(use_real_mcp=use_real_mcp)
+                    st.error(f"Error loading file: {str(e)}")
 
-                        # Run analysis
-                        results = asyncio.run(client.analyze_data(
-                            data_content=file_content,
-                            file_format=file_format,
-                            schema=schema if schema else None,
-                            rules=rules if rules else None,
-                            min_rows=min_rows,
-                            debug=debug_mode
-                        ))
-                        
-                        # Display results
-                        display_results(results)
-        
-        except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-    
-    elif 'example_data' in st.session_state:
-        # Handle example data
-        example_content = st.session_state.example_data
-        example_format = st.session_state.get('example_format', 'csv')
+        # Demo data selector below file uploader
+        demo_option = st.selectbox(
+            "Or load demo data:",
+            ["None", "CSV - Western", "CSV - Asian", "CSV - Clinical", "JSON - Mixed"],
+            key="demo_selector",
+            help="Clinical data includes matching dictionary in demo_data/clinical_dict.json"
+        )
 
-        st.info(f"Using {example_format.upper()} example data - configure schema and rules below, then run analysis")
-        
-        # Editable example data
-        with st.expander("📄 Example Data (Editable)", expanded=True):
-            try:
-                # For CSV and JSON, allow editing; for binary formats show preview only
-                if example_format in ['csv', 'json']:
-                    # Allow user to edit the example data
-                    edited_data = st.text_area(
-                        "Edit your data here:",
-                        value=example_content,
-                        height=200,
-                        help=f"Edit the {example_format.upper()} data directly. Changes will be used for analysis."
-                    )
+        if demo_option != "None":
+            dataset_map = {
+                "CSV - Western": "western",
+                "CSV - Asian": "asian",
+                "CSV - Clinical": "clinical",
+                "JSON - Mixed": "mixed"
+            }
+            if demo_option in dataset_map:
+                st.session_state.data = load_demo_data(dataset_map[demo_option])
+                st.success(f"✅ Loaded {demo_option} demo data")
+                if demo_option == "CSV - Clinical":
+                    st.info("📖 Matching dictionary available: Upload 'demo_data/clinical_dict.json' for validation rules")
 
-                    # Update the data if it changed
-                    if edited_data != example_content:
-                        st.session_state.example_data = edited_data
-                        example_content = edited_data
-                else:
-                    st.info(f"Binary format ({example_format.upper()}) - editing not supported. Preview only.")
+    with col2:
+        st.markdown("### 📋 Dictionary")
 
-                # Show preview of the data
-                st.subheader("Preview:")
-                if example_format == 'csv':
-                    preview_df = pd.read_csv(io.StringIO(example_content))
-                elif example_format == 'json':
-                    json_data = json.loads(example_content)
-                    # Handle nested JSON structures
-                    if isinstance(json_data, dict) and 'employees' in json_data:
-                        preview_df = pd.DataFrame(json_data['employees'])
-                    elif isinstance(json_data, list):
-                        preview_df = pd.DataFrame(json_data)
+        # Dictionary file uploader first - aligned with data uploader
+        dict_file = st.file_uploader(
+            " ",  # Empty label to avoid duplication
+            type=['json', 'pdf', 'csv', 'txt'],
+            key="dict_uploader",
+            label_visibility="collapsed",
+            help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, or TXT)"
+        )
+
+        # Add LLM parsing option if available with auto-detection
+        if LLM_AVAILABLE and dict_file:
+            # DEBUG: Show filename
+            st.caption(f"📎 Uploaded file: **{dict_file.name}** ({dict_file.type if hasattr(dict_file, 'type') else 'unknown type'})")
+
+            llm_mode = st.selectbox(
+                "Dictionary parsing method:",
+                ["Auto-detect (recommended)", "Always use AI parsing", "Never use AI (manual only)"],
+                index=0,  # Default to auto-detect
+                help="Auto: PDF→AI, structured CSV→manual | Always: Force AI for all | Never: Manual parsing only"
+            )
+
+            # Determine if we should use LLM based on mode and file type
+            if "Always" in llm_mode:
+                use_llm = True
+            elif "Never" in llm_mode:
+                use_llm = False
+            else:  # Auto-detect
+                # Check file type and structure
+                print(f"\n🔍 AUTO-DETECT: Checking file '{dict_file.name}'")
+                print(f"   Extension check: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}")
+
+                if dict_file.name.endswith('.pdf'):
+                    use_llm = True
+                    st.info("🤖 Auto-detected: PDF requires AI parsing")
+                    print(f"   ✅ Detected as PDF, will use LLM")
+                elif dict_file.name.endswith('.csv'):
+                    # Peek at CSV to check if it's structured
+                    dict_file.seek(0)
+                    sample = dict_file.read(1024).decode('utf-8', errors='ignore')
+                    dict_file.seek(0)
+                    # Check for standard column names
+                    if any(col in sample for col in ['Column', 'Type', 'Min', 'Max', 'Allowed_Values', 'Field Name']):
+                        use_llm = False
+                        st.info("📊 Auto-detected: Structured CSV, using manual parsing")
                     else:
-                        preview_df = pd.json_normalize(json_data)
-                elif example_format == 'excel':
-                    preview_df = pd.read_excel(io.BytesIO(base64.b64decode(example_content)))
-                elif example_format == 'parquet':
-                    preview_df = pd.read_parquet(io.BytesIO(base64.b64decode(example_content)))
+                        use_llm = True
+                        st.info("🤖 Auto-detected: Unstructured CSV, using AI parsing")
+                else:
+                    use_llm = True
+                    st.info(f"🤖 Auto-detected: {dict_file.name.split('.')[-1].upper()} file, using AI parsing")
+        else:
+            use_llm = False
 
-                st.dataframe(preview_df, use_container_width=True)
-                
+        if dict_file:
+            try:
+                # Calculate file hash for caching (works for all file types)
+                dict_file.seek(0)
+                raw_content = dict_file.read()
+                file_hash = hashlib.md5(raw_content).hexdigest()
+                dict_file.seek(0)  # Reset for reading
+
+                # Create cache key with LLM flag
+                cache_key = f"{file_hash}_llm" if use_llm else file_hash
+                cache_file = st.session_state.cache_dir / f"{cache_key}.pkl"
+
+                # Check if already cached
+                if cache_key in st.session_state.dict_cache:
+                    # Use in-memory cache
+                    st.session_state.dictionary = st.session_state.dict_cache[cache_key]
+
+                    # CLEAR CACHE LOGGING
+                    print("\n" + "="*80)
+                    print("💾 LOADING FROM MEMORY CACHE (NO LLM CALL)")
+                    print(f"   Cache key: {cache_key}")
+                    print(f"   File: {dict_file.name}")
+                    print("="*80 + "\n")
+
+                    st.success(f"⚡ Using cached dictionary (instant load)")
+                    st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
+
+                    if use_llm:
+                        fields_count = len(st.session_state.dictionary.get('fields', []))
+                        st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
+                    else:
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                elif cache_file.exists():
+                    # Load from persistent cache file
+                    with open(cache_file, 'rb') as f:
+                        st.session_state.dictionary = pickle.load(f)
+                        st.session_state.dict_cache[cache_key] = st.session_state.dictionary
+
+                    # CLEAR CACHE LOGGING
+                    print("\n" + "="*80)
+                    print("💾 LOADING FROM DISK CACHE (NO LLM CALL)")
+                    print(f"   Cache file: {cache_file.name}")
+                    print(f"   File: {dict_file.name}")
+                    print("="*80 + "\n")
+
+                    st.success(f"⚡ Loaded dictionary from disk cache (no API calls)")
+                    st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
+
+                    if use_llm:
+                        fields_count = len(st.session_state.dictionary.get('fields', []))
+                        st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
+                    else:
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                # Use LLM parsing if enabled and not cached
+                elif use_llm and LLM_AVAILABLE:
+                    # CLEAR LLM MARKER
+                    st.warning("🤖 **LLM ACTIVE**: Sending data to Azure OpenAI GPT-4 for intelligent dictionary parsing...")
+                    print("\n" + "="*80)
+                    print("🤖 LLM DICTIONARY PARSER INVOKED")
+                    print(f"   File: {dict_file.name}")
+                    print(f"   Size: {len(raw_content)} bytes")
+                    print("="*80 + "\n")
+
+                    # More informative spinner with warning about processing time
+                    with st.spinner("🤖 Using AI to extract field definitions... This may take 30-60 seconds for large PDFs."):
+                        # Read file content
+                        file_content = ""
+                        if dict_file.name.endswith('.pdf'):
+                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            for page in pdf_reader.pages:
+                                file_content += page.extract_text() + "\n"
+                        elif dict_file.name.endswith('.csv'):
+                            file_content = dict_file.read().decode('utf-8')
+                        elif dict_file.name.endswith('.txt'):
+                            file_content = dict_file.read().decode('utf-8')
+                        elif dict_file.name.endswith('.json'):
+                            # For JSON, convert to readable text
+                            json_data = json.load(dict_file)
+                            file_content = json.dumps(json_data, indent=2)
+                        else:
+                            file_content = dict_file.read().decode('utf-8')
+
+                        # Initialize LLM parser
+                        llm_parser = LLMDictionaryParser()
+
+                        # Estimate tokens for browser console log
+                        import time
+                        estimated_tokens = llm_parser.count_tokens(file_content)
+                        start_time = time.time()
+                        start_timestamp = time.strftime('%H:%M:%S')
+
+                        # Log to browser console
+                        log_to_browser_console(
+                            f"🤖 LLM parsing started at {start_timestamp}",
+                            {
+                                "model": llm_parser.deployment,
+                                "tokens": estimated_tokens,
+                                "file": dict_file.name,
+                                "size_bytes": len(file_content)
+                            }
+                        )
+
+                        # Parse with LLM
+                        # Don't truncate - the LLM parser handles chunking internally
+                        # Process more fields for comprehensive extraction
+                        parsed_result = llm_parser.parse_dictionary(file_content, max_fields=500)
+
+                        # Calculate elapsed time
+                        elapsed_time = time.time() - start_time
+
+                        # Log completion to browser console
+                        log_to_browser_console(
+                            f"✅ LLM parsing completed in {elapsed_time:.1f}s",
+                            {
+                                "fields_extracted": len(parsed_result.get('fields', [])),
+                                "chunks_processed": parsed_result.get('metadata', {}).get('chunks_processed', 0),
+                                "mode": parsed_result.get('metadata', {}).get('mode', 'unknown')
+                            }
+                        )
+
+                        # Store the parsed dictionary
+                        st.session_state.dictionary = {
+                            "source": "LLM Parser",
+                            "filename": dict_file.name,
+                            "rules": parsed_result.get("schema", {}),
+                            "fields": parsed_result.get("fields", []),
+                            "metadata": parsed_result.get("metadata", {})
+                        }
+
+                        # Cache the result both in memory and to disk
+                        st.session_state.dict_cache[cache_key] = st.session_state.dictionary
+                        with open(cache_file, 'wb') as f:
+                            pickle.dump(st.session_state.dictionary, f)
+                        st.info(f"💾 Dictionary cached - future loads will be instant (no API calls)")
+
+                        # Add processing time to success message
+                        processing_time = parsed_result.get('metadata', {}).get('processing_time_seconds', 0)
+                        chunks_processed = parsed_result.get('metadata', {}).get('chunks_processed', 0)
+                        st.success(f"✅ AI extracted {len(parsed_result.get('fields', []))} field definitions from {chunks_processed} chunks in {processing_time:.1f} seconds")
+
+                        # Show extracted fields
+                        if parsed_result.get('fields'):
+                            # Expand by default if we got results, especially for large dictionaries
+                            expand_fields = len(parsed_result['fields']) <= 20
+                            with st.expander(f"📋 Extracted Fields ({len(parsed_result['fields'])})", expanded=expand_fields):
+                                for field in parsed_result['fields'][:10]:
+                                    field_info = f"**{field['field_name']}** ({field['data_type']})"
+                                    if field.get('required'):
+                                        field_info += " *[Required]*"
+                                    if field.get('description'):
+                                        field_info += f"\n   {field['description']}"
+                                    if field.get('min_value') or field.get('max_value'):
+                                        field_info += f"\n   Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
+                                    if field.get('allowed_values'):
+                                        field_info += f"\n   Values: {', '.join(field['allowed_values'][:5])}"
+                                    st.markdown(field_info)
+                                if len(parsed_result['fields']) > 10:
+                                    st.info(f"📊 Showing first 10 of {len(parsed_result['fields'])} extracted fields. Use 'View All Fields' below to see more.")
+
+                elif dict_file.name.endswith('.pdf'):
+                    # PDF without LLM - already have hash from above
+                    dict_file.seek(0)  # Reset for reading
+
+                    # Check persistent file cache first
+                    cache_file = st.session_state.cache_dir / f"{file_hash}.pkl"
+
+                    if cache_file.exists():
+                        # Load from persistent cache file
+                        with open(cache_file, 'rb') as f:
+                            st.session_state.dictionary = pickle.load(f)
+                            st.session_state.dict_cache[file_hash] = st.session_state.dictionary
+                        st.success(f"⚡ Loaded dictionary from cache (instant)")
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                    elif file_hash in st.session_state.dict_cache:
+                        # Use in-memory cache
+                        st.session_state.dictionary = st.session_state.dict_cache[file_hash]
+                        st.success(f"⚡ Using cached dictionary '{dict_file.name}' (instant load)")
+                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                    else:
+                        # Manual PDF parsing (NO LLM)
+                        st.info("📄 **MANUAL PARSING**: Using basic regex patterns (limited extraction). Enable AI parsing for better results.")
+                        print("\n" + "="*80)
+                        print("📄 MANUAL PDF PARSER (NO LLM)")
+                        print(f"   File: {dict_file.name}")
+                        print("   ⚠️ WARNING: Basic regex patterns only - may miss complex field definitions")
+                        print("="*80 + "\n")
+
+                        # Parse PDF dictionary with container to prevent UI blocking
+                        with st.container():
+                            progress_bar = st.progress(0, text="Parsing PDF dictionary...")
+
+                            # Read PDF content
+                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            num_pages = len(pdf_reader.pages)
+
+                            extracted_text = ""
+                            extracted_rules = {}
+
+                            # Process pages with continuous progress updates
+                            for i, page in enumerate(pdf_reader.pages):
+                                # Update progress for every page
+                                progress_bar.progress((i + 1) / num_pages, text=f"Processing page {i+1} of {num_pages}...")
+
+                                page_text = page.extract_text()
+                                extracted_text += page_text
+
+                                # Look for validation rules in the PDF (example patterns)
+                                # Look for date fields
+                                date_fields = re.findall(r'([\w_]+).*?(?:date|Date|DATE)', page_text)
+                                for field in date_fields:
+                                    if field not in extracted_rules:
+                                        extracted_rules[field] = {"type": "date"}
+
+                                # Look for numeric ranges
+                                range_patterns = re.findall(r'([\w_]+).*?(?:range|Range|between).*?(\d+).*?(?:to|and|-|–).*?(\d+)', page_text)
+                                for field, min_val, max_val in range_patterns:
+                                    if field not in extracted_rules:
+                                        extracted_rules[field] = {"min": int(min_val), "max": int(max_val)}
+
+                            # Clear progress bar
+                            progress_bar.empty()
+
+                        # Store extracted dictionary
+                        st.session_state.dictionary = {
+                            "source": "PDF",
+                            "filename": dict_file.name,
+                            "rules": extracted_rules,
+                            "pages": num_pages,
+                            "text_length": len(extracted_text),
+                            "hash": file_hash
+                        }
+
+                        # Cache the parsed dictionary both in memory and to file
+                        st.session_state.dict_cache[file_hash] = st.session_state.dictionary
+
+                        # Save to persistent cache file
+                        cache_file = st.session_state.cache_dir / f"{file_hash}.pkl"
+                        with open(cache_file, 'wb') as f:
+                            pickle.dump(st.session_state.dictionary, f)
+
+                        st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
+                        st.info(f"💾 Dictionary cached to disk for permanent reuse")
+                        st.caption(f"📁 Cache location: {cache_file}")
+
+                        if extracted_rules:
+                            with st.expander(f"Found {len(extracted_rules)} validation rules", expanded=False):
+                                for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
+                                    st.text(f"{field}: {rule}")
+                                if len(extracted_rules) > 10:
+                                    st.text(f"... and {len(extracted_rules) - 10} more")
+                elif dict_file.name.endswith('.json'):
+                    st.session_state.dictionary = json.load(dict_file)
+                    st.success("✅ JSON dictionary loaded")
+                elif dict_file.name.endswith('.csv') and not use_llm:
+                    # Parse CSV dictionary (NO LLM) - only if LLM mode not active
+                    st.info("📊 **CSV PARSING**: Reading structured CSV data dictionary...")
+                    print(f"\n📊 CSV DICTIONARY PARSER: {dict_file.name}")
+
+                    import pandas as pd
+                    dict_file.seek(0)
+                    df = pd.read_csv(dict_file)
+                    rules = {}
+                    for _, row in df.iterrows():
+                        if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                            field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                            if field_name:
+                                rule = {}
+                                if 'Type' in row or 'type' in row:
+                                    rule['type'] = str(row.get('Type') or row.get('type'))
+                                if 'Min' in row or 'min' in row:
+                                    rule['min'] = row.get('Min') or row.get('min')
+                                if 'Max' in row or 'max' in row:
+                                    rule['max'] = row.get('Max') or row.get('max')
+                                if 'Required' in row or 'required' in row:
+                                    rule['required'] = row.get('Required') or row.get('required')
+                                if 'Allowed_Values' in row or 'allowed_values' in row:
+                                    allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                                    if allowed and not pd.isna(allowed):
+                                        rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                                rules[field_name] = rule
+                    st.session_state.dictionary = {
+                        "source": "CSV",
+                        "filename": dict_file.name,
+                        "rules": rules
+                    }
+                    st.success(f"✅ Parsed {len(rules)} field definitions from CSV")
+                else:
+                    st.error(f"⚠️ Unsupported dictionary format: **{dict_file.name}**")
+                    st.info(f"Debug: use_llm={use_llm}, LLM_AVAILABLE={LLM_AVAILABLE}, file ends with .csv={dict_file.name.endswith('.csv')}")
+                    print(f"\n⚠️ UNSUPPORTED FORMAT: {dict_file.name}")
+                    print(f"   use_llm: {use_llm}")
+                    print(f"   LLM_AVAILABLE: {LLM_AVAILABLE}")
+                    print(f"   File extension checks: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}, .json={dict_file.name.endswith('.json')}")
             except Exception as e:
-                st.error(f"Error reading {example_format.upper()} data: {str(e)}")
-                st.info(f"Please check your {example_format.upper()} format.")
-                return
-        
-        # Configuration tabs for example data
-        tab1, tab2, tab3 = st.tabs(["📋 Schema", "⚙️ Rules", "🚀 Analysis"])
-        
-        with tab1:
-            schema = create_schema_editor()
-            if schema:
-                st.success(f"Schema configured for {len(schema)} columns")
-        
-        with tab2:
-            rules = create_rules_editor()
-            if rules:
-                st.success(f"Rules configured for {len(rules)} columns")
-        
-        with tab3:
-            st.subheader("🚀 Run Analysis")
-            
-            if st.button(f"🔍 Analyze {example_format.upper()} Example Data", type="primary", use_container_width=True):
-                with st.spinner(f"Analyzing {example_format.upper()} data..."):
-                    # Get MCP client
-                    client = get_mcp_client(use_real_mcp=use_real_mcp)
+                st.error(f"Error loading dictionary: {str(e)}")
 
-                    # Run analysis
-                    results = asyncio.run(client.analyze_data(
-                        data_content=example_content,
-                        file_format=example_format,
-                        schema=schema if schema else None,
-                        rules=rules if rules else None,
-                        min_rows=min_rows,
-                        debug=debug_mode
-                    ))
-                    
-                    # Display results
-                    display_results(results)
-    
-    else:
-        # Welcome screen
-        st.markdown("""
-        ## Welcome to Multi-Format Data Quality Analyzer! 👋
+        # View All Fields button - accessible location near dictionary upload
+        if st.session_state.dictionary and st.session_state.dictionary.get('fields'):
+            fields_list = st.session_state.dictionary['fields']
+            num_fields = len(fields_list)
 
-        This tool helps you validate and analyze data files (CSV, JSON, Excel, Parquet) for data quality issues.
-        
-        ### Features:
-        - **📊 Data Quality Checks**: Row count, data type validation, value range checks
-        - **📋 Schema Validation**: Define expected column types and validate against them
-        - **⚙️ Custom Rules**: Set up range checks and allowed value lists
-        - **📈 Comprehensive Reports**: Visual dashboards with detailed issue tracking
-        - **🔍 Missing Value Analysis**: Identify and visualize missing data patterns
-        
-        ### Get Started:
-        1. Upload a data file (CSV, JSON, Excel, or Parquet) using the sidebar
-        2. Or select a demo format and click "Load Example Data" to try it out
-        3. Configure schema and validation rules
-        4. Run the analysis to get detailed quality reports
-        
-        ### Supported Validations:
-        - **Row Count**: Ensure minimum number of rows
-        - **Data Types**: Validate int, float, string, boolean, datetime columns
-        - **Value Ranges**: Set min/max bounds for numeric columns
-        - **Allowed Values**: Define categorical value lists
-        - **Missing Values**: Detect and quantify missing data
-        - **Duplicates**: Identify duplicate rows
-        
-        Ready to get started? Upload a file or load the example data! 🚀
-        """)
+            if num_fields > 0:
+                st.markdown("---")
+                with st.expander(f"📋 View All {num_fields} Extracted Fields", expanded=False):
+                    for field in fields_list:
+                        field_info = f"**{field['field_name']}** ({field.get('data_type', 'unknown')})"
+                        if field.get('required'):
+                            field_info += " *[Required]*"
+                        if field.get('description'):
+                            # Truncate very long descriptions
+                            desc = field['description'][:150] + "..." if len(field['description']) > 150 else field['description']
+                            field_info += f"\n   📝 {desc}"
+                        if field.get('min_value') is not None or field.get('max_value') is not None:
+                            field_info += f"\n   📊 Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
+                        if field.get('allowed_values'):
+                            vals = field['allowed_values'][:8]  # Show first 8
+                            vals_str = ', '.join(vals)
+                            if len(field['allowed_values']) > 8:
+                                vals_str += f" ... +{len(field['allowed_values']) - 8} more"
+                            field_info += f"\n   ✓ Allowed: {vals_str}"
+                        st.markdown(field_info)
 
-if __name__ == "__main__":
-    main()
+        # Demo dictionary selector below file uploader
+        demo_dict = st.selectbox(
+            "Or load demo dictionary:",
+            ["None"] + list(DEMO_DICTIONARIES.keys()),
+            key="demo_dict_selector"
+        )
+
+        if demo_dict != "None":
+            # Get demo dictionary CSV string and parse it
+            demo_csv_string = get_demo_dictionary(demo_dict)
+
+            # Parse CSV string into rules dictionary (same logic as CSV upload)
+            import io
+            df = pd.read_csv(io.StringIO(demo_csv_string))
+            rules = {}
+            for _, row in df.iterrows():
+                if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                    field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                    if field_name:
+                        rule = {}
+                        if 'Type' in row or 'type' in row:
+                            rule['type'] = str(row.get('Type') or row.get('type'))
+                        if 'Min' in row or 'min' in row:
+                            rule['min'] = row.get('Min') or row.get('min')
+                        if 'Max' in row or 'max' in row:
+                            rule['max'] = row.get('Max') or row.get('max')
+                        if 'Required' in row or 'required' in row:
+                            rule['required'] = row.get('Required') or row.get('required')
+                        if 'Allowed_Values' in row or 'allowed_values' in row:
+                            allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                            if allowed and not pd.isna(allowed):
+                                rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                        rules[field_name] = rule
+
+            st.session_state.dictionary = {
+                "source": "Demo Dictionary",
+                "filename": demo_dict,
+                "rules": rules
+            }
+            st.success(f"✅ Loaded {demo_dict} ({len(rules)} field definitions)")
+
+        # Add cache management
+        st.markdown("---")
+        st.markdown("#### 🗑️ Cache Management")
+
+        cache_files = list(st.session_state.cache_dir.glob("*.pkl"))
+        num_cached = len(cache_files)
+
+        if num_cached > 0:
+            st.caption(f"📦 {num_cached} dictionaries cached")
+
+            if st.button("🗑️ Clear All Cache", help="Delete all cached dictionaries to force re-parsing"):
+                try:
+                    for cache_file in cache_files:
+                        cache_file.unlink()
+                    st.session_state.dict_cache = {}
+                    st.session_state.dictionary = None
+                    st.success(f"✅ Cleared {num_cached} cached dictionaries")
+                    print(f"\n🗑️ CLEARED {num_cached} CACHE FILES\n")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error clearing cache: {e}")
+        else:
+            st.caption("No cached dictionaries")
+
+    with col3:
+        # Export dropdown - moved from bottom
+        if st.session_state.analysis_results:
+            st.markdown("### 📥 Export")
+            export_format = st.selectbox(
+                "Choose format:",
+                ["Select format to export", "Excel with highlighting", "JSON report"],
+                key="export_format",
+                on_change=lambda: None  # Trigger rerun on selection
+            )
+
+            # Show download button immediately when format is selected
+            if export_format == "Excel with highlighting":
+                excel_data = export_to_excel_with_highlighting(
+                    st.session_state.data,
+                    st.session_state.analysis_results['issues']
+                )
+                st.download_button(
+                    label="📊 Download Excel",
+                    data=excel_data,
+                    file_name=f"data_quality_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="secondary"
+                )
+            elif export_format == "JSON report":
+                json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
+                st.download_button(
+                    label="📄 Download JSON",
+                    data=json_str,
+                    file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    use_container_width=True,
+                    type="secondary"
+                )
+
+    # Prominent Run Analysis button - full width between uploads and results
+    st.markdown("---")
+    st.markdown("## 🚀 Run Analysis")
+
+    # Create centered column for button
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+    with col_center:
+        # Enable button only when data is loaded
+        if st.button(
+            "🚀 Analyze Data Quality",
+            disabled=(st.session_state.data is None),
+            use_container_width=True,
+            type="primary",
+            help="Load data first, then click to analyze" if st.session_state.data is None else "Run comprehensive quality checks on your data",
+            key="run_analysis_main"
+        ):
+            if st.session_state.data is not None:
+                # Log dictionary usage
+                if st.session_state.dictionary:
+                    dict_source = st.session_state.dictionary.get('source', 'Unknown')
+                    dict_filename = st.session_state.dictionary.get('filename', 'Unknown')
+                    num_rules = len(st.session_state.dictionary.get('rules', {}))
+                    num_fields = len(st.session_state.dictionary.get('fields', []))
+
+                    print("\n" + "="*80)
+                    print("🔍 RUNNING DATA QUALITY ANALYSIS")
+                    print(f"   Data: {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
+                    print(f"   Dictionary: {dict_filename} (source: {dict_source})")
+                    print(f"   Rules: {num_rules}, Fields: {num_fields}")
+                    print("="*80 + "\n")
+
+                    st.info(f"📖 Using dictionary: **{dict_filename}** ({dict_source}) - {num_rules} rules, {num_fields} fields")
+                else:
+                    print("\n⚠️ RUNNING ANALYSIS WITHOUT DICTIONARY (auto-detection only)\n")
+                    st.info("⚠️ No dictionary loaded - using auto-detection only")
+
+                with st.spinner("🔍 Analyzing data quality... Please wait."):
+                    try:
+                        # Run analysis
+                        results = asyncio.run(
+                            st.session_state.mcp_client.analyze_data_quality(
+                                st.session_state.data,
+                                st.session_state.dictionary
+                            )
+                        )
+                        st.session_state.analysis_results = results
+                        st.success("✅ Analysis complete!")
+                    except Exception as e:
+                        st.error(f"❌ Analysis failed: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+
+    st.markdown("---")
+
+    # Display results if available
+    if st.session_state.analysis_results:
+
+        # Summary metrics
+        st.subheader("📊 Analysis Summary")
+        summary = st.session_state.analysis_results['summary']
+
+        # Create columns with space for heatmap
+        col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1.2, 1, 1, 1.5])
+        with col1:
+            st.metric("Total Rows", f"{summary['total_rows']:,}")
+        with col2:
+            st.metric("Total Columns", summary['total_columns'])
+        with col3:
+            st.metric("Issues Found", summary['issues_found'],
+                     delta=None if summary['issues_found'] == 0 else f"{summary['critical_issues']} critical")
+        with col4:
+            st.metric("Warnings", summary['warnings'])
+        with col5:
+            st.metric("Completeness", f"{summary['completeness']}%")
+        with col6:
+            # Create issue heatmap visualization
+            st.markdown("#### Issue Map")
+            create_issue_heatmap(st.session_state.data, st.session_state.analysis_results['issues'])
+
+        # Issues details
+        if st.session_state.analysis_results['issues']:
+            st.subheader("🔍 Issues Found")
+
+            # Group issues by type
+            issues_by_type = {}
+            for issue in st.session_state.analysis_results['issues']:
+                issue_type = issue['type']
+                if issue_type not in issues_by_type:
+                    issues_by_type[issue_type] = []
+                issues_by_type[issue_type].append(issue)
+
+            # Display issues by type - collapsed by default for cleaner look
+            for issue_type, issues in issues_by_type.items():
+                # Collapse by default for Missing Values and Invalid Values
+                expand_by_default = issue_type not in ['missing_values', 'invalid_value']
+                with st.expander(f"{issue_type.replace('_', ' ').title()} ({len(issues)} issues)", expanded=expand_by_default):
+                    for issue in issues[:10]:  # Show first 10
+                        if issue['severity'] == 'error':
+                            st.error(f"❌ {issue['message']}")
+                        else:
+                            st.warning(f"⚠️ {issue['message']}")
+                    if len(issues) > 10:
+                        st.info(f"... and {len(issues) - 10} more")
+
+        # Recommendations
+        if st.session_state.analysis_results['recommendations']:
+            st.subheader("💡 Recommendations")
+            for rec in st.session_state.analysis_results['recommendations']:
+                if rec['priority'] == 'critical':
+                    st.error(f"🔴 **{rec['priority'].upper()}**: {rec['message']}")
+                elif rec['priority'] == 'high':
+                    st.warning(f"🟡 **{rec['priority'].upper()}**: {rec['message']}")
+                else:
+                    st.info(f"🔵 **{rec['priority'].upper()}**: {rec['message']}")
+
+with tab2:
+    st.title("About Data Quality Analyzer")
+
+    st.markdown("""
+    ### 🎯 Purpose
+    The Data Quality Analyzer is a powerful tool designed to help you identify and resolve data quality issues
+    in your datasets. It performs comprehensive checks to ensure your data meets quality standards.
+
+    ### ✨ Features
+    - **Multiple Format Support**: CSV, JSON, and TXT files
+    - **Automatic Issue Detection**: Missing values, invalid entries, range violations
+    - **Custom Validation Rules**: Define your own business rules via data dictionaries (JSON or PDF)
+    - **Visual Reporting**: Clear metrics and issue summaries with interactive heatmaps
+    - **Excel Export**: Highlighted cells showing exact error locations with comments
+    - **Demo Data**: Built-in datasets for testing various validation scenarios
+    - **Dictionary Caching**: Fast PDF dictionary parsing with automatic caching
+
+    ### 🔍 What We Check
+    1. **Missing Values**: Identifies null or empty cells
+    2. **Invalid Values**: Detects entries like "invalid", "error", "n/a"
+    3. **Data Type Validation**: Ensures values match expected types
+    4. **Range Validation**: Checks if numeric values fall within specified ranges
+    5. **Suspicious Values**: Flags test data or anomalous entries
+    6. **Completeness**: Overall data completeness percentage
+
+    ### 📚 How to Use
+    1. **Upload your data** using the file uploader or select demo data
+    2. **Optionally add a dictionary** (JSON or PDF) to define custom validation rules
+    3. **Click Analyze** to run the quality checks
+    4. **Review the results** including issues, recommendations, and visual heatmap
+    5. **Export findings** to Excel (with highlighting) or JSON for further analysis
+
+    ### 🛠 Technical Details
+    Built with Streamlit and powered by the Model Context Protocol (MCP) for
+    advanced data analysis capabilities. Features include:
+    - Interactive Plotly visualizations
+    - PDF parsing with PyPDF2
+    - Excel generation with cell highlighting and comments
+    - Efficient dictionary caching system
+
+    ### 🔄 Data Flow Architecture
+    """)
+
+    # Load and render the Mermaid diagram
+    try:
+        with open('assets/data_flow_diagram.mmd', 'r') as f:
+            mermaid_code = f.read()
+
+        st.info("📊 Interactive flowchart showing the data analysis pipeline:")
+
+        # Always use custom renderer for better compatibility
+        render_mermaid(mermaid_code, height=700)
+
+    except FileNotFoundError:
+        st.info("Data flow diagram not found. Please ensure 'assets/data_flow_diagram.mmd' exists.")
+    except Exception as e:
+        st.error(f"Error rendering diagram: {str(e)}")
+        # Show the raw diagram code as fallback
+        st.code(mermaid_code, language='mermaid')
+
+    st.markdown("""
+    ---
+    *Version 2.1 - Enhanced UI with PDF Dictionary Support*
+    """)

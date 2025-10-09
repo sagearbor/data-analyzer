@@ -60,7 +60,8 @@ chmod +x deploy.sh
 ### 2. Deploy to Azure
 ```bash
 # Deploy with default settings
-./deploy.sh deploy
+# UNTESTED , JUST A STUB, NOT APPROVED FOR USE
+#./deploy.sh deploy
 
 # Deploy with custom app name
 APP_NAME=mydata ./deploy.sh deploy

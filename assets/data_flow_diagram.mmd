@@ -1,0 +1,75 @@
+flowchart TD
+    Start([Start])
+
+    subgraph Input["📥 Data Input"]
+        DataFile[["📁 Data Files<br/>(CSV, JSON, TXT)"]]
+        Dictionary[["📚 Dictionary<br/>(JSON, PDF)"]]
+        DemoData[["🎯 Demo Data<br/>(Built-in)"]]
+    end
+
+    subgraph Processing["⚙️ Processing"]
+        Upload[Upload & Parse Data]
+        ParseDict[Parse Dictionary Rules]
+        LLM[["🤖 LLM Analysis<br/>(Azure OpenAI)"]]
+        Validate[Validate Against Rules]
+        QualityCheck[Quality Checks]
+    end
+
+    subgraph Analysis["🔍 Analysis Engine"]
+        Missing[Check Missing Values]
+        Invalid[Check Invalid Values]
+        TypeCheck[Data Type Validation]
+        RangeCheck[Range Validation]
+        Suspicious[Detect Suspicious Values]
+    end
+
+    subgraph Results["📊 Results"]
+        Issues[Issue Summary]
+        Heatmap[Interactive Heatmap]
+        Metrics[Quality Metrics]
+        Recommendations[Recommendations]
+    end
+
+    subgraph Export["💾 Export Options"]
+        Excel[Excel with Highlighting]
+        JSON[JSON Report]
+        PDF[PDF Report]
+    end
+
+    Start --> Input
+    DataFile --> Upload
+    Dictionary --> ParseDict
+    DemoData --> Upload
+
+    Upload --> QualityCheck
+    ParseDict --> LLM
+    LLM --> Validate
+    Validate --> QualityCheck
+
+    QualityCheck --> Missing
+    QualityCheck --> Invalid
+    QualityCheck --> TypeCheck
+    QualityCheck --> RangeCheck
+    QualityCheck --> Suspicious
+
+    Missing --> Issues
+    Invalid --> Issues
+    TypeCheck --> Issues
+    RangeCheck --> Issues
+    Suspicious --> Issues
+
+    Issues --> Heatmap
+    Issues --> Metrics
+    Issues --> Recommendations
+
+    Heatmap --> Excel
+    Metrics --> JSON
+    Recommendations --> PDF
+
+    style Start fill:#e1f5fe
+    style LLM fill:#fff3e0
+    style QualityCheck fill:#f3e5f5
+    style Issues fill:#ffebee
+    style Excel fill:#e8f5e9
+    style JSON fill:#e8f5e9
+    style PDF fill:#e8f5e9
