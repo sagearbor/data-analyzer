@@ -10,7 +10,6 @@ from dataclasses import dataclass, asdict
 import re
 import requests  # For Responses API calls
 from dotenv import load_dotenv
-from openai import AzureOpenAI
 import tiktoken
 
 # Load environment variables
@@ -20,9 +19,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# GPT-5 models use Responses API, others use Chat Completions API
-GPT5_MODEL_PREFIXES = ['gpt-5', 'gpt-5-nano', 'gpt-5-mini', 'gpt-5-codex']
-
+# All Azure OpenAI models now use Responses API (/openai/v1/responses)
 # Model-specific output token limits
 MODEL_OUTPUT_LIMITS = {
     'gpt-4o-mini': 16384,
@@ -64,20 +61,16 @@ class LLMDictionaryParser:
     """Parse data dictionaries using Azure OpenAI"""
 
     def __init__(self):
-        """Initialize Azure OpenAI client"""
+        """Initialize Azure OpenAI Responses API client"""
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        self.deployment = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME", "gpt-4o-mini")
-        self.api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2025-03-01-preview")
+        self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5-nano")
 
         if not all([self.endpoint, self.api_key]):
             raise ValueError("Azure OpenAI credentials not found in environment variables")
 
-        self.client = AzureOpenAI(
-            azure_endpoint=self.endpoint,
-            api_key=self.api_key,
-            api_version=self.api_version
-        )
+        # Note: Using Responses API via requests library (not OpenAI SDK)
+        # All Azure models now support /openai/v1/responses endpoint
 
         # Token counting for gpt-4o-mini
         try:
@@ -351,53 +344,13 @@ Return JSON object with "fields" array:"""
             logger.error(f"Error calling Responses API: {e}")
             return []
 
-    def extract_fields_using_chat_completions(self, text_chunk: str, is_continuation: bool = False) -> List[FieldDefinition]:
-        """Extract field definitions using Chat Completions API (GPT-4 models)"""
-        try:
-            prompt = self.create_extraction_prompt(text_chunk, is_continuation)
-
-            print(f"[LLM] Sending chunk ({len(text_chunk)} chars) to Chat Completions API...")
-            response = self.client.chat.completions.create(
-                model=self.deployment,
-                messages=[
-                    {"role": "system", "content": "You are a data dictionary parser. Always return valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,  # Low temperature for consistent extraction
-                max_tokens=16000,  # gpt-4o-mini limit is 16384, stay under for safety
-                response_format={"type": "json_object"}  # Force valid JSON output
-            )
-
-            response_text = response.choices[0].message.content
-            print(f"[LLM] Received response from Chat Completions API")
-            fields = self.parse_llm_response(response_text)
-
-            print(f"[LLM] Extracted {len(fields)} fields from this chunk")
-            logger.info(f"Extracted {len(fields)} fields from chunk")
-            return fields
-
-        except Exception as e:
-            logger.error(f"Error calling Chat Completions API: {e}")
-            return []
-
     def extract_fields_from_chunk(self, text_chunk: str, is_continuation: bool = False) -> List[FieldDefinition]:
         """
-        Extract field definitions - routes to correct API based on model type.
+        Extract field definitions using Responses API.
 
-        GPT-5 models use Responses API, GPT-4 models use Chat Completions API.
+        All Azure OpenAI models now support Responses API.
         """
-        # Detect if this is a GPT-5 model
-        deployment_lower = self.deployment.lower()
-        is_gpt5 = any(deployment_lower.startswith(prefix) for prefix in GPT5_MODEL_PREFIXES)
-
-        if is_gpt5:
-            print(f"[LLM] Detected GPT-5 model ({self.deployment}), using Responses API")
-            logger.info(f"Using Responses API for GPT-5 model: {self.deployment}")
-            return self.extract_fields_using_responses_api(text_chunk, is_continuation)
-        else:
-            print(f"[LLM] Detected GPT-4 model ({self.deployment}), using Chat Completions API")
-            logger.info(f"Using Chat Completions API for model: {self.deployment}")
-            return self.extract_fields_using_chat_completions(text_chunk, is_continuation)
+        return self.extract_fields_using_responses_api(text_chunk, is_continuation)
 
     def parse_dictionary(self, dictionary_text: str, max_fields: int = 1000) -> Dict[str, Any]:
         """
