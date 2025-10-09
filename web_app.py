@@ -590,10 +590,21 @@ if 'dict_cache' not in st.session_state:
 if 'last_dict_file' not in st.session_state:
     st.session_state.last_dict_file = None  # Track last uploaded dictionary
 if 'cache_dir' not in st.session_state:
-    # Create persistent cache directory
-    cache_dir = Path.home() / '.data_analyzer_cache'
+    # Create persistent cache directory (user-specific to avoid multi-user conflicts)
+    import getpass
+    try:
+        username = getpass.getuser()
+    except:
+        # Fallback if getuser() fails
+        import os
+        username = os.environ.get('USER', os.environ.get('USERNAME', 'default'))
+
+    cache_dir = Path.home() / f'.data_analyzer_cache_{username}'
     cache_dir.mkdir(exist_ok=True)
     st.session_state.cache_dir = cache_dir
+
+    print(f"\n📦 Cache directory: {cache_dir}")
+    print(f"   (User-specific to avoid multi-user conflicts)\n")
 
 # Create simple navigation tabs - no right-click support but clean UI
 tab1, tab2 = st.tabs(["📊 Analyze", "ℹ️ About"])
@@ -662,13 +673,47 @@ with tab1:
             help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, or TXT)"
         )
 
-        # Add LLM parsing option if available - default OFF to save API costs
+        # Add LLM parsing option if available with auto-detection
         if LLM_AVAILABLE and dict_file:
-            use_llm = st.checkbox(
-                "🤖 Use AI-powered parsing (Azure OpenAI)",
-                value=False,  # Default to OFF to save API costs during development
-                help="⚠️ Uses Azure OpenAI GPT-4 (may incur API costs). For development, consider using demo dictionaries or manual parsing."
+            # DEBUG: Show filename
+            st.caption(f"📎 Uploaded file: **{dict_file.name}** ({dict_file.type if hasattr(dict_file, 'type') else 'unknown type'})")
+
+            llm_mode = st.selectbox(
+                "Dictionary parsing method:",
+                ["Auto-detect (recommended)", "Always use AI parsing", "Never use AI (manual only)"],
+                index=0,  # Default to auto-detect
+                help="Auto: PDF→AI, structured CSV→manual | Always: Force AI for all | Never: Manual parsing only"
             )
+
+            # Determine if we should use LLM based on mode and file type
+            if "Always" in llm_mode:
+                use_llm = True
+            elif "Never" in llm_mode:
+                use_llm = False
+            else:  # Auto-detect
+                # Check file type and structure
+                print(f"\n🔍 AUTO-DETECT: Checking file '{dict_file.name}'")
+                print(f"   Extension check: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}")
+
+                if dict_file.name.endswith('.pdf'):
+                    use_llm = True
+                    st.info("🤖 Auto-detected: PDF requires AI parsing")
+                    print(f"   ✅ Detected as PDF, will use LLM")
+                elif dict_file.name.endswith('.csv'):
+                    # Peek at CSV to check if it's structured
+                    dict_file.seek(0)
+                    sample = dict_file.read(1024).decode('utf-8', errors='ignore')
+                    dict_file.seek(0)
+                    # Check for standard column names
+                    if any(col in sample for col in ['Column', 'Type', 'Min', 'Max', 'Allowed_Values', 'Field Name']):
+                        use_llm = False
+                        st.info("📊 Auto-detected: Structured CSV, using manual parsing")
+                    else:
+                        use_llm = True
+                        st.info("🤖 Auto-detected: Unstructured CSV, using AI parsing")
+                else:
+                    use_llm = True
+                    st.info(f"🤖 Auto-detected: {dict_file.name.split('.')[-1].upper()} file, using AI parsing")
         else:
             use_llm = False
 
@@ -688,7 +733,17 @@ with tab1:
                 if cache_key in st.session_state.dict_cache:
                     # Use in-memory cache
                     st.session_state.dictionary = st.session_state.dict_cache[cache_key]
+
+                    # CLEAR CACHE LOGGING
+                    print("\n" + "="*80)
+                    print("💾 LOADING FROM MEMORY CACHE (NO LLM CALL)")
+                    print(f"   Cache key: {cache_key}")
+                    print(f"   File: {dict_file.name}")
+                    print("="*80 + "\n")
+
                     st.success(f"⚡ Using cached dictionary (instant load)")
+                    st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
+
                     if use_llm:
                         fields_count = len(st.session_state.dictionary.get('fields', []))
                         st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
@@ -699,7 +754,17 @@ with tab1:
                     with open(cache_file, 'rb') as f:
                         st.session_state.dictionary = pickle.load(f)
                         st.session_state.dict_cache[cache_key] = st.session_state.dictionary
+
+                    # CLEAR CACHE LOGGING
+                    print("\n" + "="*80)
+                    print("💾 LOADING FROM DISK CACHE (NO LLM CALL)")
+                    print(f"   Cache file: {cache_file.name}")
+                    print(f"   File: {dict_file.name}")
+                    print("="*80 + "\n")
+
                     st.success(f"⚡ Loaded dictionary from disk cache (no API calls)")
+                    st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
+
                     if use_llm:
                         fields_count = len(st.session_state.dictionary.get('fields', []))
                         st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
@@ -707,6 +772,14 @@ with tab1:
                         st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
                 # Use LLM parsing if enabled and not cached
                 elif use_llm and LLM_AVAILABLE:
+                    # CLEAR LLM MARKER
+                    st.warning("🤖 **LLM ACTIVE**: Sending data to Azure OpenAI GPT-4 for intelligent dictionary parsing...")
+                    print("\n" + "="*80)
+                    print("🤖 LLM DICTIONARY PARSER INVOKED")
+                    print(f"   File: {dict_file.name}")
+                    print(f"   Size: {len(raw_content)} bytes")
+                    print("="*80 + "\n")
+
                     # More informative spinner with warning about processing time
                     with st.spinner("🤖 Using AI to extract field definitions... This may take 30-60 seconds for large PDFs."):
                         # Read file content
@@ -810,6 +883,14 @@ with tab1:
                         st.success(f"⚡ Using cached dictionary '{dict_file.name}' (instant load)")
                         st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
                     else:
+                        # Manual PDF parsing (NO LLM)
+                        st.info("📄 **MANUAL PARSING**: Using basic regex patterns (limited extraction). Enable AI parsing for better results.")
+                        print("\n" + "="*80)
+                        print("📄 MANUAL PDF PARSER (NO LLM)")
+                        print(f"   File: {dict_file.name}")
+                        print("   ⚠️ WARNING: Basic regex patterns only - may miss complex field definitions")
+                        print("="*80 + "\n")
+
                         # Parse PDF dictionary with container to prevent UI blocking
                         with st.container():
                             progress_bar = st.progress(0, text="Parsing PDF dictionary...")
@@ -876,8 +957,11 @@ with tab1:
                 elif dict_file.name.endswith('.json'):
                     st.session_state.dictionary = json.load(dict_file)
                     st.success("✅ JSON dictionary loaded")
-                elif dict_file.name.endswith('.csv'):
-                    # Parse CSV dictionary
+                elif dict_file.name.endswith('.csv') and not use_llm:
+                    # Parse CSV dictionary (NO LLM) - only if LLM mode not active
+                    st.info("📊 **CSV PARSING**: Reading structured CSV data dictionary...")
+                    print(f"\n📊 CSV DICTIONARY PARSER: {dict_file.name}")
+
                     import pandas as pd
                     dict_file.seek(0)
                     df = pd.read_csv(dict_file)
@@ -907,7 +991,12 @@ with tab1:
                     }
                     st.success(f"✅ Parsed {len(rules)} field definitions from CSV")
                 else:
-                    st.warning("Unsupported dictionary format without AI parsing")
+                    st.error(f"⚠️ Unsupported dictionary format: **{dict_file.name}**")
+                    st.info(f"Debug: use_llm={use_llm}, LLM_AVAILABLE={LLM_AVAILABLE}, file ends with .csv={dict_file.name.endswith('.csv')}")
+                    print(f"\n⚠️ UNSUPPORTED FORMAT: {dict_file.name}")
+                    print(f"   use_llm: {use_llm}")
+                    print(f"   LLM_AVAILABLE: {LLM_AVAILABLE}")
+                    print(f"   File extension checks: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}, .json={dict_file.name.endswith('.json')}")
             except Exception as e:
                 st.error(f"Error loading dictionary: {str(e)}")
 
@@ -952,6 +1041,30 @@ with tab1:
             }
             st.success(f"✅ Loaded {demo_dict} ({len(rules)} field definitions)")
 
+        # Add cache management
+        st.markdown("---")
+        st.markdown("#### 🗑️ Cache Management")
+
+        cache_files = list(st.session_state.cache_dir.glob("*.pkl"))
+        num_cached = len(cache_files)
+
+        if num_cached > 0:
+            st.caption(f"📦 {num_cached} dictionaries cached")
+
+            if st.button("🗑️ Clear All Cache", help="Delete all cached dictionaries to force re-parsing"):
+                try:
+                    for cache_file in cache_files:
+                        cache_file.unlink()
+                    st.session_state.dict_cache = {}
+                    st.session_state.dictionary = None
+                    st.success(f"✅ Cleared {num_cached} cached dictionaries")
+                    print(f"\n🗑️ CLEARED {num_cached} CACHE FILES\n")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error clearing cache: {e}")
+        else:
+            st.caption("No cached dictionaries")
+
     with col3:
         st.markdown("### ⚡ Analyze")
 
@@ -967,6 +1080,25 @@ with tab1:
             help="Ready when data is loaded"
         ):
             if st.session_state.data is not None:
+                # Log dictionary usage
+                if st.session_state.dictionary:
+                    dict_source = st.session_state.dictionary.get('source', 'Unknown')
+                    dict_filename = st.session_state.dictionary.get('filename', 'Unknown')
+                    num_rules = len(st.session_state.dictionary.get('rules', {}))
+                    num_fields = len(st.session_state.dictionary.get('fields', []))
+
+                    print("\n" + "="*80)
+                    print("🔍 RUNNING DATA QUALITY ANALYSIS")
+                    print(f"   Data: {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
+                    print(f"   Dictionary: {dict_filename} (source: {dict_source})")
+                    print(f"   Rules: {num_rules}, Fields: {num_fields}")
+                    print("="*80 + "\n")
+
+                    st.info(f"📖 Using dictionary: **{dict_filename}** ({dict_source}) - {num_rules} rules, {num_fields} fields")
+                else:
+                    print("\n⚠️ RUNNING ANALYSIS WITHOUT DICTIONARY (auto-detection only)\n")
+                    st.info("⚠️ No dictionary loaded - using auto-detection only")
+
                 with st.spinner("🔍 Analyzing data quality... Please wait."):
                     try:
                         # Run analysis

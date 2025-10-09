@@ -122,7 +122,7 @@ class LLMDictionaryParser:
         """Create prompt for extracting field definitions from dictionary text"""
 
         base_prompt = """You are a data analyst expert at extracting structured information from data dictionaries.
-Extract field/column definitions from the following text and return them as JSON.
+Extract field/column definitions from the following text and return them as a JSON object.
 
 For each field, extract:
 - field_name: The exact column/field name
@@ -131,17 +131,18 @@ For each field, extract:
 - description: Field description
 - min_value: Minimum value (if specified)
 - max_value: Maximum value (if specified)
-- allowed_values: List of allowed/valid values (if enumerated)
+- allowed_values: List of allowed/valid values (if enumerated). For REDCap "Choices" format like "1, Yes | 0, No", extract ["Yes", "No"] or ["1", "0"] or both.
 - format_pattern: Date/time format or regex pattern (if specified)
 - business_rules: Any validation rules or business logic
 
-Return a JSON array of field definitions. Be precise with field names.
+Return a JSON object with a "fields" array containing field definitions. Be precise with field names.
 Extract ALL data fields you can identify, even if incomplete.
 IMPORTANT for clinical/research dictionaries: Look for fields with patterns like _stop, _date, _dc, _id, etc.
+IMPORTANT: For REDCap dictionaries, parse the "Choices, Calculations, OR Slider Labels" column to extract allowed_values.
 """
 
         continuation_prompt = """Continue extracting field definitions from this dictionary section.
-Return only new fields not already processed."""
+Return only new fields not already processed as a JSON object with "fields" array."""
 
         prompt = continuation_prompt if is_continuation else base_prompt
 
@@ -152,28 +153,76 @@ Dictionary text:
 {text_chunk}
 ```
 
-Return JSON array of field definitions:"""
+Return JSON object with "fields" array:"""
+
+    def repair_json(self, json_text: str) -> str:
+        """
+        Attempt to repair common JSON errors from truncated/malformed LLM responses.
+        Returns repaired JSON string.
+        """
+        repaired = json_text
+
+        # Fix 1: Add missing closing bracket for arrays
+        if repaired.count('[') > repaired.count(']'):
+            logger.info("Repairing: Adding missing closing brackets")
+            repaired = repaired + ']' * (repaired.count('[') - repaired.count(']'))
+
+        # Fix 2: Add missing closing brace for objects
+        if repaired.count('{') > repaired.count('}'):
+            logger.info("Repairing: Adding missing closing braces")
+            repaired = repaired + '}' * (repaired.count('{') - repaired.count('}'))
+
+        # Fix 3: Remove trailing commas before closing brackets/braces
+        repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+
+        # Fix 4: Fix unterminated strings by adding closing quote at end of line
+        # This is more aggressive - only use if we're desperate
+        lines = repaired.split('\n')
+        fixed_lines = []
+        for line in lines:
+            # Count quotes - if odd, add one at end
+            if line.count('"') % 2 == 1:
+                line = line.rstrip() + '"'
+            fixed_lines.append(line)
+        repaired = '\n'.join(fixed_lines)
+
+        return repaired
 
     def parse_llm_response(self, response_text: str) -> List[FieldDefinition]:
         """Parse LLM response into FieldDefinition objects"""
         fields = []
 
         try:
-            # Extract JSON from response
+            # With json_object mode, response should already be valid JSON
+            json_text = response_text.strip()
+
+            # Fallback: Extract JSON from code blocks if wrapped
             json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
             if json_match:
                 json_text = json_match.group(1)
-            else:
-                # Try to find JSON array directly
-                json_text = response_text.strip()
-                if not json_text.startswith('['):
-                    # Look for array in the text
-                    array_match = re.search(r'\[.*\]', response_text, re.DOTALL)
-                    if array_match:
-                        json_text = array_match.group(0)
 
-            # Parse JSON
-            field_data = json.loads(json_text)
+            # Parse JSON (with repair fallback)
+            try:
+                parsed = json.loads(json_text)
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON parse error: {e}, attempting repair...")
+                try:
+                    repaired_text = self.repair_json(json_text)
+                    parsed = json.loads(repaired_text)
+                    logger.info("✅ Successfully repaired and parsed JSON")
+                except Exception as repair_error:
+                    logger.error(f"Failed to repair JSON: {repair_error}")
+                    logger.debug(f"Original text: {json_text[:500]}")
+                    return fields
+
+            # Handle both formats: {"fields": [...]} or [...]
+            if isinstance(parsed, dict) and 'fields' in parsed:
+                field_data = parsed['fields']
+            elif isinstance(parsed, list):
+                field_data = parsed
+            else:
+                logger.error(f"Unexpected JSON format: {type(parsed)}")
+                return fields
 
             # Convert to FieldDefinition objects
             if isinstance(field_data, list):
@@ -226,7 +275,8 @@ Return JSON array of field definitions:"""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,  # Low temperature for consistent extraction
-                max_tokens=2000
+                max_tokens=16000,  # gpt-4o-mini limit is 16384, stay under for safety
+                response_format={"type": "json_object"}  # Force valid JSON output
             )
 
             response_text = response.choices[0].message.content
@@ -259,9 +309,41 @@ Return JSON array of field definitions:"""
         print(f"[LLM] Starting dictionary parsing - {len(dictionary_text)} characters at {time.strftime('%H:%M:%S')}")
         logger.info(f"Parsing dictionary with {len(dictionary_text)} characters")
 
-        # Chunk the text
+        # Check if we can process in a single call (more reliable than chunking)
+        token_count = self.count_tokens(dictionary_text)
+        print(f"[LLM] Estimated tokens: {token_count}")
+
+        # If small enough, send entire dictionary in ONE call (avoids chunking errors)
+        # Context window is 128k, leave margin for response
+        if token_count < 80000:
+            print(f"[LLM] ⚡ Using SINGLE-CALL mode (no chunking) - more reliable!")
+            logger.info(f"Using single-call mode for {token_count} tokens")
+
+            fields = self.extract_fields_from_chunk(dictionary_text, is_continuation=False)
+            all_fields = fields
+
+            elapsed_time = time.time() - start_time
+            print(f"[LLM] Single-call parsing complete - extracted {len(all_fields)} fields in {elapsed_time:.2f} seconds")
+            logger.info(f"Single-call parsing complete - {len(all_fields)} fields in {elapsed_time:.2f}s")
+
+            # Convert to schema format
+            schema = self.fields_to_schema(all_fields)
+
+            return {
+                "fields": [f.to_dict() for f in all_fields],
+                "schema": schema,
+                "metadata": {
+                    "total_fields": len(all_fields),
+                    "chunks_processed": 1,
+                    "mode": "single-call",
+                    "source": "LLM Parser",
+                    "processing_time_seconds": elapsed_time
+                }
+            }
+
+        # Otherwise, use chunking for very large dictionaries
         chunks = self.chunk_text(dictionary_text)
-        print(f"[LLM] Split text into {len(chunks)} chunks for processing")
+        print(f"[LLM] ⚠️ Using CHUNKED mode ({len(chunks)} chunks) - dictionary too large for single call")
         logger.info(f"Split into {len(chunks)} chunks")
 
         all_fields = []
@@ -297,6 +379,7 @@ Return JSON array of field definitions:"""
             "metadata": {
                 "total_fields": len(all_fields),
                 "chunks_processed": len(chunks),
+                "mode": "chunked",
                 "source": "LLM Parser",
                 "processing_time_seconds": elapsed_time
             }
