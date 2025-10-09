@@ -1,12 +1,49 @@
 # Next Steps for Data Analyzer LLM Integration
 
 **Date**: 2025-10-08
-**Last Updated**: 2025-10-08 (Session 2 - Completed LLM improvements)
-**Status**: ✅ Core improvements completed - Ready for testing
+**Last Updated**: 2025-10-08 (Session 3 - GPT-5 Responses API Support)
+**Status**: ✅ Two branches ready for testing
 
 ---
 
-## ✅ COMPLETED IN THIS SESSION
+## 🌳 BRANCH STATUS
+
+### Branch: `feature/integrate-dictionary-validation`
+- **Status**: Committed, ready for testing
+- **Model Support**: GPT-4 models (gpt-4o-mini, gpt-4o) via Chat Completions API
+- **Max Tokens**: 16,000 (gpt-4o-mini limit)
+- **Testing**: Pending verification with actual dictionary
+
+### Branch: `feature/gpt5-responses-api` (CURRENT)
+- **Status**: Implemented, ready for testing
+- **Model Support**: GPT-5 models (gpt-5-nano, gpt-5-mini, gpt-5) via Responses API + backward compatible with GPT-4
+- **Max Tokens**: 128,000 for GPT-5, 16,000 for GPT-4
+- **Auto-Detection**: Routes to correct API based on deployment name
+- **Testing**: Next step
+
+---
+
+## ✅ COMPLETED IN SESSION 3 (GPT-5 Branch)
+
+### 1. ✅ Added GPT-5 Responses API Support
+**File**: `src/llm_client.py`
+- Added model detection constants (GPT5_MODEL_PREFIXES, MODEL_OUTPUT_LIMITS)
+- Implemented `extract_fields_using_responses_api()` for GPT-5 models
+- Implemented `parse_responses_api_output()` helper
+- Renamed existing method to `extract_fields_using_chat_completions()`
+- Added routing in `extract_fields_from_chunk()` - auto-detects model type
+- Supports 128K output tokens for GPT-5 (vs 16K for GPT-4)
+- Backward compatible - GPT-4 models continue to use Chat Completions API
+
+**Key Differences from Chat Completions API:**
+- Endpoint: `/openai/v1/responses` (no API version, no deployment in path)
+- Request: `input` (string) + `max_output_tokens` (not messages + max_tokens)
+- Response: `output` array with nested message objects (not choices array)
+- GPT-5 params: `reasoning.effort` and `text.verbosity`
+
+---
+
+## ✅ COMPLETED IN SESSION 2 (Dictionary Validation Branch)
 
 ### 1. ✅ Increased max_tokens (16000)
 **File**: `src/llm_client.py:278`
