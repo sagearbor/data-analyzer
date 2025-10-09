@@ -41,6 +41,19 @@ except ImportError:
     LLM_AVAILABLE = False
     print("LLM client not available. Install openai package to enable.")
 
+# Browser console logging helper
+def log_to_browser_console(message: str, data: dict = None):
+    """Inject JavaScript to log to browser console (visible in Chrome DevTools)"""
+    import streamlit.components.v1 as components
+    import json
+    log_data = json.dumps(data) if data else "{}"
+    html = f"""
+    <script>
+        console.log('[Data Analyzer] {message}', {log_data});
+    </script>
+    """
+    components.html(html, height=0, width=0)
+
 # Configure Streamlit page
 st.set_page_config(
     page_title="Data Quality Analyzer",
@@ -799,11 +812,43 @@ with tab1:
                         else:
                             file_content = dict_file.read().decode('utf-8')
 
-                        # Parse with LLM
+                        # Initialize LLM parser
                         llm_parser = LLMDictionaryParser()
+
+                        # Estimate tokens for browser console log
+                        import time
+                        estimated_tokens = llm_parser.count_tokens(file_content)
+                        start_time = time.time()
+                        start_timestamp = time.strftime('%H:%M:%S')
+
+                        # Log to browser console
+                        log_to_browser_console(
+                            f"🤖 LLM parsing started at {start_timestamp}",
+                            {
+                                "model": llm_parser.deployment,
+                                "tokens": estimated_tokens,
+                                "file": dict_file.name,
+                                "size_bytes": len(file_content)
+                            }
+                        )
+
+                        # Parse with LLM
                         # Don't truncate - the LLM parser handles chunking internally
                         # Process more fields for comprehensive extraction
                         parsed_result = llm_parser.parse_dictionary(file_content, max_fields=500)
+
+                        # Calculate elapsed time
+                        elapsed_time = time.time() - start_time
+
+                        # Log completion to browser console
+                        log_to_browser_console(
+                            f"✅ LLM parsing completed in {elapsed_time:.1f}s",
+                            {
+                                "fields_extracted": len(parsed_result.get('fields', [])),
+                                "chunks_processed": parsed_result.get('metadata', {}).get('chunks_processed', 0),
+                                "mode": parsed_result.get('metadata', {}).get('mode', 'unknown')
+                            }
+                        )
 
                         # Store the parsed dictionary
                         st.session_state.dictionary = {
@@ -842,26 +887,7 @@ with tab1:
                                         field_info += f"\n   Values: {', '.join(field['allowed_values'][:5])}"
                                     st.markdown(field_info)
                                 if len(parsed_result['fields']) > 10:
-                                    st.info(f"📊 Showing first 10 of {len(parsed_result['fields'])} extracted fields")
-
-                                    # Add button to show all fields
-                                    col1, col2, col3 = st.columns([1, 2, 1])
-                                    with col1:
-                                        if st.button("Show all fields", key="show_all_fields"):
-                                            st.session_state.show_all_dict_fields = True
-
-                                    # Show remaining fields if button clicked
-                                    if st.session_state.get('show_all_dict_fields', False):
-                                        st.markdown("### All Fields:")
-                                        for field in parsed_result['fields'][10:]:
-                                            field_info = f"**{field['field_name']}** ({field['data_type']})"
-                                            if field.get('required'):
-                                                field_info += " *[Required]*"
-                                            if field.get('description'):
-                                                # Truncate long descriptions
-                                                desc = field['description'][:100] + "..." if len(field['description']) > 100 else field['description']
-                                                field_info += f"\n   {desc}"
-                                            st.markdown(field_info)
+                                    st.info(f"📊 Showing first 10 of {len(parsed_result['fields'])} extracted fields. Use 'View All Fields' below to see more.")
 
                 elif dict_file.name.endswith('.pdf'):
                     # PDF without LLM - already have hash from above
@@ -1000,6 +1026,32 @@ with tab1:
             except Exception as e:
                 st.error(f"Error loading dictionary: {str(e)}")
 
+        # View All Fields button - accessible location near dictionary upload
+        if st.session_state.dictionary and st.session_state.dictionary.get('fields'):
+            fields_list = st.session_state.dictionary['fields']
+            num_fields = len(fields_list)
+
+            if num_fields > 0:
+                st.markdown("---")
+                with st.expander(f"📋 View All {num_fields} Extracted Fields", expanded=False):
+                    for field in fields_list:
+                        field_info = f"**{field['field_name']}** ({field.get('data_type', 'unknown')})"
+                        if field.get('required'):
+                            field_info += " *[Required]*"
+                        if field.get('description'):
+                            # Truncate very long descriptions
+                            desc = field['description'][:150] + "..." if len(field['description']) > 150 else field['description']
+                            field_info += f"\n   📝 {desc}"
+                        if field.get('min_value') is not None or field.get('max_value') is not None:
+                            field_info += f"\n   📊 Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
+                        if field.get('allowed_values'):
+                            vals = field['allowed_values'][:8]  # Show first 8
+                            vals_str = ', '.join(vals)
+                            if len(field['allowed_values']) > 8:
+                                vals_str += f" ... +{len(field['allowed_values']) - 8} more"
+                            field_info += f"\n   ✓ Allowed: {vals_str}"
+                        st.markdown(field_info)
+
         # Demo dictionary selector below file uploader
         demo_dict = st.selectbox(
             "Or load demo dictionary:",
@@ -1066,18 +1118,56 @@ with tab1:
             st.caption("No cached dictionaries")
 
     with col3:
-        st.markdown("### ⚡ Analyze")
+        # Export dropdown - moved from bottom
+        if st.session_state.analysis_results:
+            st.markdown("### 📥 Export")
+            export_format = st.selectbox(
+                "Choose format:",
+                ["Select format to export", "Excel with highlighting", "JSON report"],
+                key="export_format",
+                on_change=lambda: None  # Trigger rerun on selection
+            )
 
-        # Add spacing to align with upload boxes
-        st.markdown("<div style='height: 31px;'></div>", unsafe_allow_html=True)
+            # Show download button immediately when format is selected
+            if export_format == "Excel with highlighting":
+                excel_data = export_to_excel_with_highlighting(
+                    st.session_state.data,
+                    st.session_state.analysis_results['issues']
+                )
+                st.download_button(
+                    label="📊 Download Excel",
+                    data=excel_data,
+                    file_name=f"data_quality_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="secondary"
+                )
+            elif export_format == "JSON report":
+                json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
+                st.download_button(
+                    label="📄 Download JSON",
+                    data=json_str,
+                    file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    use_container_width=True,
+                    type="secondary"
+                )
 
+    # Prominent Run Analysis button - full width between uploads and results
+    st.markdown("---")
+    st.markdown("## 🚀 Run Analysis")
+
+    # Create centered column for button
+    col_left, col_center, col_right = st.columns([1, 2, 1])
+    with col_center:
         # Enable button only when data is loaded
         if st.button(
-            "🚀 Run Analysis",
+            "🚀 Analyze Data Quality",
             disabled=(st.session_state.data is None),
             use_container_width=True,
             type="primary",
-            help="Ready when data is loaded"
+            help="Load data first, then click to analyze" if st.session_state.data is None else "Run comprehensive quality checks on your data",
+            key="run_analysis_main"
         ):
             if st.session_state.data is not None:
                 # Log dictionary usage
@@ -1115,40 +1205,7 @@ with tab1:
                         import traceback
                         st.code(traceback.format_exc())
 
-        # Export dropdown - in same column, saves vertical space
-        if st.session_state.analysis_results:
-            st.markdown("### 📥 Export")
-            export_format = st.selectbox(
-                "Choose format:",
-                ["Select format to export", "Excel with highlighting", "JSON report"],
-                key="export_format",
-                on_change=lambda: None  # Trigger rerun on selection
-            )
-
-            # Show download button immediately when format is selected
-            if export_format == "Excel with highlighting":
-                excel_data = export_to_excel_with_highlighting(
-                    st.session_state.data,
-                    st.session_state.analysis_results['issues']
-                )
-                st.download_button(
-                    label="📊 Download Excel",
-                    data=excel_data,
-                    file_name=f"data_quality_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="secondary"
-                )
-            elif export_format == "JSON report":
-                json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
-                st.download_button(
-                    label="📄 Download JSON",
-                    data=json_str,
-                    file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    type="secondary"
-                )
+    st.markdown("---")
 
     # Display results if available
     if st.session_state.analysis_results:
