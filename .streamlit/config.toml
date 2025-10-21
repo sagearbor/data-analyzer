@@ -1,0 +1,15 @@
+# Streamlit configuration for reverse proxy deployment
+[server]
+# Port configuration (overridden by CLI args)
+port = 8002
+address = "0.0.0.0"
+
+# Disable XSRF for reverse proxy
+enableXsrfProtection = false
+enableCORS = false
+
+# WebSocket configuration for NGINX reverse proxy
+enableWebsocketCompression = false
+
+# Base URL path will be set via --server.baseUrlPath CLI arg
+# This is configured dynamically in entrypoint.sh based on BASE_URL_PATH env var

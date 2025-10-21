@@ -111,7 +111,7 @@ docker run -d -p 3002:8002 -e APP_ENV=dev data-analyzer
 docker run -d --restart unless-stopped -p 3002:8002 -e APP_ENV=dev data-analyzer
 
 # Production deployment (auto-restarts on reboot via docker-compose.yml)
-docker-compose up -d
+docker compose up -d
 ```
 
 ## 📋 Usage Examples
@@ -176,6 +176,10 @@ docker-compose up -d
 
 ### Environment Variables
 - `APP_ENV`: Environment indicator (dev/staging/prod) - controls warning banner display
+- `BASE_URL_PATH`: Base URL path for reverse proxy deployments (optional)
+  - **Empty** (default): App serves at root path `/` - use for dedicated domains
+  - **`/path`**: App serves at `/path/` - use when NGINX strips path prefix
+  - Example: `BASE_URL_PATH=/sageapp02` for https://domain.com/sageapp02/
 - Additional configuration via `.env` file (see `.env.example`)
 
 ## 🔍 Data Quality Checks Details

@@ -5,14 +5,14 @@ services:
     image: data-analyzer:latest
     container_name: data-analyzer-prod
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:3002:8002"  # Only expose to localhost (NGINX will proxy)
+    # No external port - accessed only via nginx-helper
     environment:
       - APP_ENV=prod
+      - BASE_URL_PATH=/sageapp02  # Tells Streamlit the external path (NGINX strips it when proxying)
     env_file:
       - .env
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/_stcore/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8002/sageapp02/_stcore/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -22,3 +22,29 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      - app-network
+
+  # Helper NGINX to fix path routing
+  # Main NGINX strips /sageapp02 prefix, this adds it back
+  nginx-helper:
+    image: nginx:alpine
+    container_name: data-analyzer-nginx-helper
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:80"  # Expose to localhost for main NGINX
+    volumes:
+      - ./nginx-helper.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - data-analyzer
+    networks:
+      - app-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  app-network:
+    driver: bridge

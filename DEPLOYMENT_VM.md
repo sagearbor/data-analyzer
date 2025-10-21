@@ -46,7 +46,33 @@ docker run -p 3002:8002 -e APP_ENV=prod data-analyzer:latest
 
 ## Option A: Docker Compose (Recommended)
 
+### Understanding BASE_URL_PATH Configuration
+
+The application supports deployment behind NGINX reverse proxy with configurable base paths:
+
+**Environment Variable: `BASE_URL_PATH`**
+- **Empty string** (default): App serves at root path `/` - use for dedicated domains
+- **`/sageapp02`**: App serves at `/sageapp02/` - use for multi-app NGINX configurations
+- **Any path**: Customize based on your NGINX location directive
+
+**Deployment Examples:**
+```bash
+# Scenario 1: Dedicated domain (dev/val/prod)
+# NGINX: https://data-analyzer.company.com/
+# Set: BASE_URL_PATH="" (or omit entirely)
+
+# Scenario 2: Shared domain with path prefix (POC/demo)
+# NGINX: https://demo.company.com/sageapp02/
+# Set: BASE_URL_PATH=/sageapp02
+
+# Scenario 3: Custom path
+# NGINX: https://apps.company.com/data-quality/
+# Set: BASE_URL_PATH=/data-quality
+```
+
 ### Create docker-compose.yml
+
+**For root path deployment (dev/val/prod):**
 ```bash
 cat > docker-compose.yml << 'EOF'
 version: '3.8'
@@ -60,6 +86,38 @@ services:
       - "127.0.0.1:3002:8002"  # Only expose to localhost (NGINX will proxy)
     environment:
       - APP_ENV=prod
+      - BASE_URL_PATH=  # Empty = root path deployment
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+EOF
+```
+
+**For path-based deployment (POC with shared NGINX):**
+```bash
+cat > docker-compose.yml << 'EOF'
+version: '3.8'
+
+services:
+  data-analyzer:
+    image: data-analyzer:latest
+    container_name: data-analyzer-prod
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:8002"  # Only expose to localhost (NGINX will proxy)
+    environment:
+      - APP_ENV=prod
+      - BASE_URL_PATH=/sageapp02  # Must match NGINX location directive
     env_file:
       - .env
     healthcheck:
@@ -79,19 +137,19 @@ EOF
 ### Start with Docker Compose
 ```bash
 # Start in background
-docker-compose up -d
+docker compose up -d
 
 # Check status
-docker-compose ps
+docker compose ps
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop
-docker-compose down
+docker compose down
 
 # Restart
-docker-compose restart
+docker compose restart
 ```
 
 ### Auto-start on VM Reboot
@@ -236,7 +294,7 @@ cp .env.example .env
 docker build -t data-analyzer:latest .
 
 # 4. Start with Docker Compose
-docker-compose up -d
+docker compose up -d
 
 # 5. Configure NGINX (see above)
 
@@ -253,8 +311,8 @@ git pull origin main
 docker build -t data-analyzer:latest .
 
 # Restart container
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 
 # Or if using systemd:
 # sudo systemctl restart data-analyzer
@@ -281,10 +339,10 @@ docker-compose up -d
 ### Docker Compose
 ```bash
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Check container health
-docker-compose ps
+docker compose ps
 
 # Inspect container
 docker inspect data-analyzer-prod
@@ -349,7 +407,7 @@ docker system prune -a
 docker build --no-cache -t data-analyzer:latest .
 
 # Force recreate
-docker-compose up -d --force-recreate
+docker compose up -d --force-recreate
 ```
 
 ---
@@ -369,23 +427,23 @@ docker-compose up -d --force-recreate
 **Start Everything:**
 ```bash
 sudo systemctl start docker
-docker-compose up -d
+docker compose up -d
 sudo systemctl reload nginx
 ```
 
 **Stop Everything:**
 ```bash
-docker-compose down
+docker compose down
 ```
 
 **View All Logs:**
 ```bash
-docker-compose logs -f
+docker compose logs -f
 ```
 
 **Update Deployment:**
 ```bash
 git pull origin main
 docker build -t data-analyzer:latest .
-docker-compose up -d --force-recreate
+docker compose up -d --force-recreate
 ```

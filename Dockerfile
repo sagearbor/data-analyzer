@@ -26,6 +26,7 @@ COPY mcp_server.py .
 COPY web_app.py .
 COPY demo_dictionaries.py .
 COPY mermaid_renderer.py .
+COPY entrypoint.sh .
 
 # Copy source modules
 COPY src/ ./src/
@@ -33,8 +34,14 @@ COPY src/ ./src/
 # Copy assets (required for mermaid diagrams)
 COPY assets/ ./assets/
 
+# Copy Streamlit configuration
+COPY .streamlit/ ./.streamlit/
+
 # Create necessary directories
 RUN mkdir -p /app/data /app/logs
+
+# Make entrypoint executable
+RUN chmod +x /app/entrypoint.sh
 
 # Expose port
 EXPOSE 8002
@@ -42,5 +49,5 @@ EXPOSE 8002
 # Health check
 HEALTHCHECK CMD curl --fail http://localhost:8002/_stcore/health
 
-# Run the Streamlit app
-CMD ["streamlit", "run", "web_app.py", "--server.port=8002", "--server.address=0.0.0.0", "--server.enableXsrfProtection=false", "--server.enableCORS=false"]
+# Run the Streamlit app via entrypoint script
+ENTRYPOINT ["/app/entrypoint.sh"]
