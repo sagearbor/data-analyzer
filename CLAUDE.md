@@ -83,11 +83,12 @@ The application uses the `APP_ENV` environment variable to control the environme
 2. Set `APP_ENV=dev` in your `.env` file
 3. The banner will automatically appear at the bottom of the web interface
 
-**Azure Deployment:**
-- Set `APP_ENV` in Azure Portal → Container App → Environment Variables
-- Do NOT set in `deploy.sh` - keep deployment script environment-agnostic
-- For production: Set `APP_ENV=prod` to hide the banner
-- For staging: Set `APP_ENV=staging` for a yellow warning banner
+**Production Deployment:**
+- Contact your IT/DevOps team for deployment procedures
+- If using containerized deployment, set `APP_ENV` via environment variables:
+  - Production: `APP_ENV=prod` (hides banner)
+  - Staging: `APP_ENV=staging` (yellow banner)
+- See `./scripts/experimental/azure/` for archived Azure deployment scripts (not used in production)
 
 ### Docker Development
 ```bash
@@ -99,20 +100,8 @@ docker run -p 3002:8501 data-analyzer
 docker run -p 3002:8501 -e APP_ENV=dev data-analyzer
 ```
 
-### Azure Deployment
-```bash
-# Deploy to Azure with default settings
-./deploy.sh deploy
-
-# Deploy with custom app name
-APP_NAME=myapp ./deploy.sh deploy
-
-# View deployment info
-./deploy.sh info
-
-# Clean up resources
-./deploy.sh cleanup
-```
+### Deployment
+**Note:** Experimental deployment scripts are in `./scripts/experimental/azure/` but are NOT used in production. Contact your IT/DevOps team for actual deployment procedures.
 
 ### Testing
 Currently no formal test framework is configured. The README mentions test files that don't exist yet:
@@ -150,11 +139,14 @@ Currently no formal test framework is configured. The README mentions test files
 
 ## Configuration
 
-### Environment Variables (Azure Deployment)
-- `APP_NAME`: Application name (default: "data-analyzer")
-- `RESOURCE_GROUP`: Azure resource group (default: "rg-{APP_NAME}")
-- `LOCATION`: Azure region (default: "eastus")
-- `CONTAINER_REGISTRY`: ACR name (default: "{APP_NAME}registry")
+### Environment Variables
+- `APP_ENV`: Environment indicator (dev/staging/prod) - controls warning banner
+  - `dev`: Red banner with "Development Environment"
+  - `staging`: Yellow banner with "Staging Environment"
+  - `prod`: No banner
+  - Not set: Red banner (fail-safe default)
+
+**Note:** Azure deployment variables archived in `./scripts/experimental/azure/`
 
 ### File Formats Supported
 - **CSV**: Full support with encoding detection
@@ -164,16 +156,17 @@ Currently no formal test framework is configured. The README mentions test files
 
 - Web app currently simulates MCP calls via `_simulate_mcp_call()` method rather than using actual MCP client
 - MCP server supports base64 encoded data and data URLs
-- Azure deployment creates: Resource Group, Container Registry, Log Analytics, Container Apps Environment, Container App
 - Schema validation supports: int, float, str, bool, datetime types
 - Rules validation supports: min/max ranges for numeric data, allowed values for categorical data
+- Environment banner powered by `env-banner-python` package (bottom-positioned)
 
 ## File Structure
 - `mcp_server.py`: MCP server implementation
-- `web_app.py`: Streamlit web application  
+- `web_app.py`: Streamlit web application
 - `requirements.txt`: Web app dependencies
 - `mcp_requirements.txt`: MCP server dependencies
 - `Dockerfile`: Container configuration
-- `deploy.sh`: Azure deployment script
-- `azure_config.yaml`: Azure resource templates
+- `run_app.sh`: App launcher script (port 3002)
+- `.env.example`: Environment variable template
+- `scripts/experimental/`: Experimental features (not production)
 - `docs/API.md`: Detailed API documentation

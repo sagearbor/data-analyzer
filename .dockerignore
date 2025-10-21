@@ -35,9 +35,8 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Azure deployment files
-deploy.sh
-azure_config.yaml
+# Experimental and deployment files (not needed in container)
+scripts/experimental/
 .azure/
 
 # Test files

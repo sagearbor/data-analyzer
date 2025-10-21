@@ -72,7 +72,11 @@ st.set_page_config(
 
 # Initialize environment banner (bottom position to avoid navbar conflict)
 if ENVBANNER_AVAILABLE:
-    envbanner.streamlit(position="bottom", opacity=0.9)
+    # Get environment and create custom message with PHI warning
+    import os
+    app_env = os.getenv("APP_ENV", "dev").upper()
+    banner_text = f"{app_env} - do NOT use real data or files with PHI."
+    envbanner.streamlit(position="bottom", opacity=0.9, text=banner_text)
 
 # Clean, modern CSS without overlapping issues
 st.markdown("""
@@ -1323,22 +1327,36 @@ with tab2:
     ### 🔄 Data Flow Architecture
     """)
 
-    # Load and render the Mermaid diagram
+    # Load and render the Mermaid diagrams with selector
     try:
+        # Load both diagrams
+        with open('assets/data_flow_simple.mmd', 'r') as f:
+            simple_diagram = f.read()
         with open('assets/data_flow_diagram.mmd', 'r') as f:
-            mermaid_code = f.read()
+            detailed_diagram = f.read()
 
-        st.info("📊 Interactive flowchart showing the data analysis pipeline:")
+        st.info("📊 Interactive flowcharts showing the data analysis pipeline:")
 
-        # Always use custom renderer for better compatibility
-        render_mermaid(mermaid_code, height=700)
+        # Add diagram selector within the content area
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            diagram_view = st.radio(
+                "Select diagram complexity:",
+                ["🎯 Simple View", "🔬 Detailed View"],
+                horizontal=True,
+                label_visibility="visible"
+            )
 
-    except FileNotFoundError:
-        st.info("Data flow diagram not found. Please ensure 'assets/data_flow_diagram.mmd' exists.")
+        # Render the selected diagram
+        if diagram_view == "🎯 Simple View":
+            render_mermaid(simple_diagram, height=400)
+        else:
+            render_mermaid(detailed_diagram, height=700)
+
+    except FileNotFoundError as e:
+        st.info(f"Data flow diagram not found: {str(e)}")
     except Exception as e:
         st.error(f"Error rendering diagram: {str(e)}")
-        # Show the raw diagram code as fallback
-        st.code(mermaid_code, language='mermaid')
 
     st.markdown("""
     ---

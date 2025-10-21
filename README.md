@@ -45,36 +45,19 @@ A comprehensive data quality analysis tool built with Azure MCP (Model Context P
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Azure CLI installed and configured
-- Docker installed
 - Python 3.11+
-- Azure subscription with Container Apps enabled
+- Docker (for containerized deployment)
 
 ### 1. Clone and Setup
 ```bash
 git clone <your-repo>
 cd data-analyzer
-chmod +x deploy.sh
 ```
 
-### 2. Deploy to Azure
-```bash
-# Deploy with default settings
-# UNTESTED , JUST A STUB, NOT APPROVED FOR USE
-#./deploy.sh deploy
+### 2. Run Locally
+See "Local Development" section below for running the app locally.
 
-# Deploy with custom app name
-APP_NAME=mydata ./deploy.sh deploy
-
-# Deploy to different region
-LOCATION=westus2 ./deploy.sh deploy
-```
-
-### 3. Access Application
-After deployment, the script will provide your application URL:
-```
-Application URL: https://your-app.region.azurecontainerapps.io
-```
+**Note:** For experimental deployment options, see `./scripts/experimental/azure/` (not used in production).
 
 ## 📁 Project Structure
 
@@ -85,8 +68,8 @@ data-analyzer/
 ├── requirements.txt        # Web app dependencies
 ├── mcp_requirements.txt    # MCP server dependencies
 ├── Dockerfile              # Container configuration
-├── deploy.sh               # Azure deployment script
-├── azure_config.yaml       # Azure resource templates
+├── scripts/                # Utility scripts
+│   └── experimental/       # Experimental features (not production)
 └── README.md               # This file
 ```
 
@@ -180,19 +163,8 @@ docker run -p 8501:8501 data-analyzer # Run container
 ## ⚙️ Configuration
 
 ### Environment Variables
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `APP_NAME` | Application name | `data-analyzer` |
-| `RESOURCE_GROUP` | Azure resource group | `rg-{APP_NAME}` |
-| `LOCATION` | Azure region | `eastus` |
-| `CONTAINER_REGISTRY` | ACR name | `{APP_NAME}registry` |
-
-### Azure Resources Created
-- **Resource Group**: Contains all resources
-- **Container Registry**: Stores Docker images
-- **Log Analytics Workspace**: Application logging
-- **Container Apps Environment**: Runtime environment
-- **Container App**: The web application
+- `APP_ENV`: Environment indicator (dev/staging/prod) - controls warning banner display
+- Additional configuration via `.env` file (see `.env.example`)
 
 ## 🔍 Data Quality Checks Details
 
@@ -241,18 +213,6 @@ docker run -p 8501:8501 data-analyzer # Run container
 
 ### Common Issues
 
-**Deployment fails with ACR permissions**
-```bash
-# Enable admin user on ACR
-az acr update --name $CONTAINER_REGISTRY --admin-enabled true
-```
-
-**Container app won't start**
-```bash
-# Check logs
-az containerapp logs show --name csv-analyzer-web --resource-group rg-csv-analyzer
-```
-
 **CSV upload errors**
 - Check file encoding (try UTF-8, latin1, cp1252)
 - Verify CSV format and delimiters
@@ -264,45 +224,43 @@ az containerapp logs show --name csv-analyzer-web --resource-group rg-csv-analyz
 - Convert your data to CSV format for now
 
 **MCP server connection issues**
-- Verify container has required dependencies
-- Check port configuration (8501)
-- Review application logs
+- Verify dependencies are installed: `pip install -r mcp_requirements.txt`
+- Check port configuration (default: 3002)
+- Review application logs in terminal
+
+**Environment banner not showing**
+- Ensure `APP_ENV` is set in your `.env` file
+- Try `APP_ENV=dev` for development
+- Restart the application after changing `.env`
 
 ### Debug Commands
 ```bash
-# View deployment info
-./deploy.sh info
-
-# Check container status
-az containerapp show --name data-analyzer-web --resource-group rg-data-analyzer
-
-# View application logs
-az containerapp logs show --name data-analyzer-web --resource-group rg-data-analyzer --follow
-
 # Test container locally
-docker run -p 8501:8501 data-analyzer
+docker run -p 3002:8501 -e APP_ENV=dev data-analyzer
+
+# Check if virtual environment is activated
+which python  # Should show path to venv
+
+# Verify dependencies
+pip list | grep streamlit
+pip list | grep env-banner
 ```
 
 ## 🔒 Security Considerations
 
 - **Data Privacy**: Files processed in-memory, not persisted
-- **Access Control**: Configure Azure AD authentication if needed
-- **Network Security**: HTTPS enabled by default
+- **No External Storage**: Data never leaves local environment
 - **Container Security**: Regular base image updates recommended
+- **Dependency Updates**: Keep Python packages up to date
 
-## 📈 Scaling & Performance
-
-### Auto-scaling Configuration
-- **Min Replicas**: 1
-- **Max Replicas**: 10
-- **Scale Trigger**: HTTP request volume
-- **CPU/Memory**: 1 CPU, 2GB RAM per instance
+## 📈 Performance
 
 ### Performance Optimization
 - Files processed in-memory for speed
 - Pandas vectorized operations
 - Efficient missing value detection
 - Minimal memory footprint
+- Recommended: 2GB+ RAM for large datasets
 
 ## 🧪 Testing
 

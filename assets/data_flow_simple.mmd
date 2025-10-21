@@ -1,0 +1,12 @@
+flowchart LR
+    A[Upload Data] --> B[Analyze]
+    C[Add Dictionary] -.Optional.-> LLM
+    LLM[AI: Parse Dictionary] --> B
+    B --> D[View Results]
+    D --> E[Export]
+
+    style A fill:#e1f5fe
+    style LLM fill:#ffd700,stroke:#ff6b00,stroke-width:4px
+    style B fill:#f3e5f5
+    style D fill:#ffebee
+    style E fill:#e8f5e9

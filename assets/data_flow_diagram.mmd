@@ -10,7 +10,7 @@ flowchart TD
     subgraph Processing["⚙️ Processing"]
         Upload[Upload & Parse Data]
         ParseDict[Parse Dictionary Rules]
-        LLM[["🤖 LLM Analysis<br/>(Azure OpenAI)"]]
+        LLM[["⚡ AI CALL ⚡<br/>Azure OpenAI<br/>PDF to JSON"]]
         Validate[Validate Against Rules]
         QualityCheck[Quality Checks]
     end
@@ -67,7 +67,7 @@ flowchart TD
     Recommendations --> PDF
 
     style Start fill:#e1f5fe
-    style LLM fill:#fff3e0
+    style LLM fill:#ffd700,stroke:#ff6b00,stroke-width:5px
     style QualityCheck fill:#f3e5f5
     style Issues fill:#ffebee
     style Excel fill:#e8f5e9

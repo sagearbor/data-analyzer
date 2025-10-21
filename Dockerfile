@@ -37,10 +37,10 @@ COPY assets/ ./assets/
 RUN mkdir -p /app/data /app/logs
 
 # Expose port
-EXPOSE 8501
+EXPOSE 8002
 
 # Health check
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+HEALTHCHECK CMD curl --fail http://localhost:8002/_stcore/health
 
 # Run the Streamlit app
-CMD ["streamlit", "run", "web_app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableXsrfProtection=false", "--server.enableCORS=false"]
+CMD ["streamlit", "run", "web_app.py", "--server.port=8002", "--server.address=0.0.0.0", "--server.enableXsrfProtection=false", "--server.enableCORS=false"]
