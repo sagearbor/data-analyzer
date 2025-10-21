@@ -41,6 +41,14 @@ except ImportError:
     LLM_AVAILABLE = False
     print("LLM client not available. Install openai package to enable.")
 
+# Import environment banner
+try:
+    import envbanner
+    ENVBANNER_AVAILABLE = True
+except ImportError:
+    ENVBANNER_AVAILABLE = False
+    print("env-banner not available. Install with: pip install env-banner")
+
 # Browser console logging helper
 def log_to_browser_console(message: str, data: dict = None):
     """Inject JavaScript to log to browser console (visible in Chrome DevTools)"""
@@ -61,6 +69,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"  # Keep sidebar collapsed by default
 )
+
+# Initialize environment banner (bottom position to avoid navbar conflict)
+if ENVBANNER_AVAILABLE:
+    envbanner.streamlit(position="bottom", opacity=0.9)
 
 # Clean, modern CSS without overlapping issues
 st.markdown("""

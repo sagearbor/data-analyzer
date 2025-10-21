@@ -8,21 +8,30 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    software-properties-common \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
 
 # Copy requirements files
 COPY requirements.txt .
 COPY mcp_requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir -r mcp_requirements.txt
+# Install Python dependencies (with SSL verification workaround for WSL/corporate networks)
+RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org -r mcp_requirements.txt
 
 # Copy application files
 COPY mcp_server.py .
 COPY web_app.py .
+COPY demo_dictionaries.py .
+COPY mermaid_renderer.py .
+
+# Copy source modules
+COPY src/ ./src/
+
+# Copy assets (required for mermaid diagrams)
+COPY assets/ ./assets/
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/logs

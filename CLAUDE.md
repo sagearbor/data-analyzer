@@ -67,11 +67,36 @@ source venv/bin/activate && streamlit run web_app.py
 
 **IMPORTANT:** Always use one of the above methods to ensure LLM functionality works correctly. Do NOT run `streamlit run web_app.py` directly without activating the virtual environment first.
 
+**NOTE:** The application runs on port 3002 by default (configured in `run_app.sh`) for NGINX reverse proxy compatibility. When running manually, use: `streamlit run web_app.py --server.port 3002`
+
+### Environment Configuration
+
+The application uses the `APP_ENV` environment variable to control the environment warning banner:
+
+- **`APP_ENV=dev`** (default): Red banner - "Development Environment"
+- **`APP_ENV=staging`**: Yellow banner - "Staging Environment"
+- **`APP_ENV=prod`**: No banner (production)
+- **Not set**: Red banner (fail-safe default)
+
+**Local Development:**
+1. Copy `.env.example` to `.env`
+2. Set `APP_ENV=dev` in your `.env` file
+3. The banner will automatically appear at the bottom of the web interface
+
+**Azure Deployment:**
+- Set `APP_ENV` in Azure Portal → Container App → Environment Variables
+- Do NOT set in `deploy.sh` - keep deployment script environment-agnostic
+- For production: Set `APP_ENV=prod` to hide the banner
+- For staging: Set `APP_ENV=staging` for a yellow warning banner
+
 ### Docker Development
 ```bash
-# Build and run container
+# Build and run container (uses port 8501 internally)
 docker build -t data-analyzer .
-docker run -p 8501:8501 data-analyzer
+docker run -p 3002:8501 data-analyzer
+
+# With environment variable
+docker run -p 3002:8501 -e APP_ENV=dev data-analyzer
 ```
 
 ### Azure Deployment

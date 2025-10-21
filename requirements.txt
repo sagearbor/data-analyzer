@@ -15,3 +15,6 @@ PyPDF2>=3.0.0
 openai>=1.0.0
 tiktoken>=0.5.0
 python-dotenv>=1.0.0
+
+# Environment Banner (will auto-update when new versions published to PyPI)
+env-banner>=0.1.0

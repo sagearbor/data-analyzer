@@ -18,4 +18,5 @@ pip install -q -r requirements.txt
 # Run the Streamlit app
 echo "Starting Data Analyzer with LLM support..."
 echo "LLM features will be available if Azure OpenAI credentials are configured in .env"
-streamlit run web_app.py
+echo "Running on port 3002 for NGINX reverse proxy compatibility"
+streamlit run web_app.py --server.port 3002
