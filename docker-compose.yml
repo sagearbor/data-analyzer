@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     # No external port - accessed only via nginx-helper
     environment:
-      - APP_ENV=prod
+      - APP_ENV=dev  # Set to 'dev' for POC/testing (shows red banner)
       - BASE_URL_PATH=/sageapp02  # Tells Streamlit the external path (NGINX strips it when proxying)
     env_file:
       - .env

@@ -74,9 +74,11 @@ st.set_page_config(
 if ENVBANNER_AVAILABLE:
     # Get environment and create custom message with PHI warning
     import os
-    app_env = os.getenv("APP_ENV", "dev").upper()
-    banner_text = f"{app_env} - do NOT use real data or files with PHI."
-    envbanner.streamlit(position="bottom", opacity=0.9, text=banner_text)
+    app_env = os.getenv("APP_ENV", "dev").lower()
+    # Only show banner in dev/staging, hide in production
+    if app_env != "prod":
+        banner_text = f"{app_env.upper()} - do NOT use real data or files with PHI."
+        envbanner.streamlit(position="bottom", opacity=0.9, text=banner_text)
 
 # Clean, modern CSS without overlapping issues
 st.markdown("""
