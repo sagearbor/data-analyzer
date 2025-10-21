@@ -92,12 +92,12 @@ The application uses the `APP_ENV` environment variable to control the environme
 
 ### Docker Development
 ```bash
-# Build and run container (uses port 8501 internally)
+# Build and run container (uses port 8002 internally)
 docker build -t data-analyzer .
-docker run -p 3002:8501 data-analyzer
+docker run -p 3002:8002 data-analyzer
 
 # With environment variable
-docker run -p 3002:8501 -e APP_ENV=dev data-analyzer
+docker run -p 3002:8002 -e APP_ENV=dev data-analyzer
 ```
 
 ### Deployment

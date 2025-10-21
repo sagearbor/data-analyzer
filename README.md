@@ -99,7 +99,7 @@ streamlit run web_app.py               # Run Streamlit app
 ### Docker Development
 ```bash
 docker build -t data-analyzer .       # Build image
-docker run -p 8501:8501 data-analyzer # Run container
+docker run -p 3002:8002 data-analyzer # Run container (host:container)
 ```
 
 ## 📋 Usage Examples
@@ -236,7 +236,7 @@ docker run -p 8501:8501 data-analyzer # Run container
 ### Debug Commands
 ```bash
 # Test container locally
-docker run -p 3002:8501 -e APP_ENV=dev data-analyzer
+docker run -p 3002:8002 -e APP_ENV=dev data-analyzer
 
 # Check if virtual environment is activated
 which python  # Should show path to venv
