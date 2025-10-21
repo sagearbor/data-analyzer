@@ -98,8 +98,20 @@ streamlit run web_app.py               # Run Streamlit app
 
 ### Docker Development
 ```bash
-docker build -t data-analyzer .       # Build image
-docker run -p 3002:8002 data-analyzer # Run container (host:container)
+# Build image
+docker build -t data-analyzer .
+
+# Run container (foreground - for testing)
+docker run -p 3002:8002 -e APP_ENV=dev data-analyzer
+
+# Run container (detached - background mode)
+docker run -d -p 3002:8002 -e APP_ENV=dev data-analyzer
+
+# Run with auto-restart on reboot
+docker run -d --restart unless-stopped -p 3002:8002 -e APP_ENV=dev data-analyzer
+
+# Production deployment (auto-restarts on reboot via docker-compose.yml)
+docker-compose up -d
 ```
 
 ## 📋 Usage Examples
