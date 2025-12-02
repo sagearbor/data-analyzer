@@ -168,8 +168,15 @@ cython_debug/
 .code-simplifier-tracking.json
 .security-review-tracking.json
 
+# Temporary files (planning docs, work in progress)
+tmp/
+
 # Test outputs
 tests/outputs/
+
+# Real test data (may contain sensitive info)
+tests/test_data/dictionaries/real/
+tests/test_data/sample_data/
 
 # Data files
 *.csv
@@ -177,6 +184,12 @@ tests/outputs/
 *.xls
 data/
 uploads/
+
+# Program cache (runtime artifacts)
+.data_analyzer/
+programs.db
+programs.db-shm
+programs.db-wal
 
 # Logs
 logs/
