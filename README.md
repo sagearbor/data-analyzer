@@ -1,4 +1,4 @@
-# Data Analyzer - Azure MCP Server & Web Application
+# SCAN - Secure Clinical Analyzer Notifier (Data Analyzer, Azure MCP Server & Web Application)
 
 A comprehensive data quality analysis tool built with Azure MCP (Model Context Protocol) server and Streamlit web interface. Supports multiple data formats including CSV, JSON, Excel (XLSX/XLS), and Parquet with comprehensive data quality analysis capabilities. Based on your [csvChecker](https://github.com/sagearbor/csvChecker) repository with enhanced cloud capabilities.
 

@@ -164,6 +164,13 @@ cython_debug/
 # Streamlit
 .streamlit/
 
+# Agent tracking files (runtime artifacts, developer-specific)
+.code-simplifier-tracking.json
+.security-review-tracking.json
+
+# Test outputs
+tests/outputs/
+
 # Data files
 *.csv
 *.xlsx
