@@ -43,12 +43,15 @@ class FieldDefinition:
     allowed_values: List[str] = None
     format_pattern: Optional[str] = None
     business_rules: List[str] = None
+    conditional_rules: List[Dict[str, Any]] = None  # LLM-extracted conditional logic
 
     def __post_init__(self):
         if self.allowed_values is None:
             self.allowed_values = []
         if self.business_rules is None:
             self.business_rules = []
+        if self.conditional_rules is None:
+            self.conditional_rules = []
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
@@ -141,6 +144,29 @@ For each field, extract:
 - allowed_values: List of allowed/valid values (if enumerated). For REDCap "Choices" format like "1, Yes | 0, No", extract ["Yes", "No"] or ["1", "0"] or both.
 - format_pattern: Date/time format or regex pattern (if specified)
 - business_rules: Any validation rules or business logic
+- conditional_rules: Array of conditional logic rules (see below)
+
+CONDITIONAL LOGIC EXTRACTION:
+Look for patterns that indicate conditional logic and dependencies between fields:
+- "skip if...", "skip when...", "must be blank if...", "leave blank when..."
+- "required if...", "required when...", "only if...", "must be filled if..."
+- "only shown when...", "only enabled if...", "display if..."
+- "allowed if...", "valid only when..."
+- Cross-field dependencies (e.g., "if gender=male, skip pregnancy field", "if age >= 18, required")
+- Age/date constraints (e.g., "only if age >= 18", "required for subjects over 65")
+- Value-based conditions (e.g., "if pregnant=yes, required", "skip if treatment_arm=control")
+
+For each conditional rule, return an object with:
+- rule_type: One of "skip_if", "required_if", "show_if", "allowed_if"
+- condition_text: The natural language condition (e.g., "gender is male", "age >= 18", "pregnant is yes")
+- action: One of "must_be_blank", "must_be_filled", "skip", "required"
+- affected_fields: Array of field names affected by this rule
+
+Examples:
+- "If male, skip this field" → {"rule_type": "skip_if", "condition_text": "gender is male", "action": "must_be_blank", "affected_fields": ["current_field_name"]}
+- "Required for female subjects" → {"rule_type": "required_if", "condition_text": "gender is female", "action": "must_be_filled", "affected_fields": ["current_field_name"]}
+- "Only if age >= 18" → {"rule_type": "show_if", "condition_text": "age >= 18", "action": "must_be_filled", "affected_fields": ["current_field_name"]}
+- "Skip if treatment arm is control" → {"rule_type": "skip_if", "condition_text": "treatment_arm is control", "action": "must_be_blank", "affected_fields": ["current_field_name"]}
 
 Return a JSON object with a "fields" array containing field definitions. Be precise with field names.
 Extract ALL data fields you can identify, even if incomplete.
@@ -149,7 +175,8 @@ IMPORTANT: For REDCap dictionaries, parse the "Choices, Calculations, OR Slider 
 """
 
         continuation_prompt = """Continue extracting field definitions from this dictionary section.
-Return only new fields not already processed as a JSON object with "fields" array."""
+Return only new fields not already processed as a JSON object with "fields" array.
+Remember to extract conditional_rules for each field."""
 
         prompt = continuation_prompt if is_continuation else base_prompt
 
@@ -250,6 +277,11 @@ Return JSON object with "fields" array:"""
                         else:
                             dtype = 'str'
 
+                        # Extract conditional_rules if present
+                        conditional_rules = item.get('conditional_rules', [])
+                        if not isinstance(conditional_rules, list):
+                            conditional_rules = []
+
                         field = FieldDefinition(
                             field_name=item['field_name'],
                             data_type=dtype,
@@ -259,7 +291,8 @@ Return JSON object with "fields" array:"""
                             max_value=item.get('max_value'),
                             allowed_values=item.get('allowed_values', []),
                             format_pattern=item.get('format_pattern'),
-                            business_rules=item.get('business_rules', [])
+                            business_rules=item.get('business_rules', []),
+                            conditional_rules=conditional_rules
                         )
                         fields.append(field)
 

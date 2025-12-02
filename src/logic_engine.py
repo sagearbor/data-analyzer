@@ -642,6 +642,11 @@ class RuleExtractor:
         """
         Extract conditional rules from field definitions.
 
+        Priority order:
+        1. LLM-extracted conditional_rules (works with ANY format)
+        2. Format-specific parsers (REDCap/FHIR) as fallback
+        3. Business rules text parsing
+
         Args:
             fields: List of field dictionaries from LLM parsing
             format_type: "REDCap", "FHIR", "Custom", etc.
@@ -656,13 +661,25 @@ class RuleExtractor:
             if not field_name:
                 continue
 
-            # Extract rules based on format type
+            # PRIORITY 1: Try LLM-extracted conditional_rules FIRST
+            # This works with ANY dictionary format (PDF, CSV, FHIR, REDCap, custom)
+            llm_rules = self._extract_llm_rules(field)
+            if llm_rules:
+                rules.extend(llm_rules)
+                logger.debug(f"Field '{field_name}': Using {len(llm_rules)} LLM-extracted rule(s)")
+                # Continue to also check format-specific rules (they may complement LLM rules)
+
+            # PRIORITY 2: Format-specific parsers as fallback/complement
+            # These may find additional rules not detected by LLM
             if format_type.lower() == "redcap":
-                rules.extend(self._extract_redcap_rules(field))
+                format_rules = self._extract_redcap_rules(field)
+                rules.extend(format_rules)
             elif format_type.lower() == "fhir":
-                rules.extend(self._extract_fhir_rules(field))
+                format_rules = self._extract_fhir_rules(field)
+                rules.extend(format_rules)
             else:
-                rules.extend(self._extract_custom_rules(field))
+                format_rules = self._extract_custom_rules(field)
+                rules.extend(format_rules)
 
         logger.info(f"Extracted {len(rules)} rules from {len(fields)} fields")
         return rules
@@ -937,3 +954,153 @@ class RuleExtractor:
         except Exception as e:
             logger.warning(f"Failed to parse FHIR enableWhen: {e}")
             return None
+
+    def _convert_natural_language_condition(self,
+                                           condition_text: str,
+                                           field_name: str = "") -> str:
+        """
+        Convert natural language condition to Python expression.
+
+        Handles patterns like:
+        - "gender is male" → "str(row.get('gender', '')).lower() in ['male', 'm', '1']"
+        - "age >= 18" → "int(row.get('age', 0)) >= 18"
+        - "pregnant is yes" → "str(row.get('pregnant', '')).lower() in ['yes', 'y', '1', 'true']"
+        - "treatment_arm is control" → "str(row.get('treatment_arm', '')).lower() in ['control']"
+
+        Args:
+            condition_text: Natural language condition
+            field_name: Optional field name for context
+
+        Returns:
+            Python expression string that evaluates to boolean
+        """
+        if not condition_text or not isinstance(condition_text, str):
+            return "False"
+
+        condition_lower = condition_text.lower().strip()
+
+        # Pattern 1: "field is value" or "field = value"
+        is_match = re.search(r'(\w+)\s+(?:is|=|==)\s+(.+)', condition_lower)
+        if is_match:
+            field = is_match.group(1).strip()
+            value = is_match.group(2).strip()
+
+            # Special handling for common values
+            if value in ['male', 'm']:
+                return f"str(row.get('{field}', '')).lower() in ['male', 'm', '1']"
+            elif value in ['female', 'f']:
+                return f"str(row.get('{field}', '')).lower() in ['female', 'f', '2']"
+            elif value in ['yes', 'y', 'true']:
+                return f"str(row.get('{field}', '')).lower() in ['yes', 'y', '1', 'true']"
+            elif value in ['no', 'n', 'false']:
+                return f"str(row.get('{field}', '')).lower() in ['no', 'n', '0', 'false']"
+            else:
+                # Generic string comparison
+                return f"str(row.get('{field}', '')).lower() == '{value}'"
+
+        # Pattern 2: "field >= value" or "field > value" or "field < value" or "field <= value"
+        comparison_match = re.search(r'(\w+)\s*(>=|>|<=|<)\s*(\d+)', condition_lower)
+        if comparison_match:
+            field = comparison_match.group(1).strip()
+            operator = comparison_match.group(2).strip()
+            value = comparison_match.group(3).strip()
+
+            # Try to convert to int or float
+            try:
+                # Check if it's an integer
+                int_value = int(value)
+                return f"int(row.get('{field}', 0)) {operator} {int_value}"
+            except ValueError:
+                try:
+                    float_value = float(value)
+                    return f"float(row.get('{field}', 0.0)) {operator} {float_value}"
+                except ValueError:
+                    pass
+
+        # Pattern 3: "field != value" or "field not equal to value"
+        not_equal_match = re.search(r'(\w+)\s+(?:!=|not equal to|is not)\s+(.+)', condition_lower)
+        if not_equal_match:
+            field = not_equal_match.group(1).strip()
+            value = not_equal_match.group(2).strip()
+            return f"str(row.get('{field}', '')).lower() != '{value}'"
+
+        # Pattern 4: "field contains value" or "field includes value"
+        contains_match = re.search(r'(\w+)\s+(?:contains|includes)\s+(.+)', condition_lower)
+        if contains_match:
+            field = contains_match.group(1).strip()
+            value = contains_match.group(2).strip()
+            return f"'{value}' in str(row.get('{field}', '')).lower()"
+
+        # Fallback: Return False for safety (skip validation if we can't parse)
+        logger.warning(f"Could not parse natural language condition: {condition_text}")
+        return "False"
+
+    def _extract_llm_rules(self, field: Dict) -> List[ConditionalRule]:
+        """
+        Extract conditional rules from LLM-parsed field definition.
+
+        This is the PRIMARY method for extracting rules. It processes
+        conditional_rules that were extracted by the LLM during dictionary parsing.
+
+        Args:
+            field: Field dictionary with optional 'conditional_rules' array
+
+        Returns:
+            List of ConditionalRule objects
+        """
+        rules = []
+        field_name = field.get('field_name', '')
+
+        if not field_name:
+            return rules
+
+        # Check for LLM-extracted conditional_rules
+        conditional_rules = field.get('conditional_rules', [])
+
+        if not isinstance(conditional_rules, list):
+            return rules
+
+        for i, rule_data in enumerate(conditional_rules):
+            if not isinstance(rule_data, dict):
+                continue
+
+            try:
+                # Extract rule components
+                rule_type = rule_data.get('rule_type', 'skip_if')
+                condition_text = rule_data.get('condition_text', '')
+                action = rule_data.get('action', 'must_be_blank')
+                affected_fields = rule_data.get('affected_fields', [field_name])
+
+                if not condition_text:
+                    continue
+
+                # Convert natural language to Python expression
+                python_condition = self._convert_natural_language_condition(
+                    condition_text,
+                    field_name
+                )
+
+                # Determine severity (LLM rules are slightly lower confidence)
+                severity = "warning" if rule_type in ["show_if", "allowed_if"] else "error"
+
+                # Create ConditionalRule
+                rule = ConditionalRule(
+                    rule_id=f"{field_name}_llm_{i}",
+                    rule_type=rule_type,
+                    condition=python_condition,
+                    action=action,
+                    affected_fields=affected_fields if isinstance(affected_fields, list) else [field_name],
+                    description=f"LLM-extracted: {condition_text}",
+                    source=f"LLM extraction: {condition_text}",
+                    severity=severity,
+                    confidence=0.85  # Slightly lower than explicit dictionary rules
+                )
+
+                rules.append(rule)
+                logger.debug(f"Extracted LLM rule: {rule.description}")
+
+            except Exception as e:
+                logger.warning(f"Failed to process LLM rule for {field_name}: {e}")
+                continue
+
+        return rules
