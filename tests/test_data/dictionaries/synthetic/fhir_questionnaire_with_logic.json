@@ -1,0 +1,334 @@
+{
+  "resourceType": "Questionnaire",
+  "id": "clinical-screening-with-logic",
+  "status": "active",
+  "title": "Clinical Trial Screening with Conditional Logic",
+  "item": [
+    {
+      "linkId": "demographics",
+      "type": "group",
+      "text": "Demographics",
+      "item": [
+        {
+          "linkId": "subject_id",
+          "type": "string",
+          "text": "Subject ID",
+          "required": true
+        },
+        {
+          "linkId": "age",
+          "type": "integer",
+          "text": "Age (years)",
+          "required": true,
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/minValue",
+              "valueInteger": 18
+            },
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/maxValue",
+              "valueInteger": 85
+            }
+          ]
+        },
+        {
+          "linkId": "gender",
+          "type": "choice",
+          "text": "Biological Gender",
+          "required": true,
+          "answerOption": [
+            {
+              "valueCoding": {
+                "code": "male",
+                "display": "Male"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "female",
+                "display": "Female"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "other",
+                "display": "Other"
+              }
+            }
+          ]
+        },
+        {
+          "linkId": "pregnant",
+          "type": "boolean",
+          "text": "Currently Pregnant?",
+          "enableWhen": [
+            {
+              "question": "gender",
+              "operator": "=",
+              "answerCoding": {
+                "code": "female"
+              }
+            }
+          ],
+          "required": true
+        },
+        {
+          "linkId": "weeks_pregnant",
+          "type": "integer",
+          "text": "Weeks Pregnant",
+          "enableWhen": [
+            {
+              "question": "pregnant",
+              "operator": "=",
+              "answerBoolean": true
+            }
+          ],
+          "required": true,
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/minValue",
+              "valueInteger": 0
+            },
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/maxValue",
+              "valueInteger": 42
+            }
+          ]
+        },
+        {
+          "linkId": "due_date",
+          "type": "date",
+          "text": "Expected Due Date",
+          "enableWhen": [
+            {
+              "question": "pregnant",
+              "operator": "=",
+              "answerBoolean": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "linkId": "treatment",
+      "type": "group",
+      "text": "Treatment Assignment",
+      "item": [
+        {
+          "linkId": "treatment_arm",
+          "type": "choice",
+          "text": "Treatment Assignment",
+          "required": true,
+          "answerOption": [
+            {
+              "valueCoding": {
+                "code": "active",
+                "display": "Active Treatment"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "placebo",
+                "display": "Placebo"
+              }
+            }
+          ]
+        },
+        {
+          "linkId": "dosage_mg",
+          "type": "decimal",
+          "text": "Dosage (mg) - Based on weight: 0.5mg/kg",
+          "enableWhen": [
+            {
+              "question": "treatment_arm",
+              "operator": "=",
+              "answerCoding": {
+                "code": "active"
+              }
+            }
+          ],
+          "required": true,
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/minValue",
+              "valueDecimal": 5.0
+            },
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/maxValue",
+              "valueDecimal": 500.0
+            }
+          ]
+        },
+        {
+          "linkId": "placebo_type",
+          "type": "choice",
+          "text": "Placebo Formulation",
+          "enableWhen": [
+            {
+              "question": "treatment_arm",
+              "operator": "=",
+              "answerCoding": {
+                "code": "placebo"
+              }
+            }
+          ],
+          "required": true,
+          "answerOption": [
+            {
+              "valueCoding": {
+                "code": "tablet",
+                "display": "Tablet"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "capsule",
+                "display": "Capsule"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "linkId": "medical_history",
+      "type": "group",
+      "text": "Medical History",
+      "item": [
+        {
+          "linkId": "diabetes",
+          "type": "boolean",
+          "text": "History of Diabetes?",
+          "required": true
+        },
+        {
+          "linkId": "diabetes_type",
+          "type": "choice",
+          "text": "Diabetes Type",
+          "enableWhen": [
+            {
+              "question": "diabetes",
+              "operator": "=",
+              "answerBoolean": true
+            }
+          ],
+          "required": true,
+          "answerOption": [
+            {
+              "valueCoding": {
+                "code": "type1",
+                "display": "Type 1"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "type2",
+                "display": "Type 2"
+              }
+            }
+          ]
+        },
+        {
+          "linkId": "insulin_dependent",
+          "type": "boolean",
+          "text": "Insulin Dependent?",
+          "enableWhen": [
+            {
+              "question": "diabetes",
+              "operator": "=",
+              "answerBoolean": true
+            }
+          ]
+        },
+        {
+          "linkId": "lab_glucose",
+          "type": "decimal",
+          "text": "Fasting Glucose (mg/dL) - Required if diabetic",
+          "enableWhen": [
+            {
+              "question": "diabetes",
+              "operator": "=",
+              "answerBoolean": true
+            }
+          ],
+          "required": true,
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/minValue",
+              "valueDecimal": 50.0
+            },
+            {
+              "url": "http://hl7.org/fhir/StructureDefinition/maxValue",
+              "valueDecimal": 400.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "linkId": "safety",
+      "type": "group",
+      "text": "Safety",
+      "item": [
+        {
+          "linkId": "adverse_event",
+          "type": "boolean",
+          "text": "Any Adverse Events?",
+          "required": true
+        },
+        {
+          "linkId": "ae_description",
+          "type": "text",
+          "text": "Describe Adverse Event",
+          "enableWhen": [
+            {
+              "question": "adverse_event",
+              "operator": "=",
+              "answerBoolean": true
+            }
+          ],
+          "required": true
+        },
+        {
+          "linkId": "ae_severity",
+          "type": "choice",
+          "text": "Severity",
+          "enableWhen": [
+            {
+              "question": "adverse_event",
+              "operator": "=",
+              "answerBoolean": true
+            }
+          ],
+          "required": true,
+          "answerOption": [
+            {
+              "valueCoding": {
+                "code": "mild",
+                "display": "Mild"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "moderate",
+                "display": "Moderate"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "severe",
+                "display": "Severe"
+              }
+            },
+            {
+              "valueCoding": {
+                "code": "life-threatening",
+                "display": "Life-threatening"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
