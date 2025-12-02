@@ -33,7 +33,7 @@ class TestDataLoader:
             f.write(content)
 
         encoding = DataLoader.detect_encoding(test_file)
-        assert encoding in ['latin-1', 'iso-8859-1', 'windows-1252']
+        assert encoding.lower() in ['latin-1', 'iso-8859-1', 'windows-1252']
 
     @pytest.mark.unit
     def test_load_csv_from_file(self, create_test_csv):

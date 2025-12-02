@@ -6,6 +6,7 @@ Tests that DataQualityAnalyzer properly uses QualityPipeline
 
 import pandas as pd
 import asyncio
+import pytest
 from web_app import DataQualityAnalyzer
 
 # Create demo data matching the Western demo
@@ -39,6 +40,7 @@ demo_dict = {
     }
 }
 
+@pytest.mark.asyncio
 async def test_validation():
     print("=" * 80)
     print("TESTING REFACTORED VALIDATION")

@@ -438,7 +438,7 @@ class QualityChecker:
                                 "expected_type": expected_type,
                                 "actual_type": actual_dtype,
                                 "invalid_values": invalid_dates.tolist(),
-                                "valid_sample": col_data[pd.to_datetime(col_data, errors='coerce').notna()].head(2).tolist(),
+                                "valid_sample": col_data[pd.to_datetime(col_data, format='mixed', errors='coerce').notna()].head(2).tolist(),
                                 "description": f"Found {len(invalid_dates)} invalid date values in column '{column}'"
                             })
                         else:

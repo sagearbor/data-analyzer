@@ -483,7 +483,7 @@ Return JSON object with "fields" array:"""
         Returns:
             Dictionary with validation results and issues found
         """
-        prompt = f"""Analyze this data sample for quality issues based on the provided schema.
+        prompt = f"""You are a data quality analyst. Analyze this data sample for quality issues based on the provided schema.
 Look for:
 1. Values that violate the schema rules
 2. Semantic inconsistencies (e.g., end date before start date)
@@ -509,17 +509,32 @@ Return a JSON object with:
 """
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.deployment,
-                messages=[
-                    {"role": "system", "content": "You are a data quality analyst."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.2,
-                max_tokens=2000
+            # Use Responses API (same as other methods)
+            url = f"{self.endpoint.rstrip('/')}/openai/v1/responses"
+
+            request_body = {
+                "model": self.deployment,
+                "input": prompt,
+                "max_output_tokens": 4000
+            }
+
+            # Add GPT-5 reasoning parameters (no temperature for GPT-5)
+            request_body["reasoning"] = {"effort": "low"}
+            request_body["text"] = {"verbosity": "medium"}
+
+            response = requests.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "api-key": self.api_key
+                },
+                json=request_body,
+                timeout=120
             )
 
-            response_text = response.choices[0].message.content
+            response.raise_for_status()
+            data = response.json()
+            response_text = self.parse_responses_api_output(data)
 
             # Parse response
             try:

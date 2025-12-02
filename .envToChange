@@ -1,0 +1,54 @@
+# -----------------------------------------------------------------
+# Data Analyzer Environment Configuration
+# Copy to .env and add your API key
+# -----------------------------------------------------------------
+
+# Environment (dev=red banner, staging=yellow, prod=no banner)
+APP_ENV="dev"
+APP_PORT="3002"
+LOG_LEVEL="INFO"
+
+# -----------------------------------------------------------------
+# AZURE OPENAI CONNECTION
+# -----------------------------------------------------------------
+AZURE_OPENAI_ENDPOINT="https://ai-sandbox-instance.openai.azure.com/"
+AZURE_OPENAI_API_KEY="YOUR_API_KEY_HERE"
+AZURE_OPENAI_API_VERSION="2024-12-01-preview"
+
+# -----------------------------------------------------------------
+# LLM TIERS - Assign models to use cases
+# All use Responses API (/openai/v1/responses)
+# NOTE: GPT-5 models do NOT support temperature - use reasoning_effort instead
+# -----------------------------------------------------------------
+
+# Default model (backward compatible)
+LLM_DEFAULT="gpt-5-nano"
+
+# Fast/cheap - quick tasks, simple parsing
+LLM_FAST="gpt-5-nano"
+
+# Coding - structured output, JSON, code generation
+LLM_CODING="gpt-5.1-codex-mini"
+
+# Balanced - good quality without high cost
+LLM_BALANCED="gpt-5-mini"
+
+# Quality - complex reasoning, important decisions
+LLM_QUALITY="gpt-5.1"
+
+# -----------------------------------------------------------------
+# GPT-5 REASONING PARAMETERS (replaces temperature)
+# -----------------------------------------------------------------
+# reasoning_effort: minimal, low, medium, high (controls thinking depth)
+# verbosity: 1-5 (controls response detail)
+LLM_REASONING_EFFORT="low"
+LLM_VERBOSITY="3"
+
+# -----------------------------------------------------------------
+# AVAILABLE MODELS (all Responses API, no temperature support)
+# -----------------------------------------------------------------
+# gpt-5-nano          - Fastest, cheapest
+# gpt-5-mini          - Balanced cost/quality
+# gpt-5               - High quality reasoning
+# gpt-5.1             - Latest, best quality
+# gpt-5.1-codex-mini  - Fast coding/structured output

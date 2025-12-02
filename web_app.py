@@ -15,7 +15,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
-import PyPDF2
+import pypdf
 import re
 import plotly.graph_objects as go
 import plotly.express as px
@@ -816,7 +816,7 @@ with tab1:
                         # Read file content
                         file_content = ""
                         if dict_file.name.endswith('.pdf'):
-                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            pdf_reader = pypdf.PdfReader(dict_file)
                             for page in pdf_reader.pages:
                                 file_content += page.extract_text() + "\n"
                         elif dict_file.name.endswith('.csv'):
@@ -940,7 +940,7 @@ with tab1:
                             progress_bar = st.progress(0, text="Parsing PDF dictionary...")
 
                             # Read PDF content
-                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            pdf_reader = pypdf.PdfReader(dict_file)
                             num_pages = len(pdf_reader.pages)
 
                             extracted_text = ""
@@ -1322,7 +1322,7 @@ with tab2:
     Built with Streamlit and powered by the Model Context Protocol (MCP) for
     advanced data analysis capabilities. Features include:
     - Interactive Plotly visualizations
-    - PDF parsing with PyPDF2
+    - PDF parsing with pypdf
     - Excel generation with cell highlighting and comments
     - Efficient dictionary caching system
 

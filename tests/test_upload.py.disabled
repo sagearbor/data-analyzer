@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
 """
+DISABLED TEST - This file has been disabled from pytest collection
+
+ISSUES:
+1. Imports MCPClient from web_app, but that class no longer exists (now DataQualityAnalyzer)
+2. Uses hardcoded path that doesn't exist: /home/scb2/PROJECTS/gitRepos/data-analyzer/test_data_files/
+3. Not a proper pytest test - it's a standalone script with if __name__ == "__main__"
+4. Doesn't follow current testing patterns from conftest.py (should use fixtures)
+
+TO FIX:
+1. Update import: from web_app import DataQualityAnalyzer
+2. Use test fixtures from conftest.py or create test data in tests/test_data/
+3. Convert to proper pytest test functions with @pytest.mark decorators
+4. Follow patterns from test_data_loader.py or test_quality_checker.py
+
+Original description:
 Test script to verify the Data Quality Analyzer with LTCPROMISE test file
 """
 

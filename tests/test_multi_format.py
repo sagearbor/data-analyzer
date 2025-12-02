@@ -13,25 +13,17 @@ from mcp_server import DataLoader
 
 def test_csv_format():
     """Test CSV format loading"""
-    print("\n=== Testing CSV Format ===")
     csv_data = """id,name,age,salary,department
 1,Alice,25,50000,HR
 2,Bob,30,60000,IT
 3,Charlie,35,70000,Finance"""
 
-    try:
-        df = DataLoader.load_csv(csv_data)
-        print(f"✅ CSV loaded successfully: {df.shape} shape")
-        print(df.head())
-        return True
-    except Exception as e:
-        print(f"❌ CSV failed: {e}")
-        return False
+    df = DataLoader.load_csv(csv_data)
+    assert df is not None, "CSV should load successfully"
+    assert df.shape == (3, 5), f"Expected (3, 5) shape, got {df.shape}"
 
 def test_json_format():
     """Test JSON format loading"""
-    print("\n=== Testing JSON Format ===")
-
     # Test 1: Array of objects
     json_data1 = json.dumps([
         {"id": 1, "name": "Alice", "age": 25},
@@ -39,13 +31,9 @@ def test_json_format():
         {"id": 3, "name": "Charlie", "age": 35}
     ])
 
-    try:
-        df1 = DataLoader.load_json(json_data1)
-        print(f"✅ JSON array loaded: {df1.shape} shape")
-        print(df1.head())
-    except Exception as e:
-        print(f"❌ JSON array failed: {e}")
-        return False
+    df1 = DataLoader.load_json(json_data1)
+    assert df1 is not None, "JSON array should load successfully"
+    assert df1.shape == (3, 3), f"Expected (3, 3) shape, got {df1.shape}"
 
     # Test 2: Nested object with array
     json_data2 = json.dumps({
@@ -56,21 +44,12 @@ def test_json_format():
         "company": "TechCorp"
     })
 
-    try:
-        df2 = DataLoader.load_json(json_data2)
-        print(f"✅ Nested JSON loaded: {df2.shape} shape")
-        print(df2.head())
-        print(f"Columns: {list(df2.columns)}")
-    except Exception as e:
-        print(f"❌ Nested JSON failed: {e}")
-        return False
-
-    return True
+    df2 = DataLoader.load_json(json_data2)
+    assert df2 is not None, "Nested JSON should load successfully"
+    assert len(df2) == 2, f"Expected 2 rows, got {len(df2)}"
 
 def test_excel_format():
     """Test Excel format loading"""
-    print("\n=== Testing Excel Format ===")
-
     # Create sample Excel file in memory
     df = pd.DataFrame({
         'id': [1, 2, 3],
@@ -85,19 +64,12 @@ def test_excel_format():
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     excel_bytes = output.getvalue()
 
-    try:
-        df_loaded = DataLoader.load_excel(excel_bytes)
-        print(f"✅ Excel loaded successfully: {df_loaded.shape} shape")
-        print(df_loaded.head())
-        return True
-    except Exception as e:
-        print(f"❌ Excel failed: {e}")
-        return False
+    df_loaded = DataLoader.load_excel(excel_bytes)
+    assert df_loaded is not None, "Excel should load successfully"
+    assert df_loaded.shape == (3, 4), f"Expected (3, 4) shape, got {df_loaded.shape}"
 
 def test_parquet_format():
     """Test Parquet format loading"""
-    print("\n=== Testing Parquet Format ===")
-
     # Create sample Parquet file in memory
     df = pd.DataFrame({
         'id': [1, 2, 3],
@@ -111,41 +83,23 @@ def test_parquet_format():
     df.to_parquet(output, index=False)
     parquet_bytes = output.getvalue()
 
-    try:
-        df_loaded = DataLoader.load_parquet(parquet_bytes)
-        print(f"✅ Parquet loaded successfully: {df_loaded.shape} shape")
-        print(df_loaded.head())
-        return True
-    except Exception as e:
-        print(f"❌ Parquet failed: {e}")
-        return False
+    df_loaded = DataLoader.load_parquet(parquet_bytes)
+    assert df_loaded is not None, "Parquet should load successfully"
+    assert df_loaded.shape == (3, 4), f"Expected (3, 4) shape, got {df_loaded.shape}"
 
 def test_load_data_wrapper():
     """Test the generic load_data method"""
-    print("\n=== Testing load_data Wrapper ===")
-
-    formats_tested = []
-
     # Test CSV through wrapper
     csv_data = "id,name\n1,Alice\n2,Bob"
-    try:
-        df = DataLoader.load_data(csv_data, file_format='csv')
-        print(f"✅ load_data(CSV): {df.shape}")
-        formats_tested.append('CSV')
-    except Exception as e:
-        print(f"❌ load_data(CSV) failed: {e}")
+    df_csv = DataLoader.load_data(csv_data, file_format='csv')
+    assert df_csv is not None, "load_data should handle CSV"
+    assert df_csv.shape == (2, 2), f"Expected (2, 2) shape for CSV, got {df_csv.shape}"
 
     # Test JSON through wrapper
     json_data = json.dumps([{"id": 1, "name": "Alice"}])
-    try:
-        df = DataLoader.load_data(json_data, file_format='json')
-        print(f"✅ load_data(JSON): {df.shape}")
-        formats_tested.append('JSON')
-    except Exception as e:
-        print(f"❌ load_data(JSON) failed: {e}")
-
-    print(f"\nFormats successfully tested through load_data: {formats_tested}")
-    return len(formats_tested) >= 2
+    df_json = DataLoader.load_data(json_data, file_format='json')
+    assert df_json is not None, "load_data should handle JSON"
+    assert df_json.shape == (1, 2), f"Expected (1, 2) shape for JSON, got {df_json.shape}"
 
 def main():
     """Run all format tests"""

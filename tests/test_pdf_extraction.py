@@ -3,16 +3,20 @@
 Test script for validating PDF dictionary extraction improvements
 """
 
-import sys
+import pytest
 import os
 import time
 from pathlib import Path
 
-# Add src to path
-sys.path.append(str(Path(__file__).parent))
-
 from src.llm_client import LLMDictionaryParser
-import PyPDF2
+import pypdf
+
+
+@pytest.fixture
+def pdf_path(test_data_dir):
+    """Fixture that returns the path to the test PDF file"""
+    return test_data_dir / "dictionaries" / "LTCPROMISE8314QC.pdf"
+
 
 def test_pdf_extraction(pdf_path):
     """Test PDF dictionary extraction with improved settings"""
@@ -21,14 +25,12 @@ def test_pdf_extraction(pdf_path):
     print("=" * 60)
 
     # Check file exists
-    if not os.path.exists(pdf_path):
-        print(f"❌ File not found: {pdf_path}")
-        return
+    assert os.path.exists(pdf_path), f"File not found: {pdf_path}"
 
     # Read PDF content
     print("📖 Reading PDF content...")
     with open(pdf_path, 'rb') as file:
-        pdf_reader = PyPDF2.PdfReader(file)
+        pdf_reader = pypdf.PdfReader(file)
         num_pages = len(pdf_reader.pages)
         print(f"  Pages: {num_pages}")
 
@@ -41,14 +43,12 @@ def test_pdf_extraction(pdf_path):
 
         print(f"  Total characters: {len(text_content):,}")
 
+    assert len(text_content) > 0, "PDF extraction returned empty content"
+
     # Initialize LLM parser
     print("\n🤖 Initializing LLM parser...")
-    try:
-        parser = LLMDictionaryParser()
-        print("✅ LLM parser initialized")
-    except Exception as e:
-        print(f"❌ Failed to initialize LLM parser: {e}")
-        return
+    parser = LLMDictionaryParser()
+    print("✅ LLM parser initialized")
 
     # Parse dictionary
     print("\n📋 Parsing dictionary with LLM...")
@@ -57,66 +57,46 @@ def test_pdf_extraction(pdf_path):
 
     start_time = time.time()
 
-    try:
-        # Parse without truncation
-        result = parser.parse_dictionary(text_content, max_fields=500)
+    # Parse without truncation
+    result = parser.parse_dictionary(text_content, max_fields=500)
 
-        elapsed = time.time() - start_time
+    elapsed = time.time() - start_time
 
-        print(f"\n✅ Parsing completed in {elapsed:.1f} seconds")
-        print(f"  Fields extracted: {len(result.get('fields', []))}")
-        print(f"  Chunks processed: {result.get('metadata', {}).get('chunks_processed', 0)}")
+    print(f"\n✅ Parsing completed in {elapsed:.1f} seconds")
+    print(f"  Fields extracted: {len(result.get('fields', []))}")
+    print(f"  Chunks processed: {result.get('metadata', {}).get('chunks_processed', 0)}")
 
-        # Show first 20 fields
-        fields = result.get('fields', [])
-        if fields:
-            print("\n📊 Sample of extracted fields:")
-            print("-" * 40)
-            for i, field in enumerate(fields[:20], 1):
-                print(f"{i:3}. {field['field_name']:30} ({field['data_type']})")
-                if field.get('required'):
-                    print(f"     [Required]")
-                if field.get('description'):
-                    desc = field['description'][:60] + "..." if len(field['description']) > 60 else field['description']
-                    print(f"     {desc}")
+    # Show first 20 fields
+    fields = result.get('fields', [])
+    assert fields is not None, "No fields returned from parser"
+    assert len(fields) > 0, "Parser returned empty fields list"
 
-            if len(fields) > 20:
-                print(f"\n     ... and {len(fields) - 20} more fields")
+    if fields:
+        print("\n📊 Sample of extracted fields:")
+        print("-" * 40)
+        for i, field in enumerate(fields[:20], 1):
+            print(f"{i:3}. {field['field_name']:30} ({field['data_type']})")
+            if field.get('required'):
+                print(f"     [Required]")
+            if field.get('description'):
+                desc = field['description'][:60] + "..." if len(field['description']) > 60 else field['description']
+                print(f"     {desc}")
 
-        # Summary
-        print("\n📈 Extraction Summary:")
-        print(f"  Total fields: {len(fields)}")
-        print(f"  Required fields: {sum(1 for f in fields if f.get('required'))}")
-        print(f"  Fields with descriptions: {sum(1 for f in fields if f.get('description'))}")
-        print(f"  Fields with allowed values: {sum(1 for f in fields if f.get('allowed_values'))}")
+        if len(fields) > 20:
+            print(f"\n     ... and {len(fields) - 20} more fields")
 
-        return result
+    # Summary
+    print("\n📈 Extraction Summary:")
+    print(f"  Total fields: {len(fields)}")
+    print(f"  Required fields: {sum(1 for f in fields if f.get('required'))}")
+    print(f"  Fields with descriptions: {sum(1 for f in fields if f.get('description'))}")
+    print(f"  Fields with allowed values: {sum(1 for f in fields if f.get('allowed_values'))}")
 
-    except Exception as e:
-        print(f"\n❌ Error during parsing: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    # Assertions to validate results
+    assert len(fields) > 0, "Should extract at least one field"
+    assert result.get('metadata', {}).get('chunks_processed', 0) > 0, "Should process at least one chunk"
 
-def main():
-    """Run test on the specific PDF"""
-
-    # Test with the large LTCPROMISE PDF
-    pdf_path = "test_dictionaries/LTCPROMISE8314QC.pdf"
-
-    print("\n🚀 Starting PDF extraction test")
-    print("This test validates improvements to handle large clinical data dictionaries")
-
-    result = test_pdf_extraction(pdf_path)
-
-    if result:
-        print("\n✅ Test completed successfully!")
-        print(f"Extracted {len(result.get('fields', []))} fields from {pdf_path}")
-    else:
-        print("\n❌ Test failed - check errors above")
-
-    print("\n" + "=" * 60)
-    print("Test complete!")
 
 if __name__ == "__main__":
-    main()
+    # Allow running as script for manual testing
+    pytest.main([__file__, "-v", "-s"])
