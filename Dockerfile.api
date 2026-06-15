@@ -1,0 +1,43 @@
+# Dockerfile.api — API-only image for Cloud Run (no Streamlit, no LLM deps).
+#
+# Build:
+#   docker build -f Dockerfile.api -t data-analyzer-api .
+#
+# Run locally:
+#   docker run -p 8080:8080 data-analyzer-api
+#
+# Cloud Run injects $PORT at runtime; the CMD shell form expands it correctly.
+
+FROM python:3.11-slim
+
+# Install curl for the HEALTHCHECK and ca-certificates for TLS; then clean up.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy and install runtime dependencies first (layer-caching friendly).
+COPY requirements-api.txt .
+RUN pip install --no-cache-dir -r requirements-api.txt
+
+# Copy all application source.
+# analysis_service.py, a2a_agent.py, a2a_runtime/ are all required at runtime.
+COPY . .
+
+# Run as a non-root user for defence-in-depth.
+RUN useradd --no-create-home --shell /bin/false appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+# Cloud Run sets $PORT (default 8080 per platform convention).
+ENV PORT=8080
+EXPOSE 8080
+
+# HEALTHCHECK — Cloud Run also has its own liveness probe, but this is useful
+# for local docker run and for surfacing failures early in the build pipeline.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl --fail http://localhost:${PORT:-8080}/health || exit 1
+
+# Shell form so ${PORT:-8080} is expanded by /bin/sh at container startup.
+CMD ["sh", "-c", "exec uvicorn api_server:app --host 0.0.0.0 --port ${PORT:-8080}"]

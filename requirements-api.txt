@@ -1,0 +1,14 @@
+# API server runtime dependencies — no Streamlit, no LLM packages.
+# These are the only packages needed for the api_server:app image deployed to Cloud Run.
+# Pin style matches existing requirements.txt (>= lower bound, no upper cap).
+
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+pandas>=2.0.0
+numpy>=1.24.0
+chardet>=5.2.0
+openpyxl>=3.1.2
+xlrd>=2.0.1
+pyarrow>=14.0.0

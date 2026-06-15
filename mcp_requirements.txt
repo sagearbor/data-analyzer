@@ -6,3 +6,4 @@ python-multipart>=0.0.6
 uvicorn>=0.20.0
 fastapi>=0.100.0
 pydantic>=2.0.0
+# dcri-a2a-core  # optional: real A2A wire contract (else a2a_runtime shim is used)

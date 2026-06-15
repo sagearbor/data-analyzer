@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2025-09-28T20:00:00Z
+  last_updated: 2026-06-15T00:00:00Z
 
 # =========================================================
 # CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
@@ -802,3 +802,64 @@ ai_instructions:
     - Verify no functionality is broken
     - Check responsive design at different widths
     - Ensure loading states work properly
+
+# =========================================================
+# 2026-06-15 — REST API, MCP refactor, and A2A interface
+# =========================================================
+phase_multi_transport:
+  name: "Multi-Transport Interfaces (REST / MCP / A2A)"
+  status: DONE
+  priority: HIGH
+  completed_date: "2026-06-15T00:00:00Z"
+  notes: |
+    DONE:
+    - Implemented analysis_service.py: shared core with two functions
+      analyze(payload) and get_info(payload). All heavy imports (pandas,
+      mcp_server classes) are lazy so this module loads with stdlib only.
+    - Refactored mcp_server.py tool handlers (analyze_data, get_data_info)
+      to delegate to analysis_service via lazy import. Tool schemas and
+      MCP output format are unchanged; business logic is now in one place.
+    - Implemented a2a_agent.py: DataAnalyzerAgent (agent_id='data-analyzer'),
+      build_card(), register(). Pure stdlib at import; lazy-imports
+      analysis_service inside run(). Dispatches on operation key:
+      'analyze' -> analyze(), 'get_info'/'data_info' -> get_info(),
+      unknown -> {"error": ..., "type": "unknown_operation"}.
+    - Implemented api_server.py: FastAPI app with GET /health,
+      POST /analyze, POST /data-info, GET /.well-known/agent.json,
+      POST /a2a/{agent_id}. Registers agent on startup. Entry point
+      runs uvicorn on API_PORT (default 8003).
+    - Created tests/test_a2a_runtime.py: stdlib-only tests covering
+      encode/decode round-trip, cycle int-coercion, AgentRegistry,
+      A2AClient in-process and remote LookupError, AgentCard shape.
+      Runnable as python3 tests/test_a2a_runtime.py (no pytest needed).
+    - Created tests/test_a2a_agent.py: covers register, build_card,
+      unknown-operation path (no pandas), and full analyze/get_info
+      paths (gated with pytest.importorskip("pandas")).
+    - Created tests/test_api_server.py: covers /health and
+      /.well-known/agent.json without pandas; analysis endpoints
+      gated with pytest.importorskip("pandas").
+    - Created docs/INTEGRATION.md with curl examples for all three
+      interfaces, AgentCard discovery, a2a_runtime shim explanation,
+      and production auth note.
+    - Added "Calling this service" section to README.md linking to
+      docs/INTEGRATION.md.
+    - Added dcri-a2a-core comment line to mcp_requirements.txt.
+  tasks:
+    - id: transport_1
+      name: "Shared analysis_service.py"
+      status: DONE
+    - id: transport_2
+      name: "MCP handler delegation to analysis_service"
+      status: DONE
+    - id: transport_3
+      name: "a2a_agent.py DataAnalyzerAgent + registry helpers"
+      status: DONE
+    - id: transport_4
+      name: "api_server.py FastAPI REST + A2A gateway"
+      status: DONE
+    - id: transport_5
+      name: "Test suite: test_a2a_runtime, test_a2a_agent, test_api_server"
+      status: DONE
+    - id: transport_6
+      name: "docs/INTEGRATION.md and README.md update"
+      status: DONE
