@@ -226,5 +226,7 @@ async def a2a_message_send(agent_id: str, request: Request) -> JSONResponse:
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("API_PORT", "8003"))
+    # Cloud Run (and most PaaS) inject the port to bind via $PORT; fall back to
+    # API_PORT for local runs, then a sensible default.
+    port = int(os.getenv("PORT", os.getenv("API_PORT", "8003")))
     uvicorn.run(app, host="0.0.0.0", port=port)

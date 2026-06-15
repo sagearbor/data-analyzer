@@ -252,3 +252,93 @@ Environment variables:
 ## Authentication (production note)
 
 The API server does not implement authentication itself — that is a **deployment concern**. In production, place the service behind your org's API gateway or reverse proxy (NGINX, Azure API Management, etc.) and enforce bearer-token validation there. The A2A envelope metadata section is a natural place to carry a token when the real `dcri-a2a-core` package adds its HTTP transport layer.
+
+---
+
+## Deploying to Google Cloud Run (public, unauthenticated)
+
+The repository ships with a ready-to-use Cloud Run deployment path that builds a minimal API image (no Streamlit, no LLM packages) and deploys it as a fully public HTTPS endpoint.
+
+### One-command deploy
+
+```bash
+PROJECT_ID=my-gcp-project ./deploy/cloudrun.sh
+```
+
+Optional overrides (set as environment variables before the command):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REGION` | `us-central1` | GCP region |
+| `SERVICE` | `data-analyzer-api` | Cloud Run service name |
+| `IMAGE` | derived | Full Artifact Registry image path |
+
+The script will:
+1. Ensure the `apps` Artifact Registry repository exists (idempotent — safe to re-run).
+2. Submit a Cloud Build job (`cloudbuild.yaml`) to build `Dockerfile.api` and push the image.
+3. Deploy the image to Cloud Run with `--allow-unauthenticated --port 8080`.
+4. Print the resulting public HTTPS URL.
+
+### GitHub Actions alternative
+
+A `workflow_dispatch` workflow is provided at `.github/workflows/deploy-cloudrun.yml`. Trigger it from the GitHub Actions UI (Actions tab → "Deploy to Cloud Run" → Run workflow) and supply:
+- **project_id** (required)
+- **region** (default `us-central1`)
+- **service** (default `data-analyzer-api`)
+
+The public service URL is echoed into the job summary after a successful deploy.
+
+**Required GitHub secret — `GCP_SA_KEY`:**
+Create a GCP service account with the following IAM roles, generate a JSON key, and store it as the `GCP_SA_KEY` repository secret:
+
+| IAM Role | Purpose |
+|----------|---------|
+| `roles/run.admin` | Deploy and manage Cloud Run services |
+| `roles/cloudbuild.builds.editor` | Submit Cloud Build jobs |
+| `roles/artifactregistry.admin` | Create repositories and push images |
+| `roles/iam.serviceAccountUser` | Impersonate the Cloud Build service account |
+| `roles/storage.admin` | Cloud Build source staging bucket |
+
+**WORKLOAD IDENTITY FEDERATION is the more secure alternative.** WIF eliminates long-lived service account JSON keys by federating GitHub's OIDC token directly into GCP. See [google-github-actions/auth — Workload Identity Federation](https://github.com/google-github-actions/auth#setting-up-workload-identity-federation). Replace the `credentials_json` input with `workload_identity_provider` + `service_account` to adopt it.
+
+### Grabbing the URL after deploy
+
+```bash
+gcloud run services describe data-analyzer-api \
+    --region=us-central1 \
+    --project=MY_PROJECT \
+    --format='value(status.url)'
+```
+
+### End-to-end check
+
+After deploy, run the live proof script against the public URL:
+
+```bash
+python3 scripts/e2e_a2a_check.py --url https://data-analyzer-xxxx.run.app
+```
+
+Or via environment variable:
+
+```bash
+E2E_URL=https://data-analyzer-xxxx.run.app python3 scripts/e2e_a2a_check.py
+```
+
+The script (stdlib-only, no pip installs) verifies:
+1. `GET /health` returns `status: ok` with `a2a_backend` present.
+2. `GET /.well-known/agent.json` card `url` equals `/a2a/data-analyzer`.
+3. A base64-encoded CSV is sent via `call_agent_http()` and the response contains quality-pipeline keys (`checks`, `summary_stats`, etc.).
+
+It prints a concise PASS/FAIL summary and exits non-zero on any failure.
+
+### Security WARNING
+
+`--allow-unauthenticated` makes the `/analyze`, `/data-info`, and `/a2a/data-analyzer` endpoints reachable by **anyone on the public internet**. This is acceptable for a temporary demo or internal proof-of-concept. Before processing real patient data or any sensitive information:
+
+- Remove the `allUsers` IAM binding from the Cloud Run service.
+- Add Cloud Run IAM invoker bindings for specific identities, or place an API Gateway in front with key/JWT enforcement.
+- Consider VPC Service Controls for network-level isolation.
+
+### Note on A2A wire framing compatibility
+
+Our `/a2a/{agent_id}` endpoint speaks the **canonical DCRI JSON envelope** — a `{"payload": {...}, "metadata": {...}}` dict — which is what this repo's `a2a_runtime` shim produces and consumes. When the org installs the real `dcri-a2a-core` package (a2a-sdk based), verify whether its inbound route (`message/send`) expects the a2a-sdk JSON-RPC framing instead. The `a2a_runtime/__init__.py` indirection means no application code changes are needed — only the envelope shape at the HTTP boundary may need reconciling against the real package's router.
