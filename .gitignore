@@ -230,3 +230,6 @@ coverage.json
 # Local Azure environment info (infra IDs — public repo, keep local)
 azure-environment.md
 azure-environment.*.local
+
+# Filled ACA deploy manifest with real infra IDs (public repo — keep local)
+deploy/aca/*.local.yaml
