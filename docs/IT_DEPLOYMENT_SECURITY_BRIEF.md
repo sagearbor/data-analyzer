@@ -65,7 +65,24 @@ resolve to the ingress IP, so all clients could share one bucket.
 key the limiter off `X-API-Key` for authenticated routes or configure ACA to
 preserve client IP.
 
-### 3.4 Lower-priority hardening
+### 3.4 Program-cache persistence — SQLite is ephemeral on ACA *(owner: eng)*
+`src/program_cache.py` uses a local SQLite file. On ACA with scale-to-zero
+(min 0) and up to 2 replicas, saved validation programs won't persist across
+cold starts or be shared between replicas. IT provisioned Postgres for exactly
+this. **Action:** migrate the cache to the provided Postgres (dedicated
+`data_analyzer` DB, AAD-token auth via the managed identity — not the psqladmin
+password) or an Azure Files mount. For a demo, run min=1/max=1 as a temporary
+deviation. See `deploy/aca/README.md`.
+
+### 3.5 Repository is PUBLIC *(owner: repo admin — recommend flipping tonight/tomorrow)*
+This is a Duke-internal tool that handles research/clinical data dictionaries and
+whose infra config references internal subnets, a static IP, and a managed
+identity. It should almost certainly be **private**:
+`gh repo edit sagearbor/data-analyzer --visibility private --accept-visibility-change-consequences`.
+Until then, real infra IDs are kept in the gitignored `azure-environment.md`
+(not committed), and `deploy/aca/containerapp.yaml` uses placeholders.
+
+### 3.6 Lower-priority hardening
 - Pin dependency versions with hashes (`pip-compile --generate-hashes`); currently floating `>=`.
 - Replace `--trusted-host` pip flags with a corporate CA bundle bake-in.
 - Excel/Parquet decompression cap (zip-bomb) beyond the raw byte check.
@@ -79,10 +96,23 @@ preserve client IP.
 
 The `docker-compose.*.yml` files are the **on-prem/VM** pattern (Streamlit +
 NGINX helper sidecar). They are **not** the ACA deployment. The ACA-native config
-is `deploy/aca/containerapp.yaml` (single external HTTPS ingress on port 8000,
-secrets from the ACA secret store, HTTP health probes, 1–3 replica autoscale).
-See `deploy/aca/README.md`. Make sure the room is clear on which artifact is
-"the deployment" — don't let the compose file get conflated with ACA.
+is `deploy/aca/containerapp.yaml`. Make sure the room is clear on which artifact
+is "the deployment" — don't let the compose file get conflated with ACA.
+
+Config matches the DCRI dev environment IT provided (details in the gitignored
+`azure-environment.md`):
+- **Internal ingress only** (`external: false`) — the ACE denies public access
+  and is VNET-integrated on its own subnet. Reaching the app requires **Duke VPN**.
+- **User-assigned managed identity** for ACR pull and runtime Key Vault / Storage
+  / Postgres-AAD access — no static cloud creds in the app.
+- **Workload Profiles** env, 0.5 CPU / 1 GiB to start, min 0 / max 2 replicas,
+  KEDA cooldown 600s / polling 30s (per IT).
+- Images built **linux/amd64**, pushed to the provided ACR.
+- App secrets (`DATA_ANALYZER_API_KEY`, Azure OpenAI key) via the ACA secret
+  store; Postgres via Entra ID token, never the psqladmin password.
+
+(Concrete IDs — subscription, RG, ACR, managed identity, Postgres host — live in
+the gitignored `azure-environment.md`, not in this public repo.)
 
 ---
 

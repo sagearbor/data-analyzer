@@ -226,3 +226,7 @@ coverage.json
 # Windows/WSL NTFS metadata
 *:Zone.Identifier
 *:sec.endpointdlp
+
+# Local Azure environment info (infra IDs — public repo, keep local)
+azure-environment.md
+azure-environment.*.local

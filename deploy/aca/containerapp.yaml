@@ -1,65 +1,73 @@
 # ============================================================================
 # Azure Container Apps — deployment definition for the Data Analyzer API
 # ============================================================================
-# This is the ACA-native ingress + scaling config. It is DISTINCT from the
-# docker-compose.*.yml files, which describe the on-prem / VM (NGINX sidecar)
-# deployment and are NOT used by Azure Container Apps.
+# ACA-native config. DISTINCT from docker-compose.*.yml (VM/NGINX pattern).
 #
-# Apply with:
-#   az containerapp create \
-#     --name data-analyzer-api \
-#     --resource-group <RG> \
-#     --environment <ACA_ENVIRONMENT> \
-#     --yaml deploy/aca/containerapp.yaml
+# Every <PLACEHOLDER> below is filled from the gitignored `azure-environment.md`
+# at the repo root. Real subscription/RG/registry/identity IDs are kept OUT of
+# this committed file on purpose — the repo is public. Fill them in at deploy
+# time (or template with envsubst); do not commit the resolved values.
 #
-# Or update an existing app:
-#   az containerapp update --name data-analyzer-api \
-#     --resource-group <RG> --yaml deploy/aca/containerapp.yaml
+# The target is a Workload-Profiles ACA env that is VNET-integrated and private
+# (see azure-environment.md). Build images linux/amd64.
 #
-# Secrets (DATA_ANALYZER_API_KEY, Azure OpenAI key) are referenced from the
-# platform secret store, NOT hardcoded here. Set them once with:
-#   az containerapp secret set --name data-analyzer-api --resource-group <RG> \
+# Deploy:
+#   az containerapp create --name data-analyzer-api \
+#     --resource-group <RESOURCE_GROUP> --yaml deploy/aca/containerapp.yaml
+#
+# Secrets are set separately (never in this file):
+#   az containerapp secret set --name data-analyzer-api \
+#     --resource-group <RESOURCE_GROUP> \
 #     --secrets data-analyzer-api-key=<VALUE> azure-openai-api-key=<VALUE>
 # ============================================================================
+
+# User-assigned managed identity — used both to pull from ACR and, at runtime,
+# for the app's Key Vault / Storage access. Postgres auth uses an Entra ID
+# access token via this identity (NOT the psqladmin password, which stays in
+# Key Vault as break-glass only).
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>": {}
+
 properties:
-  managedEnvironmentId: /subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.App/managedEnvironments/<ACA_ENVIRONMENT>
+  managedEnvironmentId: "<MANAGED_ENVIRONMENT_RESOURCE_ID>"
+  # ACE is a Workload Profiles environment. Use the profile name IT exposes
+  # (commonly "Consumption" unless a dedicated profile was assigned).
+  workloadProfileName: "<WORKLOAD_PROFILE_NAME>"
   configuration:
     activeRevisionsMode: Single
     # ------------------------------------------------------------------
-    # Ingress: single external HTTPS endpoint on the container's port.
-    # ACA terminates TLS and injects X-Forwarded-* headers. targetPort
-    # must match the port uvicorn listens on inside the container (8000).
+    # Ingress is INTERNAL: the ACE denies public access and is the private
+    # load balancer / endpoint on its own VNET subnet. external:false =
+    # reachable only from within the VNET (Duke VPN required).
     # ------------------------------------------------------------------
     ingress:
-      external: true
+      external: false
       targetPort: 8000
       transport: http
       allowInsecure: false
       traffic:
         - latestRevision: true
           weight: 100
-    # ------------------------------------------------------------------
-    # Secrets: values live in the ACA secret store (or Key Vault refs).
-    # Placeholders here are overwritten by `az containerapp secret set`.
-    # ------------------------------------------------------------------
     secrets:
       - name: data-analyzer-api-key
         value: "<set-via-az-containerapp-secret-set>"
       - name: azure-openai-api-key
         value: "<set-via-az-containerapp-secret-set>"
     registries:
-      - server: <ACR_NAME>.azurecr.io
-        identity: system   # use the app's managed identity to pull images
+      - server: "<ACR_LOGIN_SERVER>"
+        identity: "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>"  # pull images with the UAMI
   template:
     containers:
       - name: data-analyzer-api
-        image: <ACR_NAME>.azurecr.io/data-analyzer-api:latest
+        image: "<ACR_LOGIN_SERVER>/data-analyzer-api:latest"
         resources:
-          cpu: 0.5
+          cpu: 0.5      # start small per IT guidance; scale workers, not SKU
           memory: 1.0Gi
         env:
-          # APP_ENV=prod hides the dev banner AND makes api_server.py
-          # fail-closed if DATA_ANALYZER_API_KEY is missing (see auth config).
+          # APP_ENV=prod hides the dev banner AND makes api_server.py fail-closed
+          # if DATA_ANALYZER_API_KEY is missing.
           - name: APP_ENV
             value: prod
           - name: DATA_ANALYZER_API_KEY
@@ -67,14 +75,17 @@ properties:
           - name: AZURE_OPENAI_API_KEY
             secretRef: azure-openai-api-key
           - name: AZURE_OPENAI_ENDPOINT
-            value: "<https://your-resource.openai.azure.com/>"
-          # CORS: set to the actual frontend origin(s). Empty in prod = deny
-          # all cross-origin (fail-safe); replace with the real domain.
+            value: "<AZURE_OPENAI_ENDPOINT>"
+          # Client id of the user-assigned MI, so azure-identity picks the right
+          # identity for Key Vault / Storage / Postgres-AAD token calls.
+          - name: AZURE_CLIENT_ID
+            value: "<USER_ASSIGNED_IDENTITY_CLIENT_ID>"
+          # Ingress is internal-only; no browser cross-origin expected. Set to
+          # the real internal frontend origin if one calls this API from a page.
           - name: ALLOWED_ORIGINS
-            value: "<https://your-frontend-domain>"
+            value: ""
           - name: API_RELOAD
             value: "false"
-        # ACA HTTP probes (replace the Docker HEALTHCHECK, which ACA ignores).
         probes:
           - type: Liveness
             httpGet:
@@ -88,9 +99,13 @@ properties:
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 15
+    # Scale per IT guidance: scale-to-zero, cap at 2 replicas.
     scale:
-      minReplicas: 1
-      maxReplicas: 3
+      minReplicas: 0
+      maxReplicas: 2
+      # KEDA polling/cooldown IT specified (pollingInterval 30s, cooldown 600s).
+      pollingInterval: 30
+      cooldownPeriod: 600
       rules:
         - name: http-scaling
           http:

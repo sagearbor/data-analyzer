@@ -14,16 +14,19 @@ Streamlit app behind an NGINX helper sidecar) and are **not** used by ACA.
 
 ## Prerequisites
 
-- An Azure Container Registry (ACR) and an ACA managed environment (IT provides these).
-- `az` CLI logged in, with the `containerapp` extension: `az extension add --name containerapp`.
+- **Duke VPN connected** — the ACA environment is VNET-internal (no public ingress); nothing below resolves off-VPN.
+- Real infra IDs live in the gitignored **`azure-environment.md`** at the repo root — plug those into `containerapp.yaml`'s `<PLACEHOLDER>`s. (Kept out of git because the repo is public.)
+- `az` CLI logged in to the dev subscription, with the `containerapp` extension: `az extension add --name containerapp`.
 
-## 1. Build & push the image
+## 1. Build & push the image (linux/amd64)
+
+The ACA nodes are **amd64** — build for that platform explicitly (matters if you ever build from an ARM Mac; fine natively on x86 WSL). Use the ACR login server from `azure-environment.md`.
 
 ```bash
-ACR=<your-acr-name>
-az acr login --name "$ACR"
-docker build -f Dockerfile.api -t "$ACR.azurecr.io/data-analyzer-api:latest" .
-docker push "$ACR.azurecr.io/data-analyzer-api:latest"
+ACR=<acr-login-server>       # from azure-environment.md
+az acr login --name "${ACR%%.*}"
+docker build --platform linux/amd64 -f Dockerfile.api -t "$ACR/data-analyzer-api:latest" .
+docker push "$ACR/data-analyzer-api:latest"
 ```
 
 ## 2. Set secrets (never commit these)
@@ -67,6 +70,30 @@ Updates use the same file: `az containerapp update --name "$APP" --resource-grou
   Dockerfile `HEALTHCHECK`, which ACA ignores).
 - **Rate limiting** is per-client-IP via slowapi. Verify what client IP the app
   sees behind ACA ingress after first deploy (see meeting brief open item).
+
+## ⚠️ Program-cache persistence (functional gotcha, read before demo)
+
+`src/program_cache.py` stores saved validation programs in a **SQLite file on
+the container's local disk** (`~/.data_analyzer/programs.db`). The Dockerfile
+`VOLUME` is ignored by ACA. With the IT-specified scale (min replicas **0**,
+max **2**):
+
+- Scale-to-zero → cold start loses the SQLite file (saved programs vanish).
+- Two replicas → each has its own SQLite file (inconsistent cache).
+
+For a **live demo tomorrow**, deploy with `minReplicas: 1, maxReplicas: 1` so a
+single replica stays warm and data survives within the session (flag this as a
+temporary deviation from IT's 0/2 guidance). The **real fix** is migrating the
+program cache to the provided Postgres (a dedicated `data_analyzer` DB, AAD-token
+auth — host in `azure-environment.md`) or an Azure Files mount — tracked as an
+open item, not done yet.
+
+## Postgres (when you migrate off SQLite)
+
+Auth uses an **Entra ID access token via the user-assigned managed identity**,
+not the `psqladmin` password (that's break-glass, Key-Vault-only). Create a
+dedicated DB + per-app user — do **not** use the `postgres` system DB. Details
+in `azure-environment.md`.
 
 ## Verify after deploy
 
