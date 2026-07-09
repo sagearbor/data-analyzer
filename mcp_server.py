@@ -39,11 +39,27 @@ import mcp.types as types
 
 class DataLoader:
     """Load and validate data files (CSV, JSON, Excel, Parquet)"""
-    
+
+    # Defense-in-depth against memory-exhaustion DoS: reject in-memory payloads
+    # larger than this before handing them to pandas. Override via env var if a
+    # deployment legitimately needs larger uploads.
+    MAX_CONTENT_BYTES = int(os.getenv("DATA_ANALYZER_MAX_UPLOAD_BYTES", 100 * 1024 * 1024))  # 100MB
+
+    @staticmethod
+    def _check_size(content: Union[str, bytes]) -> None:
+        """Raise ValueError if in-memory content exceeds the configured size cap."""
+        size = len(content) if isinstance(content, (bytes, str)) else None
+        if size is not None and size > DataLoader.MAX_CONTENT_BYTES:
+            raise ValueError(
+                f"File content ({size} bytes) exceeds the maximum allowed size "
+                f"({DataLoader.MAX_CONTENT_BYTES} bytes)"
+            )
+
     @staticmethod
     def load_csv(file_path_or_content: Union[str, bytes, io.StringIO], **kwargs) -> pd.DataFrame:
         """Load CSV from file path, bytes, or StringIO"""
         try:
+            DataLoader._check_size(file_path_or_content)
             if isinstance(file_path_or_content, bytes):
                 # Decode bytes to string and create StringIO
                 content = file_path_or_content.decode('utf-8')
@@ -80,6 +96,8 @@ class DataLoader:
     def load_json(file_path_or_content: Union[str, bytes, dict], max_depth: int = 5) -> pd.DataFrame:
         """Load JSON data and flatten nested structures up to max_depth levels"""
         try:
+            if isinstance(file_path_or_content, (bytes, str)):
+                DataLoader._check_size(file_path_or_content)
             # Parse JSON data
             if isinstance(file_path_or_content, dict):
                 json_data = file_path_or_content
@@ -124,6 +142,7 @@ class DataLoader:
         """Load Excel file (.xlsx or .xls), combining all sheets if sheet_name not specified"""
         try:
             if isinstance(file_path_or_content, bytes):
+                DataLoader._check_size(file_path_or_content)
                 # Load from bytes
                 excel_file = pd.ExcelFile(io.BytesIO(file_path_or_content))
             elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
@@ -162,6 +181,7 @@ class DataLoader:
         """Load Parquet file"""
         try:
             if isinstance(file_path_or_content, bytes):
+                DataLoader._check_size(file_path_or_content)
                 # Load from bytes
                 return pd.read_parquet(io.BytesIO(file_path_or_content))
             elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):

@@ -43,6 +43,12 @@ RUN mkdir -p /app/data /app/logs
 # Make entrypoint executable
 RUN chmod +x /app/entrypoint.sh
 
+# Create non-root user and hand over ownership of the app directory
+# (Docker security best practice: never run the app process as root)
+RUN useradd -m -u 1000 -s /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
 # Expose port
 EXPOSE 8002
 

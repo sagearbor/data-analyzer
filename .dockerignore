@@ -17,6 +17,18 @@ __pycache__/
 venv/
 env/
 .env
+.env.*
+!.env.example
+*.bak
+
+# Agent tooling / tracking (not needed in image, may contain internal notes)
+.claude/
+tmp/
+.code-simplifier-tracking.json
+.security-review-tracking.json
+developer_checklist.yaml
+*.md
+!README.md
 
 # Data files
 *.csv

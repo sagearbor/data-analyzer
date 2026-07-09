@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import traceback
 import time
 from datetime import datetime
@@ -40,30 +41,52 @@ import uuid as uuid_lib
 import pandas as pd
 
 # Import existing modules
+#
+# Response/request models from src.api_models are required for route registration
+# (they appear in @app.get/@app.post response_model= and type hints), so they are
+# imported in their own try/except block. If they fail to import, the app cannot
+# start at all and that failure must be loud and immediate rather than silently
+# leaving names like ParseDictionaryResponse undefined (which previously caused a
+# NameError at route-decoration time, crashing the whole server on startup).
+from src.api_models import (
+    ParseDictionaryRequest,
+    ParseDictionaryResponse,
+    ProgramDetail,
+    convert_validation_program_to_detail,
+    AnalyzeResponse,
+    AnalysisSummary,
+    FieldViolation,
+    LogicViolation,
+    SeverityEnum,
+    DataFormatEnum,
+    ReturnFormatEnum
+)
+
+# Optional service modules - each is independently best-effort. A missing/broken
+# module here degrades the corresponding feature (endpoints return 503) instead
+# of taking down the whole server.
 try:
     from src.llm_client import LLMDictionaryParser
+except ImportError as e:
+    logging.error(f"Import error (LLMDictionaryParser unavailable): {e}")
+    LLMDictionaryParser = None
+
+try:
     from src.program_manager import ProgramManager
+except ImportError as e:
+    logging.error(f"Import error (ProgramManager unavailable): {e}")
+    ProgramManager = None
+
+try:
     from src.logic_engine import LogicValidator
-    from src.api_models import (
-        ParseDictionaryRequest,
-        ParseDictionaryResponse,
-        ProgramDetail,
-        convert_validation_program_to_detail,
-        AnalyzeResponse,
-        AnalysisSummary,
-        FieldViolation,
-        LogicViolation,
-        SeverityEnum,
-        DataFormatEnum,
-        ReturnFormatEnum
-    )
+except ImportError as e:
+    logging.error(f"Import error (LogicValidator unavailable): {e}")
+    LogicValidator = None
+
+try:
     import mcp_server
 except ImportError as e:
-    # Log import errors but continue - will handle gracefully at runtime
-    logging.error(f"Import error: {e}")
-    LLMDictionaryParser = None
-    ProgramManager = None
-    LogicValidator = None
+    logging.error(f"Import error (mcp_server unavailable): {e}")
     mcp_server = None
 
 # Load environment variables
@@ -113,17 +136,58 @@ app = FastAPI(
 # Middleware Configuration
 # ============================================================================
 
-# CORS - Allow all origins for development
-# TODO: Configure appropriately for production deployment
+# CORS
+#
+# allow_origins=["*"] combined with allow_credentials=True lets Starlette's
+# CORSMiddleware dynamically reflect back whatever Origin header the browser
+# sends while still asserting Access-Control-Allow-Credentials: true - i.e. any
+# website can make credentialed cross-origin requests to this API from a
+# victim's browser. Origins must be explicitly enumerated instead.
+#
+# Configure via ALLOWED_ORIGINS env var (comma-separated). In non-prod
+# environments, common local dev ports are allowed by default for convenience;
+# in prod, nothing is allowed unless explicitly configured.
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+if _allowed_origins_env:
+    ALLOWED_ORIGINS = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+elif os.getenv("APP_ENV", "dev") == "prod":
+    ALLOWED_ORIGINS = []
+    logger.warning(
+        "ALLOWED_ORIGINS not set in production (APP_ENV=prod). "
+        "No cross-origin browser requests will be permitted."
+    )
+else:
+    ALLOWED_ORIGINS = ["http://localhost:3002", "http://localhost:8501", "http://127.0.0.1:3002"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # SECURITY: Restrict in production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Baseline security response headers (defense-in-depth for browser-based clients
+# and for any reverse proxy that forwards these responses as-is).
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
 # Rate limiting
+#
+# get_remote_address (slowapi) keys on request.client.host and does NOT parse
+# X-Forwarded-For, so it cannot be spoofed via that header. Note however that
+# behind Azure Container Apps ingress / any reverse proxy, request.client.host
+# will be the proxy's address for every request unless the proxy is configured
+# to preserve the real client IP - in that case all clients share one rate
+# limit bucket. Verify the ingress forwards a trustworthy client IP (or accept
+# that rate limiting is effectively global) before relying on it for abuse
+# prevention.
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -161,6 +225,16 @@ except Exception as e:
 API_KEY = os.getenv("DATA_ANALYZER_API_KEY")
 ADMIN_PASSWORD = os.getenv("DATA_ANALYZER_ADMIN_PASSWORD")
 
+# Fail closed in production: missing credentials must abort startup, not
+# silently disable authentication (see verify_api_key dev-mode fallback).
+if os.getenv("APP_ENV", "dev") == "prod" and not API_KEY:
+    raise RuntimeError(
+        "APP_ENV=prod but DATA_ANALYZER_API_KEY is not set. "
+        "Refusing to start with authentication disabled. "
+        "Set DATA_ANALYZER_API_KEY (and DATA_ANALYZER_ADMIN_PASSWORD for "
+        "admin endpoints) in the container environment."
+    )
+
 # Security scheme for API key
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 admin_password_header = APIKeyHeader(name="X-Admin-Password", auto_error=False)
@@ -192,8 +266,8 @@ async def verify_api_key(api_key: Optional[str] = Depends(api_key_header)) -> st
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Validate API key
-    if api_key != API_KEY:
+    # Validate API key (constant-time comparison to avoid timing side-channels)
+    if not secrets.compare_digest(api_key, API_KEY):
         # Log the failed attempt (without logging the actual key)
         logger.warning(f"Invalid API key attempt from request")
         raise HTTPException(
@@ -229,8 +303,8 @@ async def verify_admin_password(admin_password: Optional[str] = Depends(admin_pa
             headers={"WWW-Authenticate": "AdminPassword"},
         )
 
-    # Validate admin password
-    if admin_password != ADMIN_PASSWORD:
+    # Validate admin password (constant-time comparison to avoid timing side-channels)
+    if not secrets.compare_digest(admin_password, ADMIN_PASSWORD):
         # Log the failed attempt
         logger.warning(f"Invalid admin password attempt from request")
         raise HTTPException(
@@ -609,7 +683,10 @@ if __name__ == "__main__":
     # Get configuration from environment
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8000"))
-    reload = os.getenv("API_RELOAD", "true").lower() == "true"
+    # Default to no hot-reload: reload spawns a file-watching subprocess that
+    # has no place in a deployed container and increases attack surface.
+    # Opt in explicitly for local dev via API_RELOAD=true.
+    reload = os.getenv("API_RELOAD", "false").lower() == "true"
 
     logger.info(f"Starting server at {host}:{port}")
 

@@ -20,7 +20,6 @@ import re
 import plotly.graph_objects as go
 import plotly.express as px
 import hashlib
-import pickle
 import os
 import tempfile
 from pathlib import Path
@@ -758,7 +757,7 @@ with tab1:
 
                 # Create cache key with LLM flag
                 cache_key = f"{file_hash}_llm" if use_llm else file_hash
-                cache_file = st.session_state.cache_dir / f"{cache_key}.pkl"
+                cache_file = st.session_state.cache_dir / f"{cache_key}.json"
 
                 # Check if already cached
                 if cache_key in st.session_state.dict_cache:
@@ -781,9 +780,10 @@ with tab1:
                     else:
                         st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
                 elif cache_file.exists():
-                    # Load from persistent cache file
-                    with open(cache_file, 'rb') as f:
-                        st.session_state.dictionary = pickle.load(f)
+                    # Load from persistent cache file (JSON, not pickle - avoids
+                    # insecure deserialization if the cache dir is ever shared/writable)
+                    with open(cache_file, 'r', encoding='utf-8') as f:
+                        st.session_state.dictionary = json.load(f)
                         st.session_state.dict_cache[cache_key] = st.session_state.dictionary
 
                     # CLEAR CACHE LOGGING
@@ -879,8 +879,8 @@ with tab1:
 
                         # Cache the result both in memory and to disk
                         st.session_state.dict_cache[cache_key] = st.session_state.dictionary
-                        with open(cache_file, 'wb') as f:
-                            pickle.dump(st.session_state.dictionary, f)
+                        with open(cache_file, 'w', encoding='utf-8') as f:
+                            json.dump(st.session_state.dictionary, f)
                         st.info(f"💾 Dictionary cached - future loads will be instant (no API calls)")
 
                         # Add processing time to success message
@@ -912,12 +912,12 @@ with tab1:
                     dict_file.seek(0)  # Reset for reading
 
                     # Check persistent file cache first
-                    cache_file = st.session_state.cache_dir / f"{file_hash}.pkl"
+                    cache_file = st.session_state.cache_dir / f"{file_hash}.json"
 
                     if cache_file.exists():
-                        # Load from persistent cache file
-                        with open(cache_file, 'rb') as f:
-                            st.session_state.dictionary = pickle.load(f)
+                        # Load from persistent cache file (JSON, not pickle)
+                        with open(cache_file, 'r', encoding='utf-8') as f:
+                            st.session_state.dictionary = json.load(f)
                             st.session_state.dict_cache[file_hash] = st.session_state.dictionary
                         st.success(f"⚡ Loaded dictionary from cache (instant)")
                         st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
@@ -983,10 +983,10 @@ with tab1:
                         # Cache the parsed dictionary both in memory and to file
                         st.session_state.dict_cache[file_hash] = st.session_state.dictionary
 
-                        # Save to persistent cache file
-                        cache_file = st.session_state.cache_dir / f"{file_hash}.pkl"
-                        with open(cache_file, 'wb') as f:
-                            pickle.dump(st.session_state.dictionary, f)
+                        # Save to persistent cache file (JSON, not pickle)
+                        cache_file = st.session_state.cache_dir / f"{file_hash}.json"
+                        with open(cache_file, 'w', encoding='utf-8') as f:
+                            json.dump(st.session_state.dictionary, f)
 
                         st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
                         st.info(f"💾 Dictionary cached to disk for permanent reuse")
@@ -1115,7 +1115,8 @@ with tab1:
         st.markdown("---")
         st.markdown("#### 🗑️ Cache Management")
 
-        cache_files = list(st.session_state.cache_dir.glob("*.pkl"))
+        # Include legacy .pkl files so old pickle-based caches get cleaned up too
+        cache_files = list(st.session_state.cache_dir.glob("*.json")) + list(st.session_state.cache_dir.glob("*.pkl"))
         num_cached = len(cache_files)
 
         if num_cached > 0:
