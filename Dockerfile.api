@@ -1,0 +1,109 @@
+# ============================================================================
+# Multi-stage Dockerfile for Data Analyzer REST API
+# ============================================================================
+# This Dockerfile creates a production-ready container for the FastAPI server
+# with optimized image size, security best practices, and health monitoring.
+#
+# Build: docker build -f Dockerfile.api -t data-analyzer-api:latest .
+# Run: docker run -p 8000:8000 --env-file .env data-analyzer-api:latest
+# ============================================================================
+
+# ============================================================================
+# Stage 1: Builder - Install dependencies and compile Python packages
+# ============================================================================
+FROM python:3.11-slim AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Install build dependencies
+# These are only needed for building Python packages with C extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements files
+COPY requirements.txt .
+COPY api_requirements.txt .
+COPY mcp_requirements.txt .
+
+# Install Python dependencies to a local directory
+# This creates a clean set of installed packages without build artifacts
+# Note: --trusted-host flags added for WSL/corporate network compatibility
+RUN pip install --no-cache-dir --user \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org \
+    -r requirements.txt \
+    -r api_requirements.txt \
+    -r mcp_requirements.txt
+
+# ============================================================================
+# Stage 2: Runtime - Create minimal production image
+# ============================================================================
+FROM python:3.11-slim
+
+# Metadata
+LABEL maintainer="Data Analyzer Team"
+LABEL description="FastAPI REST API Server for Data Quality Analysis"
+LABEL version="1.0.0"
+
+# Set environment variables
+# PYTHONUNBUFFERED: Ensure Python output is sent straight to terminal
+# PYTHONDONTWRITEBYTECODE: Prevent Python from writing .pyc files
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
+
+# Install runtime dependencies only (minimal set for production)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
+# Create non-root user for security
+# Running as non-root is a Docker security best practice
+RUN useradd -m -u 1000 -s /bin/bash apiuser && \
+    mkdir -p /app/data /app/logs && \
+    chown -R apiuser:apiuser /app
+
+# Set working directory
+WORKDIR /app
+
+# Copy installed Python packages from builder stage
+COPY --from=builder --chown=apiuser:apiuser /root/.local /home/apiuser/.local
+
+# Update PATH to include user-installed Python packages
+ENV PATH=/home/apiuser/.local/bin:$PATH
+
+# Copy application files (as non-root user)
+COPY --chown=apiuser:apiuser api_server.py .
+COPY --chown=apiuser:apiuser src/ ./src/
+
+# Create volume mount point for program cache persistence
+# This allows validation programs to persist across container restarts
+VOLUME ["/app/data"]
+
+# Switch to non-root user
+USER apiuser
+
+# Expose API port
+EXPOSE 8000
+
+# Health check - verify API is responding
+# This enables container orchestration platforms to monitor service health
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl --fail http://localhost:8000/api/v1/health || exit 1
+
+# Run uvicorn ASGI server
+# --host 0.0.0.0: Listen on all interfaces (required for Docker networking)
+# --port 8000: API server port
+# --workers 1: Single worker (increase for production load)
+# --log-level info: Logging verbosity
+CMD ["uvicorn", "api_server:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "1", \
+     "--log-level", "info"]

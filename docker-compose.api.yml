@@ -1,0 +1,109 @@
+# ============================================================================
+# Docker Compose Configuration for Data Analyzer REST API (Production)
+# ============================================================================
+# This configuration deploys the FastAPI server with production settings:
+# - Resource limits for stability
+# - Volume persistence for program cache
+# - Health monitoring
+# - Secure environment variable management
+# - Logging configuration
+#
+# Usage:
+#   Production: docker-compose -f docker-compose.api.yml up -d
+#   Development: docker-compose -f docker-compose.api.yml -f docker-compose.dev.yml up
+#   Stop: docker-compose -f docker-compose.api.yml down
+#   Logs: docker-compose -f docker-compose.api.yml logs -f api
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # FastAPI REST API Server
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: data-analyzer-api:latest
+    container_name: data-analyzer-api
+    restart: unless-stopped
+
+    # Port mapping - expose API on host
+    ports:
+      - "8000:8000"
+
+    # Environment variables
+    # SECURITY: Do not commit secrets to version control
+    # Use .env file or Docker secrets for sensitive data
+    environment:
+      # Application environment
+      - APP_ENV=${APP_ENV:-prod}
+
+      # Azure OpenAI Configuration (required for dictionary parsing)
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4o}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-08-01-preview}
+
+      # API Security
+      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY}
+      - DATA_ANALYZER_ADMIN_PASSWORD=${DATA_ANALYZER_ADMIN_PASSWORD}
+
+      # Cache configuration
+      - PROGRAM_CACHE_DIR=/app/data/programs
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+    # Load additional environment variables from .env file
+    env_file:
+      - .env
+
+    # Volume mounts for data persistence
+    volumes:
+      # Program cache - persists validation programs across restarts
+      - program-cache:/app/data
+
+      # Logs - optional, for debugging
+      # - ./logs:/app/logs
+
+    # Health check configuration
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Resource limits
+    # Adjust based on your deployment environment and expected load
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'        # Maximum 2 CPU cores
+          memory: 2G          # Maximum 2GB RAM
+        reservations:
+          cpus: '0.5'        # Guarantee 0.5 CPU cores
+          memory: 512M        # Guarantee 512MB RAM
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"      # Maximum log file size
+        max-file: "3"        # Keep last 3 log files
+
+    # Network configuration
+    networks:
+      - api-network
+
+# Named volumes for data persistence
+volumes:
+  program-cache:
+    driver: local
+    name: data-analyzer-program-cache
+
+# Network configuration
+networks:
+  api-network:
+    driver: bridge
+    name: data-analyzer-api-network

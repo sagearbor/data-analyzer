@@ -199,3 +199,13 @@ Thumbs.db
 # Azure
 .azure/
 *.publish
+
+# Coverage artifacts
+coverage.json
+
+# Local session wrapups
+.claude/wrapups/
+
+# Windows/WSL NTFS metadata
+*:Zone.Identifier
+*:sec.endpointdlp
