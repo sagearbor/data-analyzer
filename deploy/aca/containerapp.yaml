@@ -1,0 +1,98 @@
+# ============================================================================
+# Azure Container Apps — deployment definition for the Data Analyzer API
+# ============================================================================
+# This is the ACA-native ingress + scaling config. It is DISTINCT from the
+# docker-compose.*.yml files, which describe the on-prem / VM (NGINX sidecar)
+# deployment and are NOT used by Azure Container Apps.
+#
+# Apply with:
+#   az containerapp create \
+#     --name data-analyzer-api \
+#     --resource-group <RG> \
+#     --environment <ACA_ENVIRONMENT> \
+#     --yaml deploy/aca/containerapp.yaml
+#
+# Or update an existing app:
+#   az containerapp update --name data-analyzer-api \
+#     --resource-group <RG> --yaml deploy/aca/containerapp.yaml
+#
+# Secrets (DATA_ANALYZER_API_KEY, Azure OpenAI key) are referenced from the
+# platform secret store, NOT hardcoded here. Set them once with:
+#   az containerapp secret set --name data-analyzer-api --resource-group <RG> \
+#     --secrets data-analyzer-api-key=<VALUE> azure-openai-api-key=<VALUE>
+# ============================================================================
+properties:
+  managedEnvironmentId: /subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.App/managedEnvironments/<ACA_ENVIRONMENT>
+  configuration:
+    activeRevisionsMode: Single
+    # ------------------------------------------------------------------
+    # Ingress: single external HTTPS endpoint on the container's port.
+    # ACA terminates TLS and injects X-Forwarded-* headers. targetPort
+    # must match the port uvicorn listens on inside the container (8000).
+    # ------------------------------------------------------------------
+    ingress:
+      external: true
+      targetPort: 8000
+      transport: http
+      allowInsecure: false
+      traffic:
+        - latestRevision: true
+          weight: 100
+    # ------------------------------------------------------------------
+    # Secrets: values live in the ACA secret store (or Key Vault refs).
+    # Placeholders here are overwritten by `az containerapp secret set`.
+    # ------------------------------------------------------------------
+    secrets:
+      - name: data-analyzer-api-key
+        value: "<set-via-az-containerapp-secret-set>"
+      - name: azure-openai-api-key
+        value: "<set-via-az-containerapp-secret-set>"
+    registries:
+      - server: <ACR_NAME>.azurecr.io
+        identity: system   # use the app's managed identity to pull images
+  template:
+    containers:
+      - name: data-analyzer-api
+        image: <ACR_NAME>.azurecr.io/data-analyzer-api:latest
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          # APP_ENV=prod hides the dev banner AND makes api_server.py
+          # fail-closed if DATA_ANALYZER_API_KEY is missing (see auth config).
+          - name: APP_ENV
+            value: prod
+          - name: DATA_ANALYZER_API_KEY
+            secretRef: data-analyzer-api-key
+          - name: AZURE_OPENAI_API_KEY
+            secretRef: azure-openai-api-key
+          - name: AZURE_OPENAI_ENDPOINT
+            value: "<https://your-resource.openai.azure.com/>"
+          # CORS: set to the actual frontend origin(s). Empty in prod = deny
+          # all cross-origin (fail-safe); replace with the real domain.
+          - name: ALLOWED_ORIGINS
+            value: "<https://your-frontend-domain>"
+          - name: API_RELOAD
+            value: "false"
+        # ACA HTTP probes (replace the Docker HEALTHCHECK, which ACA ignores).
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          - type: Readiness
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+    scale:
+      minReplicas: 1
+      maxReplicas: 3
+      rules:
+        - name: http-scaling
+          http:
+            metadata:
+              concurrentRequests: "50"
