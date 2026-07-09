@@ -3,14 +3,26 @@
 Test script for LLM dictionary parsing integration
 """
 
+import os
 import sys
 import json
 from pathlib import Path
+
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.llm_client import LLMDictionaryParser
+
+# Every test in this module makes a real Azure OpenAI call, so results depend on
+# live model output (e.g. occasional malformed-JSON responses) and network. They
+# are opt-in only, matching the RUN_LIVE_LLM_TESTS gate used elsewhere, so the
+# default suite stays deterministic and offline.
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_LIVE_LLM_TESTS") != "1",
+    reason="Set RUN_LIVE_LLM_TESTS=1 to opt in to real Azure OpenAI calls",
+)
 
 def test_csv_dictionary():
     """Test parsing a CSV dictionary"""

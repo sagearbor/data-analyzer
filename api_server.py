@@ -15,8 +15,6 @@ Usage:
     uvicorn api_server:app --reload --host 0.0.0.0 --port 8000
 """
 
-from __future__ import annotations
-
 import logging
 import os
 import secrets

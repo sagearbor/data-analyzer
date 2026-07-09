@@ -42,6 +42,28 @@ def client(mock_env):
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """
+    Reset slowapi's in-memory rate limit counters before each test.
+
+    The `client` fixture is module-scoped so its underlying app (and the
+    app.state.limiter it holds) persists across every test in this module.
+    Without a reset, the production rate limits (e.g. 5/minute on
+    /api/v1/dictionary/parse) accumulate across unrelated tests and cause
+    order-dependent 429 failures. This does not touch api_server.py or its
+    rate-limiting behavior - it only clears counters between tests so each
+    test starts with a fresh limiter window, as it would against a freshly
+    started server.
+    """
+    try:
+        from api_server import limiter
+        limiter.reset()
+    except ImportError:
+        pass
+    yield
+
+
 @pytest.fixture
 def api_headers():
     """Standard API headers with valid API key"""
@@ -193,17 +215,19 @@ class TestDictionaryParseEndpoint:
     @patch('api_server.program_manager')
     def test_parse_dictionary_csv_valid(self, mock_pm, client, sample_dictionary_csv, api_headers):
         """Valid CSV dictionary should be parsed successfully"""
-        # Mock the program manager response
+        # Mock the program manager response using the real ValidationProgram
+        # attribute names read by api_server.parse_dictionary()
         mock_program = MagicMock()
-        mock_program.id = "test-id-123"
+        mock_program.program_id = "test-id-123"
         mock_program.name = "test-program"
         mock_program.created_at = "2025-12-02T00:00:00"
-        mock_program.source_type = "redcap_csv"
-        mock_program.field_count = 5
-        mock_program.rule_count = 3
-        mock_program.logic_rule_count = 1
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.num_fields = 5
+        mock_program.num_basic_rules = 3
+        mock_program.num_logic_rules = 1
         mock_program.schema = {"record_id": "str", "age": "int"}
         mock_program.generated_code = "# validation code"
+        mock_program.model_used = "gpt-5-nano"
 
         mock_pm.create_program_from_dictionary.return_value = mock_program
 
@@ -232,15 +256,16 @@ class TestDictionaryParseEndpoint:
     def test_parse_dictionary_json_valid(self, mock_pm, client, sample_dictionary_json, api_headers):
         """Valid JSON dictionary should be parsed successfully"""
         mock_program = MagicMock()
-        mock_program.id = "test-id-json"
+        mock_program.program_id = "test-id-json"
         mock_program.name = "test-program-json"
         mock_program.created_at = "2025-12-02T00:00:00"
-        mock_program.source_type = "fhir_json"
-        mock_program.field_count = 2
-        mock_program.rule_count = 1
-        mock_program.logic_rule_count = 0
+        mock_program.dictionary_format = "fhir_json"
+        mock_program.num_fields = 2
+        mock_program.num_basic_rules = 1
+        mock_program.num_logic_rules = 0
         mock_program.schema = {"record_id": "str", "age": "int"}
         mock_program.generated_code = "# validation code"
+        mock_program.model_used = "gpt-5-nano"
 
         mock_pm.create_program_from_dictionary.return_value = mock_program
 
@@ -250,30 +275,71 @@ class TestDictionaryParseEndpoint:
 
         assert response.status_code in [200, 503]
 
-    def test_parse_dictionary_save_program_false(self, client, sample_dictionary_csv, api_headers):
+    @patch('api_server.program_manager')
+    def test_parse_dictionary_save_program_false(self, mock_pm, client, sample_dictionary_csv, api_headers):
         """Parse without saving should work"""
+        mock_program = MagicMock()
+        mock_program.program_id = "test-id-nosave"
+        mock_program.name = "test-program-nosave"
+        mock_program.created_at = "2025-12-02T00:00:00"
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.num_fields = 5
+        mock_program.num_basic_rules = 3
+        mock_program.num_logic_rules = 1
+        mock_program.schema = {"record_id": "str", "age": "int"}
+        mock_program.generated_code = "# validation code"
+        mock_program.model_used = "gpt-5-nano"
+
+        mock_pm.create_program_from_dictionary.return_value = mock_program
+
         files = {"dictionary_file": ("test.csv", sample_dictionary_csv, "text/csv")}
         data = {"save_program": "false"}
         response = client.post("/api/v1/dictionary/parse", files=files, data=data, headers=api_headers)
         # Should succeed or return 503 if services not available
         assert response.status_code in [200, 503]
 
-    def test_parse_dictionary_custom_name(self, client, sample_dictionary_csv, api_headers):
+    @patch('api_server.program_manager')
+    def test_parse_dictionary_custom_name(self, mock_pm, client, sample_dictionary_csv, api_headers):
         """Custom program name should be accepted"""
+        mock_program = MagicMock()
+        mock_program.program_id = "test-id-customname"
+        mock_program.name = "my-custom-program"
+        mock_program.created_at = "2025-12-02T00:00:00"
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.num_fields = 5
+        mock_program.num_basic_rules = 3
+        mock_program.num_logic_rules = 1
+        mock_program.schema = {"record_id": "str", "age": "int"}
+        mock_program.generated_code = "# validation code"
+        mock_program.model_used = "gpt-5-nano"
+
+        mock_pm.create_program_from_dictionary.return_value = mock_program
+        mock_pm.db.save_program.return_value = None
+
         files = {"dictionary_file": ("test.csv", sample_dictionary_csv, "text/csv")}
         data = {"save_program": "true", "program_name": "my-custom-program"}
         response = client.post("/api/v1/dictionary/parse", files=files, data=data, headers=api_headers)
         assert response.status_code in [200, 503]
 
-    def test_parse_dictionary_empty_file(self, client, api_headers):
-        """Empty file should return 400"""
+    @patch('api_server.program_manager')
+    def test_parse_dictionary_empty_file(self, mock_pm, client, api_headers):
+        """Empty file content should fail parsing (mocked - no live LLM call)"""
+        mock_pm.create_program_from_dictionary.side_effect = RuntimeError(
+            "No fields could be extracted from empty dictionary content"
+        )
+
         files = {"dictionary_file": ("empty.csv", b"", "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
         # Empty file might be handled differently - check for error
         assert response.status_code in [400, 500, 503]
 
-    def test_parse_dictionary_malformed_csv(self, client, api_headers):
-        """Malformed CSV should return error"""
+    @patch('api_server.program_manager')
+    def test_parse_dictionary_malformed_csv(self, mock_pm, client, api_headers):
+        """Malformed CSV should return error (mocked - no live LLM call)"""
+        mock_pm.create_program_from_dictionary.side_effect = RuntimeError(
+            "Failed to parse malformed CSV dictionary"
+        )
+
         malformed_csv = "incomplete,header\nrow1,value1,extra_value\nrow2"
         files = {"dictionary_file": ("bad.csv", malformed_csv, "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
@@ -323,20 +389,28 @@ class TestDictionaryGetEndpoint:
     @patch('api_server.program_manager')
     def test_get_dictionary_valid_id(self, mock_pm, client, api_headers):
         """Valid program ID should return program details"""
+        # Attribute names must match ValidationProgram (src/program_cache.py),
+        # since convert_validation_program_to_detail() reads these directly.
         mock_program = MagicMock()
-        mock_program.id = "test-id-123"
+        mock_program.program_id = "test-id-123"
         mock_program.name = "test-program"
         mock_program.status = "active"
         mock_program.created_at = "2025-12-02T00:00:00"
-        mock_program.source_type = "redcap_csv"
-        mock_program.field_count = 5
-        mock_program.rule_count = 3
-        mock_program.logic_rule_count = 1
+        mock_program.dictionary_source = "test.csv"
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.created_by = "test-user"
+        mock_program.num_fields = 5
+        mock_program.num_basic_rules = 3
+        mock_program.num_logic_rules = 1
         mock_program.schema = {"record_id": "str", "age": "int"}
+        mock_program.conditional_rules = []
         mock_program.generated_code = "# validation code"
         mock_program.aliases = []
-        mock_program.usage_count = 0
-        mock_program.last_used_at = None
+        mock_program.use_count = 0
+        mock_program.last_used = None
+        mock_program.model_used = "gpt-5-nano"
+        mock_program.generation_time_seconds = 1.5
+        mock_program.version = 1
 
         mock_pm.db.load_program.return_value = mock_program
 
@@ -347,19 +421,25 @@ class TestDictionaryGetEndpoint:
     def test_get_dictionary_by_name(self, mock_pm, client, api_headers):
         """Program can be retrieved by name"""
         mock_program = MagicMock()
-        mock_program.id = "test-id-456"
+        mock_program.program_id = "test-id-456"
         mock_program.name = "my-program-name"
         mock_program.status = "active"
         mock_program.created_at = "2025-12-02T00:00:00"
-        mock_program.source_type = "fhir_json"
-        mock_program.field_count = 3
-        mock_program.rule_count = 2
-        mock_program.logic_rule_count = 0
+        mock_program.dictionary_source = "test.json"
+        mock_program.dictionary_format = "fhir_json"
+        mock_program.created_by = "test-user"
+        mock_program.num_fields = 3
+        mock_program.num_basic_rules = 2
+        mock_program.num_logic_rules = 0
         mock_program.schema = {"patient_id": "str"}
+        mock_program.conditional_rules = []
         mock_program.generated_code = "# code"
         mock_program.aliases = []
-        mock_program.usage_count = 5
-        mock_program.last_used_at = "2025-12-02T12:00:00"
+        mock_program.use_count = 5
+        mock_program.last_used = "2025-12-02T12:00:00"
+        mock_program.model_used = "gpt-5-nano"
+        mock_program.generation_time_seconds = 1.2
+        mock_program.version = 1
 
         mock_pm.db.load_program.return_value = mock_program
 
@@ -370,19 +450,25 @@ class TestDictionaryGetEndpoint:
     def test_get_dictionary_by_alias(self, mock_pm, client, api_headers):
         """Program can be retrieved by alias"""
         mock_program = MagicMock()
-        mock_program.id = "test-id-789"
+        mock_program.program_id = "test-id-789"
         mock_program.name = "original-name"
         mock_program.status = "active"
         mock_program.created_at = "2025-12-02T00:00:00"
-        mock_program.source_type = "generic"
-        mock_program.field_count = 10
-        mock_program.rule_count = 8
-        mock_program.logic_rule_count = 3
+        mock_program.dictionary_source = "test.txt"
+        mock_program.dictionary_format = "generic"
+        mock_program.created_by = "test-user"
+        mock_program.num_fields = 10
+        mock_program.num_basic_rules = 8
+        mock_program.num_logic_rules = 3
         mock_program.schema = {"field1": "int", "field2": "str"}
+        mock_program.conditional_rules = []
         mock_program.generated_code = "# code"
         mock_program.aliases = ["my-alias", "another-alias"]
-        mock_program.usage_count = 15
-        mock_program.last_used_at = "2025-12-02T15:00:00"
+        mock_program.use_count = 15
+        mock_program.last_used = "2025-12-02T15:00:00"
+        mock_program.model_used = "gpt-5-nano"
+        mock_program.generation_time_seconds = 2.1
+        mock_program.version = 1
 
         mock_pm.db.load_program.return_value = mock_program
 
@@ -399,8 +485,8 @@ class TestOpenAPIEndpoints:
     """Test OpenAPI documentation endpoints"""
 
     def test_openapi_json(self, client):
-        """OpenAPI JSON schema should be accessible"""
-        response = client.get("/openapi.json")
+        """OpenAPI JSON schema should be accessible at the versioned path"""
+        response = client.get("/api/v1/openapi.json")
         assert response.status_code == 200
         schema = response.json()
         assert "openapi" in schema
@@ -408,14 +494,14 @@ class TestOpenAPIEndpoints:
         assert "paths" in schema
 
     def test_docs_endpoint(self, client):
-        """Swagger UI docs should be accessible"""
-        response = client.get("/docs")
+        """Swagger UI docs should be accessible at the versioned path"""
+        response = client.get("/api/v1/docs")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
 
     def test_redoc_endpoint(self, client):
-        """ReDoc documentation should be accessible"""
-        response = client.get("/redoc")
+        """ReDoc documentation should be accessible at the versioned path"""
+        response = client.get("/api/v1/redoc")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
 

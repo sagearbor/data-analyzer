@@ -1,15 +1,29 @@
 #!/usr/bin/env python3
 """
-Test script for validating PDF dictionary extraction improvements
+Test PDF dictionary extraction: real PDF text extraction (pypdf) plus a
+mocked LLM parsing step, so the suite stays deterministic and offline.
+
+A second, real-LLM variant is provided for manual verification against
+Azure OpenAI; it is skipped automatically unless AZURE_OPENAI_API_KEY (or
+OPENAI_API_KEY) is set, and is never run as part of the default suite.
 """
 
-import pytest
 import os
 import time
 from pathlib import Path
+from unittest.mock import patch
 
-from src.llm_client import LLMDictionaryParser
+import pytest
 import pypdf
+
+from src.llm_client import LLMDictionaryParser, FieldDefinition
+
+
+# This repo's .env normally carries real Azure OpenAI credentials for local
+# development, so "credentials present" is not a safe signal for "ok to make
+# a live network call in the default test run." Require an explicit opt-in
+# instead, so `pytest tests/` never dials out.
+RUN_LIVE_LLM_TESTS = os.environ.get("RUN_LIVE_LLM_TESTS") == "1"
 
 
 @pytest.fixture
@@ -18,85 +32,124 @@ def pdf_path(test_data_dir):
     return test_data_dir / "dictionaries" / "LTCPROMISE8314QC.pdf"
 
 
-def test_pdf_extraction(pdf_path):
-    """Test PDF dictionary extraction with improved settings"""
+def _read_pdf_text(pdf_path: Path, max_pages: int = None) -> str:
+    """
+    Extract raw text content from a PDF using pypdf (no LLM involved).
 
-    print(f"\n📄 Testing PDF extraction for: {pdf_path}")
-    print("=" * 60)
+    max_pages caps how many pages are read. The fixture PDF is ~90 pages and
+    pypdf's extract_text() runs roughly 1 page/second, so unbounded
+    extraction makes this test slow; a handful of pages is enough to
+    exercise the real extraction path deterministically and quickly.
+    """
+    with open(pdf_path, "rb") as file:
+        pdf_reader = pypdf.PdfReader(file)
+        pages = pdf_reader.pages[:max_pages] if max_pages else pdf_reader.pages
+        text_content = ""
+        for page in pages:
+            text_content += page.extract_text() + "\n"
+    return text_content
 
-    # Check file exists
+
+def _mock_fields():
+    """A small, representative set of fields mimicking a real LLM extraction."""
+    return [
+        FieldDefinition(
+            field_name="record_id",
+            data_type="str",
+            required=True,
+            description="Unique record identifier",
+        ),
+        FieldDefinition(
+            field_name="age",
+            data_type="int",
+            required=True,
+            description="Subject age in years",
+            min_value=0,
+            max_value=120,
+        ),
+        FieldDefinition(
+            field_name="visit_date",
+            data_type="date",
+            required=False,
+            description="Date of visit",
+        ),
+    ]
+
+
+def test_pdf_text_extraction(pdf_path):
+    """PDF text extraction (pypdf) should return non-empty content"""
     assert os.path.exists(pdf_path), f"File not found: {pdf_path}"
 
-    # Read PDF content
-    print("📖 Reading PDF content...")
-    with open(pdf_path, 'rb') as file:
-        pdf_reader = pypdf.PdfReader(file)
-        num_pages = len(pdf_reader.pages)
-        print(f"  Pages: {num_pages}")
-
-        # Extract text from all pages
-        text_content = ""
-        for page_num, page in enumerate(pdf_reader.pages):
-            text_content += page.extract_text() + "\n"
-            if page_num % 10 == 0:
-                print(f"  Processed page {page_num + 1}/{num_pages}")
-
-        print(f"  Total characters: {len(text_content):,}")
+    text_content = _read_pdf_text(pdf_path, max_pages=5)
 
     assert len(text_content) > 0, "PDF extraction returned empty content"
 
-    # Initialize LLM parser
-    print("\n🤖 Initializing LLM parser...")
-    parser = LLMDictionaryParser()
-    print("✅ LLM parser initialized")
 
-    # Parse dictionary
-    print("\n📋 Parsing dictionary with LLM...")
-    print(f"  Max fields: 500")
-    print(f"  Chunk size: 4500 tokens")
+def test_pdf_extraction(pdf_path):
+    """
+    End-to-end dictionary parsing with the LLM call mocked out.
 
-    start_time = time.time()
+    Exercises real PDF text extraction (first few pages, for speed), then a
+    mocked LLMDictionaryParser.parse_dictionary() call so no network access
+    or Azure OpenAI credentials are required.
+    """
+    text_content = _read_pdf_text(pdf_path, max_pages=5)
+    assert len(text_content) > 0, "PDF extraction returned empty content"
 
-    # Parse without truncation
-    result = parser.parse_dictionary(text_content, max_fields=500)
+    mock_fields = _mock_fields()
+    mock_result = {
+        "fields": [f.to_dict() for f in mock_fields],
+        "schema": {f.field_name: f.data_type for f in mock_fields},
+        "metadata": {
+            "total_fields": len(mock_fields),
+            "chunks_processed": 1,
+            "mode": "single-call",
+            "source": "LLM Parser (mocked)",
+            "processing_time_seconds": 0.01,
+        },
+    }
 
-    elapsed = time.time() - start_time
+    with patch.object(LLMDictionaryParser, "__init__", return_value=None):
+        parser = LLMDictionaryParser()
 
-    print(f"\n✅ Parsing completed in {elapsed:.1f} seconds")
-    print(f"  Fields extracted: {len(result.get('fields', []))}")
-    print(f"  Chunks processed: {result.get('metadata', {}).get('chunks_processed', 0)}")
+    with patch.object(LLMDictionaryParser, "parse_dictionary", return_value=mock_result) as mock_parse:
+        result = parser.parse_dictionary(text_content, max_fields=500)
 
-    # Show first 20 fields
-    fields = result.get('fields', [])
+    mock_parse.assert_called_once_with(text_content, max_fields=500)
+
+    fields = result.get("fields", [])
     assert fields is not None, "No fields returned from parser"
     assert len(fields) > 0, "Parser returned empty fields list"
+    assert result.get("metadata", {}).get("chunks_processed", 0) > 0, "Should process at least one chunk"
 
-    if fields:
-        print("\n📊 Sample of extracted fields:")
-        print("-" * 40)
-        for i, field in enumerate(fields[:20], 1):
-            print(f"{i:3}. {field['field_name']:30} ({field['data_type']})")
-            if field.get('required'):
-                print(f"     [Required]")
-            if field.get('description'):
-                desc = field['description'][:60] + "..." if len(field['description']) > 60 else field['description']
-                print(f"     {desc}")
 
-        if len(fields) > 20:
-            print(f"\n     ... and {len(fields) - 20} more fields")
+@pytest.mark.skipif(
+    not RUN_LIVE_LLM_TESTS,
+    reason="Set RUN_LIVE_LLM_TESTS=1 to opt in to a real Azure OpenAI call",
+)
+def test_pdf_extraction_live_llm(pdf_path):
+    """
+    Manual/opt-in variant that makes a real Azure OpenAI call.
 
-    # Summary
-    print("\n📈 Extraction Summary:")
-    print(f"  Total fields: {len(fields)}")
-    print(f"  Required fields: {sum(1 for f in fields if f.get('required'))}")
-    print(f"  Fields with descriptions: {sum(1 for f in fields if f.get('description'))}")
-    print(f"  Fields with allowed values: {sum(1 for f in fields if f.get('allowed_values'))}")
+    Excluded from the default deterministic/offline test run; only runs
+    when explicitly requested via RUN_LIVE_LLM_TESTS=1.
+    """
+    text_content = _read_pdf_text(pdf_path)
+    assert len(text_content) > 0, "PDF extraction returned empty content"
 
-    # Assertions to validate results
-    assert len(fields) > 0, "Should extract at least one field"
-    assert result.get('metadata', {}).get('chunks_processed', 0) > 0, "Should process at least one chunk"
+    parser = LLMDictionaryParser()
+
+    start_time = time.time()
+    result = parser.parse_dictionary(text_content, max_fields=500)
+    elapsed = time.time() - start_time
+
+    fields = result.get("fields", [])
+    assert fields is not None, "No fields returned from parser"
+    assert len(fields) > 0, "Parser returned empty fields list"
+    assert result.get("metadata", {}).get("chunks_processed", 0) > 0, "Should process at least one chunk"
+
+    print(f"\nLive LLM parse completed in {elapsed:.1f}s, extracted {len(fields)} fields")
 
 
 if __name__ == "__main__":
-    # Allow running as script for manual testing
-    pytest.main([__file__, "-v", "-s"])
+    pytest.main([__file__, "-v"])
