@@ -439,3 +439,41 @@ The code-simplifier and security-reviewer agents maintain tracking files to syst
 - Specify what information agent should return in its final report
 - Each agent invocation is stateless - provide full context needed
 - For parallel work, ensure tasks are truly independent with no shared dependencies
+
+### Save summary of last sessions if prompted with "wrapup"
+268 Write YAML file to `.claude/wrapups/YYYY-MMDDHH-shortDescription.yaml` with this schema:
+269 ```yaml
+270 session:
+271   date: "YYYY-MM-DD"
+272   time_utc: "HH:MM"
+273   duration_hours: 2.0
+274   context_tokens_used: 160000
+275   context_tokens_max: 200000
+276   branch: "branch-name"
+277   commits: [{sha: "abc123", message: "..."}]
+278 topics:  # Token usage % by topic (must sum to 100). Topics: frontend, backend, devops, security, quality, documentation, arch    itecture, testing, research, planning.  An example is below.
+279   backend: 45
+280   quality: 30
+281   testing: 20
+282   documentation: 5
+283 tags: ["specific-feature-tags"]
+284 problem_solved:
+285   summary: "One line description"
+286   impact: "What was broken"
+287 problems_remaining:
+288   - issue: "Brief description of unresolved issue"
+289     priority: "high"  # high, medium, low
+290     blocker: false
+291 changes_made:
+292   files_created: [{path: "...", purpose: "..."}]
+293   files_modified: [{path: "...", changes: "..."}]
+294 discoveries: [{title: "...", details: {...}}]
+295 next_session:
+296   primary_goal: "What to do next"
+297   files_to_modify: ["..."]
+298   implementation_steps: ["..."]
+299 test_commands:
+300   verify_fix: "command"
+301   run_tests: "pytest ..."
+302 ```
+

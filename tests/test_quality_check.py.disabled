@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
-"""Test script to validate quality checking with data dictionary"""
+"""
+DISABLED: This file has been renamed to .disabled to prevent pytest from collecting it.
+
+This is a standalone test script (not a pytest test) that:
+- Uses hardcoded invalid file paths: "test_data_files/..." and "test_dictionaries/..."
+- Is designed to be run directly as a script, not via pytest
+- Requires specific test data files that are not part of the standard test fixtures
+
+To re-enable:
+1. Update file paths to use proper test fixtures from conftest.py
+2. Convert to pytest test functions using proper fixtures
+3. Remove hardcoded paths and use temp_dir fixture
+4. Rename back to test_quality_check.py
+
+Original description: Test script to validate quality checking with data dictionary
+"""
 
 import sys
 from mcp_server import DataLoader, DataDictionaryParser, QualityChecker

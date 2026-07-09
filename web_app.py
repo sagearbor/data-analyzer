@@ -15,7 +15,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
-import PyPDF2
+import pypdf
 import re
 import plotly.graph_objects as go
 import plotly.express as px
@@ -39,6 +39,15 @@ try:
 except ImportError:
     LLM_AVAILABLE = False
     print("LLM client not available. Install openai package to enable.")
+
+# Import Named Program Cache and Logic Validation Engine
+try:
+    from src.program_manager import ProgramManager
+    from src.logic_engine import LogicValidator, RuleExtractor, ConditionalRule
+    PROGRAM_CACHE_AVAILABLE = True
+except ImportError:
+    PROGRAM_CACHE_AVAILABLE = False
+    print("Program cache and logic validation not available.")
 
 # Import environment banner
 try:
@@ -335,6 +344,38 @@ class DataQualityAnalyzer:
                     "message": f"Column '{col}' has {missing} missing values ({round(missing/len(data)*100, 2)}%)"
                 })
 
+        # LOGIC VALIDATION - Run conditional logic checks if available
+        logic_violations_count = 0
+        if PROGRAM_CACHE_AVAILABLE and dictionary and 'fields' in dictionary:
+            try:
+                # Extract conditional rules from dictionary fields
+                extractor = RuleExtractor()
+                conditional_rules = extractor.extract_rules_from_fields(
+                    dictionary.get('fields', []),
+                    format_type="REDCap"  # Default format, could be configurable
+                )
+
+                if conditional_rules:
+                    # Run logic validation
+                    validator = LogicValidator()
+                    logic_violations = validator.validate(conditional_rules, data)
+
+                    # Add logic violations to issues list
+                    for violation in logic_violations:
+                        issues.append({
+                            "type": "logic_violation",
+                            "severity": violation.severity,
+                            "column": ', '.join(violation.affected_fields),
+                            "row": violation.row_index,
+                            "value": violation.actual_values,
+                            "message": f"Logic rule violated: {violation.rule_description}"
+                        })
+
+                    logic_violations_count = len(logic_violations)
+            except Exception as e:
+                # Log error but don't fail the entire analysis
+                print(f"Logic validation error: {e}")
+
         # Build summary
         summary = {
             "total_rows": len(data),
@@ -342,6 +383,7 @@ class DataQualityAnalyzer:
             "issues_found": len(issues),
             "critical_issues": sum(1 for i in issues if i.get('severity') == 'error'),
             "warnings": sum(1 for i in issues if i.get('severity') == 'warning'),
+            "logic_violations_count": logic_violations_count,
             "data_types": results.get('summary_stats', {}).get('dtypes', {col: str(data[col].dtype) for col in data.columns}),
             "completeness": round((1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100, 2)
         }
@@ -386,6 +428,13 @@ class DataQualityAnalyzer:
                 "type": "categorical_validation",
                 "priority": "high",
                 "message": "Invalid categorical values found. Verify allowed values match business requirements"
+            })
+
+        if 'logic_violation' in issue_types:
+            recommendations.append({
+                "type": "conditional_logic",
+                "priority": "critical",
+                "message": "Conditional logic violations detected. Review field dependencies and branching rules in data dictionary"
             })
 
         return recommendations
@@ -816,7 +865,7 @@ with tab1:
                         # Read file content
                         file_content = ""
                         if dict_file.name.endswith('.pdf'):
-                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            pdf_reader = pypdf.PdfReader(dict_file)
                             for page in pdf_reader.pages:
                                 file_content += page.extract_text() + "\n"
                         elif dict_file.name.endswith('.csv'):
@@ -940,7 +989,7 @@ with tab1:
                             progress_bar = st.progress(0, text="Parsing PDF dictionary...")
 
                             # Read PDF content
-                            pdf_reader = PyPDF2.PdfReader(dict_file)
+                            pdf_reader = pypdf.PdfReader(dict_file)
                             num_pages = len(pdf_reader.pages)
 
                             extracted_text = ""
@@ -1323,7 +1372,7 @@ with tab2:
     Built with Streamlit and powered by the Model Context Protocol (MCP) for
     advanced data analysis capabilities. Features include:
     - Interactive Plotly visualizations
-    - PDF parsing with PyPDF2
+    - PDF parsing with pypdf
     - Excel generation with cell highlighting and comments
     - Efficient dictionary caching system
 

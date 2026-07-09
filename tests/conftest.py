@@ -11,7 +11,7 @@ import shutil
 
 # Get the tests directory
 TESTS_DIR = Path(__file__).parent
-DATA_DIR = TESTS_DIR / "data"
+DATA_DIR = TESTS_DIR / "test_data"
 
 
 @pytest.fixture(scope="session")
@@ -234,13 +234,14 @@ def mock_mcp_request():
 
 
 # Async fixtures for MCP testing
-@pytest.fixture
-async def mock_mcp_server():
-    """Mock MCP server for testing"""
-    from mcp_server import create_server
-    server = await create_server()
-    yield server
-    # Cleanup if needed
+# TODO: Re-enable when create_server() function is implemented in mcp_server.py
+# @pytest.fixture
+# async def mock_mcp_server():
+#     """Mock MCP server for testing"""
+#     from mcp_server import create_server
+#     server = await create_server()
+#     yield server
+#     # Cleanup if needed
 
 
 # Markers for test organization

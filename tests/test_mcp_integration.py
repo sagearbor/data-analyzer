@@ -5,6 +5,7 @@ import asyncio
 import json
 import base64
 import pandas as pd
+import pytest
 import sys
 import os
 from datetime import datetime
@@ -13,6 +14,7 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mcp_server import DataLoader, QualityChecker, QualityPipeline
 
+@pytest.mark.asyncio
 async def test_mcp_analyze_data():
     """Test the analyze_data MCP tool function"""
     print("\n=== Testing MCP analyze_data Tool ===")
@@ -71,6 +73,7 @@ async def test_mcp_analyze_data():
         print(f"❌ MCP analyze_data failed: {e}")
         return False
 
+@pytest.mark.asyncio
 async def test_multi_format_mcp():
     """Test MCP with different data formats"""
     print("\n=== Testing MCP with Multiple Formats ===")
@@ -111,6 +114,7 @@ async def test_multi_format_mcp():
     print(f"\nFormats tested through MCP: {formats_tested}")
     return len(formats_tested) == 2
 
+@pytest.mark.asyncio
 async def test_data_quality_checks():
     """Test comprehensive data quality check functionality"""
     print("\n=== Testing Data Quality Checks ===")
@@ -162,6 +166,7 @@ async def test_data_quality_checks():
         print(f"❌ Data quality checks failed: {e}")
         return False
 
+@pytest.mark.asyncio
 async def test_auto_type_detection():
     """Test automatic data type detection"""
     print("\n=== Testing Auto Type Detection ===")
