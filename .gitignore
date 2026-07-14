@@ -236,3 +236,7 @@ deploy/aca/*.local.yaml
 
 # Local internal HTML docs (DCRI infra — never publish/commit)
 *.local.html
+
+# Local working docs with real infra IDs / FQDNs (public repo — keep local)
+*.local.md
+deploy/aca/RUNBOOK.md
