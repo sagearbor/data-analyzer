@@ -27,6 +27,7 @@ from pathlib import Path
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
+from src.__version__ import __version__
 # NOTE: QualityPipeline/QualityChecker (mcp_server.py) are no longer imported
 # here. Rule-based quality analysis now runs centrally behind the REST API
 # (POST /api/v1/analyze) so the UI, the API, and the MCP server all share one
@@ -99,6 +100,22 @@ if ENVBANNER_AVAILABLE:
         envbanner.streamlit(position="bottom", opacity=0.9, text=banner_text)
 
 # Clean, modern CSS without overlapping issues
+#
+# NAVBAR APPROACH (version-robust):
+# Older versions of this file relied on styling Streamlit's *internal* DOM
+# structure for st.tabs (e.g. `.stTabs [data-baseweb="tab-list"]` pinned with
+# position:fixed, with the title injected via a `::before` pseudo-element).
+# That structure is not a public API and changed between Streamlit releases
+# (broke going from 1.28 -> 1.59), silently breaking the navbar in production.
+#
+# The title/version bar below is now a plain, self-contained HTML block
+# rendered via st.markdown(unsafe_allow_html=True). It does not reference any
+# Streamlit-internal CSS selector, so it cannot be broken by a Streamlit DOM
+# change. Only minimal, defensive color/hover styling is applied to st.tabs
+# itself (no position:fixed, no ::before content injection) so the tabs
+# degrade gracefully - worst case on a future Streamlit version they simply
+# render as normal (unstyled) tabs directly beneath the fixed title bar,
+# rather than disappearing or breaking layout.
 st.markdown("""
 <style>
     /* Hide Streamlit default elements */
@@ -112,9 +129,9 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Remove excess padding */
+    /* Remove excess padding; leave room for the fixed title bar below */
     .block-container {
-        padding-top: 0.2rem !important;
+        padding-top: 3.25rem !important;
         padding-bottom: 2rem !important;
         max-width: 100% !important;
     }
@@ -124,37 +141,12 @@ st.markdown("""
         background: #ffffff;
     }
 
-    /* Style tabs to look like navbar and fix to top */
+    /* Minimal, defensive styling of st.tabs - colors/hover only, no
+       reliance on Streamlit-internal layout (no position:fixed here). */
     .stTabs [data-baseweb="tab-list"] {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: 1000;
         background-color: #1e293b;
-        padding: 0.5rem 1rem;
-        border-radius: 0;
-        margin-bottom: 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    /* Add title to navbar */
-    .stTabs [data-baseweb="tab-list"]::before {
-        content: "Data Quality Analyzer.";
-        color: #e2e8f0;
-        font-size: 1.2rem;
-        font-weight: 600;
-        margin-right: auto;
-        padding-right: 2rem;
-    }
-
-    /* Add minimal spacing below fixed navbar */
-    .stTabs [data-baseweb="tab-panel"] {
-        margin-top: 48px;
-        padding-top: 1rem;
+        gap: 0.25rem;
+        padding: 0.25rem 1rem 0 1rem;
     }
 
     .stTabs [data-baseweb="tab"] {
@@ -237,8 +229,52 @@ st.markdown("""
         overflow: hidden;
         text-overflow: ellipsis;
     }
+
+    /* Fixed title bar (see .app-title-bar markup below). Self-contained -
+       does not depend on any Streamlit-internal selector, so it keeps
+       working even if a future Streamlit release changes the tab DOM. */
+    .app-title-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        background-color: #1e293b;
+        padding: 0.6rem 1.25rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        display: flex;
+        align-items: baseline;
+    }
+
+    .app-title-bar .app-title {
+        color: #e2e8f0;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+
+    .app-title-bar .app-version {
+        color: #94a3b8;
+        font-size: 0.7rem;
+        font-weight: 500;
+        margin-left: 0.35rem;
+        vertical-align: sub;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# Fixed title bar: plain HTML injected via st.markdown, independent of
+# Streamlit's internal tab DOM (see NAVBAR APPROACH note above). The tabs
+# created later via st.tabs(...) render directly beneath this bar and are
+# styled (not positioned) to visually continue the same dark strip.
+st.markdown(
+    f"""
+    <div class="app-title-bar">
+        <span class="app-title">Data Quality Analyzer</span>
+        <sub class="app-version">v{__version__}</sub>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 class DataQualityAnalyzer:
     """
@@ -1535,7 +1571,66 @@ with tab2:
     except Exception as e:
         st.error(f"Error rendering diagram: {str(e)}")
 
-    st.markdown("""
+    with st.expander("🔌 Programmatic access (API)", expanded=False):
+        st.markdown(
+            "For pipelines and scripts, the REST API is the intended interface "
+            "instead of this UI - it requires **(1)** the Duke VPN and **(2)** an "
+            "API key sent via the `X-API-Key` header (request one from the app "
+            "owner); requests are rate-limited."
+        )
+
+        st.markdown("**Python example**")
+        st.code(
+            '''import os
+import requests
+
+# Base URL and API key are read from the environment - never hardcode them.
+# In production the API is only reachable over the Duke VPN (internal/VPN-only
+# Azure FQDN); DATA_ANALYZER_API_URL below is a placeholder for local/dev use.
+API_URL = os.environ.get("DATA_ANALYZER_API_URL", "https://<data-analyzer-api-fqdn>")
+API_KEY = os.environ["DATA_ANALYZER_API_KEY"]
+
+headers = {"X-API-Key": API_KEY}
+
+# 1. Health check (no auth required)
+resp = requests.get(f"{API_URL}/api/v1/health", timeout=10)
+resp.raise_for_status()
+print(resp.json())
+
+# 2. Analyze a dataset (CSV or Excel), with optional schema/rules
+with open("my_data.csv", "rb") as f:
+    files = {"data_file": ("my_data.csv", f, "text/csv")}
+    data = {
+        "schema": '{"age": "int"}',        # optional, JSON-encoded
+        "rules": '{"age": {"min": 0, "max": 120}}',  # optional, JSON-encoded
+        "min_rows": "1",                   # optional, default 1
+    }
+    resp = requests.post(
+        f"{API_URL}/api/v1/analyze",
+        headers=headers,
+        files=files,
+        data=data,
+        timeout=60,
+    )
+resp.raise_for_status()
+result = resp.json()
+print(result["summary"])
+''',
+            language="python",
+        )
+
+        st.markdown("**curl equivalent**")
+        st.code(
+            'curl -sS -X POST "$DATA_ANALYZER_API_URL/api/v1/analyze" \\\n'
+            '  -H "X-API-Key: $DATA_ANALYZER_API_KEY" \\\n'
+            '  -F "data_file=@my_data.csv;type=text/csv" \\\n'
+            '  -F \'schema={"age": "int"}\' \\\n'
+            '  -F \'rules={"age": {"min": 0, "max": 120}}\' \\\n'
+            '  -F "min_rows=1"',
+            language="bash",
+        )
+
+    st.markdown(f"""
     ---
-    *Version 2.1 - Enhanced UI with PDF Dictionary Support*
+    *Version {__version__} - Enhanced UI with PDF Dictionary Support*
     """)
