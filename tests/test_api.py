@@ -42,28 +42,6 @@ def client(mock_env):
     return TestClient(app)
 
 
-@pytest.fixture(autouse=True)
-def reset_rate_limiter():
-    """
-    Reset slowapi's in-memory rate limit counters before each test.
-
-    The `client` fixture is module-scoped so its underlying app (and the
-    app.state.limiter it holds) persists across every test in this module.
-    Without a reset, the production rate limits (e.g. 5/minute on
-    /api/v1/dictionary/parse) accumulate across unrelated tests and cause
-    order-dependent 429 failures. This does not touch api_server.py or its
-    rate-limiting behavior - it only clears counters between tests so each
-    test starts with a fresh limiter window, as it would against a freshly
-    started server.
-    """
-    try:
-        from api_server import limiter
-        limiter.reset()
-    except ImportError:
-        pass
-    yield
-
-
 @pytest.fixture
 def api_headers():
     """Standard API headers with valid API key"""
@@ -350,6 +328,94 @@ class TestAnalyzeEndpoint:
         response = client.post("/api/v1/analyze", files=files, headers=api_headers)
         assert response.status_code == 200
         assert response.json()["summary"]["total_rows"] == 2
+
+    def _make_xlsx_bytes(self, df, sheet_name="Sheet1"):
+        """Serialize a DataFrame to real .xlsx bytes (in-memory, no disk I/O)."""
+        buffer = BytesIO()
+        df.to_excel(buffer, index=False, sheet_name=sheet_name, engine="openpyxl")
+        return buffer.getvalue()
+
+    def test_analyze_xlsx_file(self, client, api_headers):
+        """.xlsx uploads should be dispatched to mcp_server.DataLoader.load_excel
+        and analyzed the same as an equivalent CSV, mirroring the content-type
+        web_app.py's DataQualityAnalyzer._call_analyze_api now sends for Excel
+        uploads (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet).
+        """
+        import pandas as pd
+
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "age": [25, 150, 45],  # 150 violates max rule below
+        })
+        xlsx_bytes = self._make_xlsx_bytes(df)
+
+        files = {
+            "data_file": (
+                "data.xlsx",
+                xlsx_bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        }
+        data = {"rules": json.dumps({"age": {"min": 0, "max": 120}})}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 200
+
+        result = response.json()
+        assert result["summary"]["total_rows"] == 3
+        assert result["summary"]["total_columns"] == 2
+        assert any(issue["type"] == "range_violation" for issue in result["issues"])
+
+    def test_analyze_xls_content_type(self, client, api_headers):
+        """Legacy .xls uploads (application/vnd.ms-excel content-type) should
+        also route through the Excel branch. openpyxl can only write .xlsx,
+        so this reuses .xlsx bytes under an .xls filename/content-type to
+        verify dispatch is driven by file extension, matching api_server.py's
+        `Path(filename).suffix.lower()` dispatch logic."""
+        import pandas as pd
+
+        df = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
+        xlsx_bytes = self._make_xlsx_bytes(df)
+
+        files = {"data_file": ("data.xls", xlsx_bytes, "application/vnd.ms-excel")}
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 200
+        assert response.json()["summary"]["total_rows"] == 2
+
+    def test_analyze_xlsx_multi_sheet(self, client, api_headers):
+        """Multi-sheet workbooks should be combined via DataLoader.load_excel's
+        existing sheet-concatenation behavior (adds a '_sheet_name' column)."""
+        import pandas as pd
+
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            pd.DataFrame({"id": [1, 2]}).to_excel(writer, index=False, sheet_name="Sheet1")
+            pd.DataFrame({"id": [3, 4]}).to_excel(writer, index=False, sheet_name="Sheet2")
+        xlsx_bytes = buffer.getvalue()
+
+        files = {
+            "data_file": (
+                "multi.xlsx",
+                xlsx_bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        }
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 200
+        result = response.json()
+        # Two sheets of 2 rows each, concatenated
+        assert result["summary"]["total_rows"] == 4
+
+    def test_analyze_malformed_xlsx(self, client, api_headers):
+        """Bytes that aren't a valid Excel workbook should return 400, not 500."""
+        files = {
+            "data_file": (
+                "bad.xlsx",
+                b"not a real excel file",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        }
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 400
 
     def test_analyze_response_matches_model_fields(self, client, sample_data_csv, api_headers):
         """Issue entries should carry column/row/value plus a human-readable message,

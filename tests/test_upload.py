@@ -159,6 +159,63 @@ class TestApiRequestConstruction:
         assert "schema" not in kwargs["data"]
         assert "rules" not in kwargs["data"]
 
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_sends_xlsx_upload_with_excel_content_type(self, mock_post, analyzer, sample_df):
+        """When source_format='xlsx' (set after an .xlsx upload in the UI),
+        the DataFrame should be re-encoded as a real Excel workbook and
+        uploaded with the openxmlformats content-type, not CSV - so
+        api_server.py's extension-based dispatch routes it to
+        DataLoader.load_excel instead of pandas.read_csv."""
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None, source_format="xlsx")
+
+        _, kwargs = mock_post.call_args
+        filename, content, content_type = kwargs["files"]["data_file"]
+        assert filename == "data.xlsx"
+        assert content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        # Round-trips back to an equivalent DataFrame via a real Excel parse
+        roundtrip = pd.read_excel(io.BytesIO(content))
+        assert list(roundtrip.columns) == list(sample_df.columns)
+        assert len(roundtrip) == len(sample_df)
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_sends_xls_upload_with_legacy_excel_content_type(self, mock_post, analyzer, sample_df):
+        """source_format='xls' should use the legacy application/vnd.ms-excel
+        content-type (still encoded as an .xlsx workbook under the hood,
+        since openpyxl can only write .xlsx - api_server.py dispatches by
+        filename extension, not by parsing the binary format)."""
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None, source_format="xls")
+
+        _, kwargs = mock_post.call_args
+        filename, content, content_type = kwargs["files"]["data_file"]
+        assert filename == "data.xls"
+        assert content_type == "application/vnd.ms-excel"
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_source_format_none_defaults_to_csv(self, mock_post, analyzer, sample_df):
+        """No source_format (e.g. demo data, CSV/JSON/TSV uploads) should
+        preserve the original CSV upload behavior."""
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None, source_format=None)
+
+        _, kwargs = mock_post.call_args
+        filename, content, content_type = kwargs["files"]["data_file"]
+        assert filename == "data.csv"
+        assert content_type == "text/csv"
+
 
 # ============================================================================
 # Response mapping

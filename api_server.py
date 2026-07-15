@@ -16,13 +16,16 @@ Usage:
 """
 
 import io
+import json
 import logging
 import os
 import secrets
 import traceback
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
+
+import pandas as pd
 
 from fastapi import FastAPI, HTTPException, Request, status, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -611,7 +614,7 @@ async def health_check(request: Request):
 @limiter.limit("30/minute")
 async def analyze_data(
     request: Request,
-    data_file: UploadFile = File(..., description="Dataset file to analyze (CSV, JSON, or tab-separated TXT)"),
+    data_file: UploadFile = File(..., description="Dataset file to analyze (CSV, JSON, tab-separated TXT, or Excel)"),
     # Python identifier is column_schema (not "schema") to avoid shadowing
     # BaseModel.schema() on FastAPI's auto-generated request body model; the
     # wire-level form field name stays "schema" via alias=.
@@ -637,8 +640,8 @@ async def analyze_data(
     rule-based and does NOT call an LLM, so it works with no LLM configured.
 
     **Supported formats:** CSV (`.csv`), JSON (`.json`), tab-separated
-    (`.txt`/`.tsv`) - mirrors the formats the Streamlit UI's file uploader
-    already accepts.
+    (`.txt`/`.tsv`), Excel (`.xlsx`/`.xls`) - mirrors the formats the
+    Streamlit UI's file uploader already accepts.
 
     **Rate Limit**: 30 requests per minute (no LLM cost, so a higher limit
     than dictionary parsing is fine)
@@ -670,7 +673,7 @@ async def analyze_data(
     # Validate file format
     filename = data_file.filename or "uploaded"
     file_extension = Path(filename).suffix.lower()
-    supported_extensions = ['.csv', '.json', '.txt', '.tsv']
+    supported_extensions = ['.csv', '.json', '.txt', '.tsv', '.xlsx', '.xls']
 
     if file_extension not in supported_extensions:
         raise HTTPException(
@@ -716,12 +719,18 @@ async def analyze_data(
 
         # Mirror web_app.py's file_uploader parsing (pandas, by extension) so
         # the engine sees the same DataFrame whether loaded via the UI or
-        # posted directly to this endpoint.
+        # posted directly to this endpoint. Excel (.xlsx/.xls) is dispatched
+        # through mcp_server.DataLoader.load_excel - the same shared loader
+        # web_app.py uses locally for Excel parsing/previewing - so CSV/API/
+        # UI callers all get identical Excel-handling behavior (sheet
+        # combination, size checks, etc.) from one place.
         try:
             if file_extension == '.csv':
                 df = pd.read_csv(io.BytesIO(content_bytes))
             elif file_extension == '.json':
                 df = pd.read_json(io.BytesIO(content_bytes))
+            elif file_extension in ('.xlsx', '.xls'):
+                df = mcp_server.DataLoader.load_excel(content_bytes)
             else:  # .txt / .tsv
                 df = pd.read_csv(io.BytesIO(content_bytes), sep='\t')
         except Exception as e:

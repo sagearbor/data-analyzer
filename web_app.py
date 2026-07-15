@@ -270,7 +270,7 @@ class DataQualityAnalyzer:
         self.api_base_url = os.getenv("DATA_ANALYZER_API_URL", "http://localhost:8000").rstrip("/")
         self.api_key = os.getenv("DATA_ANALYZER_API_KEY", "")
 
-    async def analyze_data_quality(self, data: pd.DataFrame, dictionary: Optional[Dict] = None) -> Dict[str, Any]:
+    async def analyze_data_quality(self, data: pd.DataFrame, dictionary: Optional[Dict] = None, source_format: Optional[str] = None) -> Dict[str, Any]:
         """
         Run data quality analysis via the centralized REST API.
 
@@ -278,6 +278,11 @@ class DataQualityAnalyzer:
             data: DataFrame to analyze
             dictionary: Optional dictionary with validation rules and schema.
                        Can have 'rules' and/or 'schema' keys, or direct field definitions.
+            source_format: Optional hint for how to serialize `data` for the
+                       HTTP upload. One of "xlsx", "xls", or None (default:
+                       CSV). When the original upload was an Excel file, pass
+                       "xlsx"/"xls" so the API receives real Excel bytes with
+                       the correct content-type instead of a CSV re-encoding.
 
         Returns:
             Dict with summary, issues, recommendations, quality_checks, and
@@ -335,7 +340,7 @@ class DataQualityAnalyzer:
         # QualityPipeline(data, schema, rules).run_all_checks() call). The
         # API already returns issues/summary/recommendations/quality_checks/
         # summary_stats in this exact shape - no reshaping needed here.
-        result = self._call_analyze_api(data, schema, rules)
+        result = self._call_analyze_api(data, schema, rules, source_format=source_format)
 
         issues = result["issues"]
         summary = result["summary"]
@@ -397,14 +402,26 @@ class DataQualityAnalyzer:
             "summary_stats": result["summary_stats"]
         }
 
-    def _call_analyze_api(self, data: pd.DataFrame, schema: Optional[Dict], rules: Optional[Dict]) -> Dict[str, Any]:
+    # Content-types matching api_server.py's /api/v1/analyze extension
+    # dispatch (and the standard IANA media types for each Excel format).
+    _EXCEL_CONTENT_TYPES = {
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xls": "application/vnd.ms-excel",
+    }
+
+    def _call_analyze_api(self, data: pd.DataFrame, schema: Optional[Dict], rules: Optional[Dict], source_format: Optional[str] = None) -> Dict[str, Any]:
         """POST a DataFrame to the API's /api/v1/analyze endpoint and return
         the parsed JSON report.
 
         Args:
-            data: DataFrame to analyze (serialized to CSV for the upload).
+            data: DataFrame to analyze.
             schema: Optional column-type map, sent as a JSON form field.
             rules: Optional validation-rule map, sent as a JSON form field.
+            source_format: "xlsx", "xls", or None. When set, `data` is
+                re-encoded as a real Excel workbook and uploaded with the
+                matching Excel content-type so the API's Excel branch
+                (mcp_server.DataLoader.load_excel) handles it. Defaults to
+                CSV serialization, which the API also fully supports.
 
         Returns:
             The parsed JSON body: {"summary", "issues", "recommendations",
@@ -414,8 +431,20 @@ class DataQualityAnalyzer:
             RuntimeError: on any non-200 response, connection error, or
                 timeout, with a message suitable for st.error(...).
         """
-        csv_bytes = data.to_csv(index=False).encode("utf-8")
-        files = {"data_file": ("data.csv", csv_bytes, "text/csv")}
+        source_format = (source_format or "").lower().lstrip(".") or None
+
+        if source_format in self._EXCEL_CONTENT_TYPES:
+            excel_buffer = io.BytesIO()
+            data.to_excel(excel_buffer, index=False, engine="openpyxl")
+            file_bytes = excel_buffer.getvalue()
+            filename = f"data.{source_format}"
+            content_type = self._EXCEL_CONTENT_TYPES[source_format]
+        else:
+            file_bytes = data.to_csv(index=False).encode("utf-8")
+            filename = "data.csv"
+            content_type = "text/csv"
+
+        files = {"data_file": (filename, file_bytes, content_type)}
 
         form_data = {}
         if schema:
@@ -677,6 +706,11 @@ def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
 # Initialize session state
 if 'data' not in st.session_state:
     st.session_state.data = None
+if 'data_source_format' not in st.session_state:
+    # Tracks the original upload format ('csv', 'json', 'tsv', 'xlsx', 'xls')
+    # so the analysis HTTP call can re-serialize st.session_state.data with a
+    # matching content-type instead of always defaulting to CSV.
+    st.session_state.data_source_format = None
 if 'dictionary' not in st.session_state:
     st.session_state.dictionary = None
 if 'analysis_results' not in st.session_state:
@@ -730,14 +764,22 @@ with tab1:
                 try:
                     if uploaded_file.name.endswith('.csv'):
                         st.session_state.data = pd.read_csv(uploaded_file)
+                        st.session_state.data_source_format = 'csv'
                     elif uploaded_file.name.endswith('.json'):
                         st.session_state.data = pd.read_json(uploaded_file)
+                        st.session_state.data_source_format = 'json'
                     elif uploaded_file.name.endswith(('.xlsx', '.xls')):
                         # Shared loader (mcp_server.DataLoader) so MCP server, CLI,
                         # and this UI all get identical Excel handling/error semantics.
                         st.session_state.data = DataLoader.load_excel(uploaded_file.read())
+                        # Remember the Excel sub-format so the analysis HTTP
+                        # call (DataQualityAnalyzer._call_analyze_api) can
+                        # re-upload real Excel bytes with the correct
+                        # content-type instead of defaulting to CSV.
+                        st.session_state.data_source_format = 'xlsx' if uploaded_file.name.endswith('.xlsx') else 'xls'
                     else:
                         st.session_state.data = pd.read_csv(uploaded_file, sep='\t')
+                        st.session_state.data_source_format = 'tsv'
                     st.success(f"✅ Loaded {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
                 except Exception as e:
                     st.error(f"Error loading file: {str(e)}")
@@ -759,6 +801,10 @@ with tab1:
             }
             if demo_option in dataset_map:
                 st.session_state.data = load_demo_data(dataset_map[demo_option])
+                # Demo datasets are always synthesized in-memory (not loaded
+                # from an Excel file), so fall back to CSV serialization for
+                # the analysis HTTP call.
+                st.session_state.data_source_format = 'csv'
                 st.success(f"✅ Loaded {demo_option} demo data")
                 if demo_option == "CSV - Clinical":
                     st.info("📖 Matching dictionary available: Upload 'demo_data/clinical_dict.json' for validation rules")
@@ -1341,7 +1387,8 @@ with tab1:
                         results = asyncio.run(
                             st.session_state.mcp_client.analyze_data_quality(
                                 st.session_state.data,
-                                st.session_state.dictionary
+                                st.session_state.dictionary,
+                                source_format=st.session_state.get('data_source_format')
                             )
                         )
                         st.session_state.analysis_results = results
