@@ -35,9 +35,25 @@ def mock_env():
 
 @pytest.fixture(scope="module")
 def client(mock_env):
-    """Create test client with authentication configured"""
-    from api_server import app
-    return TestClient(app)
+    """Create test client with authentication configured
+
+    Force-reloads api_server under this module's patched environment rather
+    than relying on the cached import. Other test modules in this suite
+    (tests/test_api_authentication.py, tests/test_api_integration_auth.py)
+    call importlib.reload(api_server) with DATA_ANALYZER_API_KEY cleared to
+    exercise the "auth disabled" code path. Since api_server.API_KEY is a
+    module-level global set once at import time, that reload mutates the
+    single shared api_server module for the rest of the pytest session -
+    a plain `from api_server import app` here would silently inherit
+    whatever auth state the last reload left behind (auth disabled),
+    depending on test execution order, rather than this module's own
+    DATA_ANALYZER_API_KEY. Reloading here, under our own patched env,
+    makes this module's auth-dependent tests independent of that ordering.
+    """
+    import importlib
+    import api_server
+    importlib.reload(api_server)
+    return TestClient(api_server.app)
 
 
 @pytest.fixture
@@ -53,6 +69,12 @@ def admin_headers():
         "X-API-Key": "test-api-key-integration",
         "X-Admin-Password": "test-admin-integration"
     }
+
+
+@pytest.fixture
+def invalid_api_headers():
+    """Headers with an invalid/wrong API key"""
+    return {"X-API-Key": "wrong"}
 
 
 @pytest.fixture
@@ -153,16 +175,21 @@ class TestDictionaryWorkflow:
         3. Saving the validation program
         4. Retrieving the saved program by ID/name/alias
         """
-        # Mock program object
+        # Mock program object. Attribute names must match the real
+        # ValidationProgram dataclass (src/program_cache.py), since
+        # api_server.parse_dictionary() and convert_validation_program_to_detail()
+        # read these attributes directly off the object (mocked or real).
         mock_program = MagicMock()
-        mock_program.id = "integration-test-prog-001"
+        mock_program.program_id = "integration-test-prog-001"
         mock_program.name = "20251202-120000-PatientIntake"
         mock_program.status = "active"
         mock_program.created_at = "2025-12-02T12:00:00"
-        mock_program.source_type = "redcap_csv"
-        mock_program.field_count = 8
-        mock_program.rule_count = 6
-        mock_program.logic_rule_count = 3
+        mock_program.dictionary_source = "test_dict.csv"
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.created_by = "test-user"
+        mock_program.num_fields = 8
+        mock_program.num_basic_rules = 6
+        mock_program.num_logic_rules = 3
         mock_program.schema = {
             "record_id": "str",
             "age": "int",
@@ -173,10 +200,14 @@ class TestDictionaryWorkflow:
             "smoker": "bool",
             "cigarettes_per_day": "int"
         }
+        mock_program.conditional_rules = []
         mock_program.generated_code = "# Validation code here"
         mock_program.aliases = []
-        mock_program.usage_count = 0
-        mock_program.last_used_at = None
+        mock_program.use_count = 0
+        mock_program.last_used = None
+        mock_program.model_used = "gpt-5-nano"
+        mock_program.generation_time_seconds = 1.5
+        mock_program.version = 1
 
         mock_pm.create_program_from_dictionary.return_value = mock_program
         mock_pm.db.load_program.return_value = mock_program
@@ -199,11 +230,11 @@ class TestDictionaryWorkflow:
         assert parse_response.status_code == 200
         parse_data = parse_response.json()
 
-        # Verify parse response structure
+        # Verify parse response structure (ParseDictionaryResponse field names)
         assert "program_id" in parse_data
         assert "program_name" in parse_data
-        assert "field_count" in parse_data
-        assert "rule_count" in parse_data
+        assert "fields_extracted" in parse_data
+        assert "rules_extracted" in parse_data
 
         program_id = parse_data["program_id"]
 
@@ -216,9 +247,9 @@ class TestDictionaryWorkflow:
         assert get_response.status_code == 200
         get_data = get_response.json()
 
-        # Verify retrieved data matches
+        # Verify retrieved data matches (ProgramDetail field names)
         assert get_data["program_id"] == program_id
-        assert get_data["field_count"] == parse_data["field_count"]
+        assert get_data["num_fields"] == parse_data["fields_extracted"]
         assert "schema" in get_data
         assert "generated_code" in get_data
 
@@ -231,15 +262,16 @@ class TestDictionaryWorkflow:
         without persisting the program.
         """
         mock_program = MagicMock()
-        mock_program.id = "temp-preview-001"
+        mock_program.program_id = "temp-preview-001"
         mock_program.name = "preview-only"
         mock_program.created_at = "2025-12-02T12:00:00"
-        mock_program.source_type = "redcap_csv"
-        mock_program.field_count = 8
-        mock_program.rule_count = 6
-        mock_program.logic_rule_count = 3
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.num_fields = 8
+        mock_program.num_basic_rules = 6
+        mock_program.num_logic_rules = 3
         mock_program.schema = {"age": "int"}
         mock_program.generated_code = "# code"
+        mock_program.model_used = "gpt-5-nano"
 
         mock_pm.create_program_from_dictionary.return_value = mock_program
 
@@ -272,15 +304,16 @@ class TestMultiFormatDictionaries:
     def test_csv_format(self, mock_pm, client, redcap_dictionary_csv, api_headers):
         """Test REDCap CSV dictionary parsing"""
         mock_program = MagicMock()
-        mock_program.id = "csv-test"
+        mock_program.program_id = "csv-test"
         mock_program.name = "csv-format"
         mock_program.created_at = "2025-12-02T12:00:00"
-        mock_program.source_type = "redcap_csv"
-        mock_program.field_count = 8
-        mock_program.rule_count = 6
-        mock_program.logic_rule_count = 3
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.num_fields = 8
+        mock_program.num_basic_rules = 6
+        mock_program.num_logic_rules = 3
         mock_program.schema = {}
         mock_program.generated_code = "# code"
+        mock_program.model_used = "gpt-5-nano"
 
         mock_pm.create_program_from_dictionary.return_value = mock_program
 
@@ -296,15 +329,16 @@ class TestMultiFormatDictionaries:
     def test_json_format(self, mock_pm, client, fhir_dictionary_json, api_headers):
         """Test FHIR JSON dictionary parsing"""
         mock_program = MagicMock()
-        mock_program.id = "json-test"
+        mock_program.program_id = "json-test"
         mock_program.name = "json-format"
         mock_program.created_at = "2025-12-02T12:00:00"
-        mock_program.source_type = "fhir_json"
-        mock_program.field_count = 3
-        mock_program.rule_count = 2
-        mock_program.logic_rule_count = 0
+        mock_program.dictionary_format = "fhir_json"
+        mock_program.num_fields = 3
+        mock_program.num_basic_rules = 2
+        mock_program.num_logic_rules = 0
         mock_program.schema = {}
         mock_program.generated_code = "# code"
+        mock_program.model_used = "gpt-5-nano"
 
         mock_pm.create_program_from_dictionary.return_value = mock_program
 
@@ -392,19 +426,25 @@ class TestConcurrentRequests:
     def test_concurrent_dictionary_retrieval(self, mock_pm, client, api_headers):
         """Concurrent dictionary retrievals should work correctly"""
         mock_program = MagicMock()
-        mock_program.id = "concurrent-test"
+        mock_program.program_id = "concurrent-test"
         mock_program.name = "concurrent-program"
         mock_program.status = "active"
         mock_program.created_at = "2025-12-02T12:00:00"
-        mock_program.source_type = "generic"
-        mock_program.field_count = 5
-        mock_program.rule_count = 3
-        mock_program.logic_rule_count = 1
+        mock_program.dictionary_source = "test.csv"
+        mock_program.dictionary_format = "generic"
+        mock_program.created_by = "test-user"
+        mock_program.num_fields = 5
+        mock_program.num_basic_rules = 3
+        mock_program.num_logic_rules = 1
         mock_program.schema = {}
+        mock_program.conditional_rules = []
         mock_program.generated_code = "# code"
         mock_program.aliases = []
-        mock_program.usage_count = 0
-        mock_program.last_used_at = None
+        mock_program.use_count = 0
+        mock_program.last_used = None
+        mock_program.model_used = "gpt-5-nano"
+        mock_program.generation_time_seconds = 1.0
+        mock_program.version = 1
 
         mock_pm.db.load_program.return_value = mock_program
 
@@ -438,8 +478,17 @@ class TestFileSizeLimits:
         # Should either process or return error (not crash)
         assert response.status_code in [200, 400, 413, 500, 503]
 
-    def test_empty_dictionary_file(self, client, api_headers):
-        """Test handling of empty file"""
+    @patch('api_server.program_manager')
+    def test_empty_dictionary_file(self, mock_pm, client, api_headers):
+        """Test handling of empty file (mocked - no live LLM call, see
+        test_api.py::test_parse_dictionary_empty_file for the same pattern).
+        Without mocking, an empty dictionary is sent to the live LLM, which
+        is both non-deterministic and can legitimately return 0 fields with
+        a 200 rather than an error, making this assertion flaky/wrong."""
+        mock_pm.create_program_from_dictionary.side_effect = RuntimeError(
+            "No fields could be extracted from empty dictionary content"
+        )
+
         files = {"dictionary_file": ("empty.csv", "", "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
 

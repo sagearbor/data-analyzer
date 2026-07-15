@@ -20,6 +20,32 @@ def test_data_dir():
     return DATA_DIR
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """
+    Reset slowapi's in-memory rate limit counters before every test.
+
+    api_server.py's `client` TestClient fixtures are module-scoped, so the
+    underlying app (and the app.state.limiter it holds) persists across every
+    test in that module. Without a reset here, production rate limits (e.g.
+    5/minute on /api/v1/dictionary/parse) accumulate across unrelated tests
+    run earlier in the same session and cause order-dependent 429 failures
+    for tests that aren't themselves testing rate-limiting behavior.
+
+    This is applied session-wide (autouse, function-scoped) so it covers all
+    test modules that exercise api_server endpoints, not just one file. It
+    does not touch api_server.py or change rate-limiting behavior/thresholds
+    - it only clears counters between tests so each test starts with a fresh
+    limiter window, as it would against a freshly started server.
+    """
+    try:
+        from api_server import limiter
+        limiter.reset()
+    except ImportError:
+        pass
+    yield
+
+
 @pytest.fixture
 def sample_csv_data():
     """Sample CSV data for testing"""

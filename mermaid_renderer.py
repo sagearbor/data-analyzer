@@ -3,7 +3,6 @@ Mermaid diagram renderer for Streamlit
 Uses components.html to render Mermaid diagrams
 """
 
-import streamlit as st
 import streamlit.components.v1 as components
 
 def render_mermaid(mermaid_code: str, height: int = 600) -> None:
@@ -16,7 +15,6 @@ def render_mermaid(mermaid_code: str, height: int = 600) -> None:
     """
 
     import base64
-    import urllib.parse
 
     # Try to use mermaid.ink API first (more reliable with Streamlit's iframe restrictions)
     # Fallback to embedded mermaid.js if needed

@@ -19,12 +19,11 @@ import logging
 import os
 import secrets
 import traceback
-import time
 from datetime import datetime
-from typing import Dict, Any, Optional, List
-import json
+from typing import Dict, Optional
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, status, Depends, Header, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, status, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
@@ -33,10 +32,6 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel
 from dotenv import load_dotenv
-import tempfile
-from pathlib import Path
-import uuid as uuid_lib
-import pandas as pd
 
 # Import existing modules
 #

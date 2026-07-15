@@ -8,14 +8,12 @@ Based on csvChecker functionality with future format support
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional, Union
 import pandas as pd
 import numpy as np
-from pathlib import Path
 import io
 import base64
 from datetime import datetime
-import tempfile
 import os
 
 # MCP SDK imports
@@ -925,8 +923,7 @@ async def main():
     """Main entry point for the MCP server"""
     # Setup logging
     logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger("data-analyzer-mcp")
-    
+
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await app.run(
             read_stream,

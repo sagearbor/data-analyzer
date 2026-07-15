@@ -17,7 +17,7 @@ All models include:
 from __future__ import annotations
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, validator, field_validator
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 
 

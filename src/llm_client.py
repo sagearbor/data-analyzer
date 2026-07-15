@@ -5,7 +5,7 @@ Azure OpenAI LLM Client for Data Dictionary Parsing
 import os
 import json
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import re
 import requests  # For Responses API calls
