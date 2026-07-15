@@ -27,7 +27,7 @@ from pathlib import Path
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
 # Import real validation classes from mcp_server (no MCP server needed to run)
-from mcp_server import QualityPipeline, QualityChecker
+from mcp_server import QualityPipeline, QualityChecker, DataLoader
 # Force use of custom renderer for better compatibility
 MERMAID_AVAILABLE = False
 from mermaid_renderer import render_mermaid
@@ -701,7 +701,7 @@ with tab1:
         # File uploader first
         uploaded_file = st.file_uploader(
             " ",  # Empty label to avoid duplication
-            type=['csv', 'json', 'txt'],
+            type=['csv', 'json', 'txt', 'xlsx', 'xls'],
             key="data_uploader",
             label_visibility="collapsed"
         )
@@ -713,6 +713,10 @@ with tab1:
                         st.session_state.data = pd.read_csv(uploaded_file)
                     elif uploaded_file.name.endswith('.json'):
                         st.session_state.data = pd.read_json(uploaded_file)
+                    elif uploaded_file.name.endswith(('.xlsx', '.xls')):
+                        # Shared loader (mcp_server.DataLoader) so MCP server, CLI,
+                        # and this UI all get identical Excel handling/error semantics.
+                        st.session_state.data = DataLoader.load_excel(uploaded_file.read())
                     else:
                         st.session_state.data = pd.read_csv(uploaded_file, sep='\t')
                     st.success(f"✅ Loaded {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
@@ -746,10 +750,10 @@ with tab1:
         # Dictionary file uploader first - aligned with data uploader
         dict_file = st.file_uploader(
             " ",  # Empty label to avoid duplication
-            type=['json', 'pdf', 'csv', 'txt'],
+            type=['json', 'pdf', 'csv', 'txt', 'xlsx', 'xls'],
             key="dict_uploader",
             label_visibility="collapsed",
-            help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, or TXT)"
+            help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, Excel, or TXT)"
         )
 
         # Add LLM parsing option if available with auto-detection
@@ -790,6 +794,22 @@ with tab1:
                     else:
                         use_llm = True
                         st.info("🤖 Auto-detected: Unstructured CSV, using AI parsing")
+                elif dict_file.name.endswith(('.xlsx', '.xls')):
+                    # Peek at Excel column headers to check if it's structured
+                    # (same convention as the CSV structured-column check above)
+                    dict_file.seek(0)
+                    try:
+                        peek_df = DataLoader.load_excel(dict_file.read())
+                        columns_str = ' '.join(str(c) for c in peek_df.columns)
+                    except Exception:
+                        columns_str = ""
+                    dict_file.seek(0)
+                    if any(col in columns_str for col in ['Column', 'Type', 'Min', 'Max', 'Allowed_Values', 'Field Name']):
+                        use_llm = False
+                        st.info("📊 Auto-detected: Structured Excel, using manual parsing")
+                    else:
+                        use_llm = True
+                        st.info("🤖 Auto-detected: Unstructured Excel, using AI parsing")
                 else:
                     use_llm = True
                     st.info(f"🤖 Auto-detected: {dict_file.name.split('.')[-1].upper()} file, using AI parsing")
@@ -876,6 +896,12 @@ with tab1:
                             # For JSON, convert to readable text
                             json_data = json.load(dict_file)
                             file_content = json.dumps(json_data, indent=2)
+                        elif dict_file.name.endswith(('.xlsx', '.xls')):
+                            # For Excel, convert the sheet to readable text (same
+                            # approach as the JSON branch above - binary content
+                            # can't be decoded as utf-8 like the CSV/TXT branches)
+                            excel_df = DataLoader.load_excel(dict_file.read())
+                            file_content = excel_df.to_csv(index=False)
                         else:
                             file_content = dict_file.read().decode('utf-8')
 
@@ -1083,6 +1109,39 @@ with tab1:
                         "rules": rules
                     }
                     st.success(f"✅ Parsed {len(rules)} field definitions from CSV")
+                elif dict_file.name.endswith(('.xlsx', '.xls')) and not use_llm:
+                    # Parse Excel dictionary (NO LLM) - structured field definitions,
+                    # same column-name conventions as the CSV dictionary branch above.
+                    st.info("📊 **EXCEL PARSING**: Reading structured Excel data dictionary...")
+                    print(f"\n📊 EXCEL DICTIONARY PARSER: {dict_file.name}")
+
+                    dict_file.seek(0)
+                    df = DataLoader.load_excel(dict_file.read())
+                    rules = {}
+                    for _, row in df.iterrows():
+                        if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                            field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                            if field_name:
+                                rule = {}
+                                if 'Type' in row or 'type' in row:
+                                    rule['type'] = str(row.get('Type') or row.get('type'))
+                                if 'Min' in row or 'min' in row:
+                                    rule['min'] = row.get('Min') or row.get('min')
+                                if 'Max' in row or 'max' in row:
+                                    rule['max'] = row.get('Max') or row.get('max')
+                                if 'Required' in row or 'required' in row:
+                                    rule['required'] = row.get('Required') or row.get('required')
+                                if 'Allowed_Values' in row or 'allowed_values' in row:
+                                    allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                                    if allowed and not pd.isna(allowed):
+                                        rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                                rules[field_name] = rule
+                    st.session_state.dictionary = {
+                        "source": "Excel",
+                        "filename": dict_file.name,
+                        "rules": rules
+                    }
+                    st.success(f"✅ Parsed {len(rules)} field definitions from Excel")
                 else:
                     st.error(f"⚠️ Unsupported dictionary format: **{dict_file.name}**")
                     st.info(f"Debug: use_llm={use_llm}, LLM_AVAILABLE={LLM_AVAILABLE}, file ends with .csv={dict_file.name.endswith('.csv')}")
@@ -1345,7 +1404,7 @@ with tab2:
     in your datasets. It performs comprehensive checks to ensure your data meets quality standards.
 
     ### ✨ Features
-    - **Multiple Format Support**: CSV, JSON, and TXT files
+    - **Multiple Format Support**: CSV, JSON, Excel (XLSX/XLS), and TXT files
     - **Automatic Issue Detection**: Missing values, invalid entries, range violations
     - **Custom Validation Rules**: Define your own business rules via data dictionaries (JSON or PDF)
     - **Visual Reporting**: Clear metrics and issue summaries with interactive heatmaps
