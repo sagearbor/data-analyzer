@@ -15,6 +15,7 @@ Usage:
     uvicorn api_server:app --reload --host 0.0.0.0 --port 8000
 """
 
+import io
 import logging
 import os
 import secrets
@@ -52,7 +53,8 @@ from src.api_models import (
     LogicViolation,
     SeverityEnum,
     DataFormatEnum,
-    ReturnFormatEnum
+    ReturnFormatEnum,
+    QualityAnalysisResponse,
 )
 
 # Optional service modules - each is independently best-effort. A missing/broken
@@ -326,6 +328,192 @@ class ErrorResponse(BaseModel):
     request_id: Optional[str] = None
 
 # ============================================================================
+# Quality Analysis Report Shaping
+# ============================================================================
+#
+# These helpers reshape the raw dict returned by mcp_server.QualityPipeline
+# (checks/summary_stats/issues) into the dashboard-ready shape that
+# web_app.py's DataQualityAnalyzer.analyze_data_quality() has always produced
+# for the Streamlit UI (summary/issues/recommendations/quality_checks/
+# summary_stats). The validation logic itself lives entirely in
+# QualityPipeline/QualityChecker (mcp_server.py) - this only reshapes their
+# output, so the engine stays the single source of truth. web_app.py now
+# calls this endpoint over HTTP instead of importing QualityPipeline
+# directly (see DataQualityAnalyzer in web_app.py), so this is the only
+# place that shaping happens.
+
+def _json_safe(value: Any) -> Any:
+    """Coerce a value that may be a numpy/pandas scalar into a JSON/Pydantic-safe
+    native Python value (int, float, bool, str, or None)."""
+    if value is None:
+        return None
+    try:
+        import numpy as np  # noqa: PLC0415
+
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            f = float(value)
+            return None if f != f else f  # NaN != NaN
+        if isinstance(value, np.bool_):
+            return bool(value)
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        # pd.isna() raises on some array-like values; treat those as "not NA"
+        pass
+    return value
+
+
+def _json_safe_deep(obj: Any) -> Any:
+    """Recursively apply _json_safe() through nested dicts/lists/tuples.
+
+    QualityChecker.get_summary_stats() and run_all_checks() return numpy
+    scalar types in places (e.g. Series.to_dict(), .sum()) that pydantic/
+    FastAPI's response-model serialization can't encode on their own. This
+    walks the full 'quality_checks'/'summary_stats' trees (and anything else
+    passed through unchanged from the engine) so the whole report is
+    JSON-safe before it hits the response model.
+    """
+    if isinstance(obj, dict):
+        return {k: _json_safe_deep(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe_deep(v) for v in obj]
+    return _json_safe(obj)
+
+
+def _generate_quality_recommendations(issues: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Generate human-readable recommendations from a list of shaped issues.
+
+    Mirrors web_app.py's DataQualityAnalyzer._generate_recommendations exactly
+    so the API and (pre-rewire) in-process UI path produce identical output.
+    """
+    recommendations = []
+    issue_types = set(i.get('type', i.get('issue', 'unknown')) for i in issues)
+
+    if 'missing_values' in issue_types:
+        recommendations.append({
+            "type": "data_cleaning",
+            "priority": "high",
+            "message": "Consider implementing data imputation strategies for columns with missing values"
+        })
+
+    if any(t in issue_types for t in ['type_mismatch', 'datetime_validation_failed', 'invalid_value']):
+        recommendations.append({
+            "type": "data_validation",
+            "priority": "critical",
+            "message": "Data type issues detected. Review data source and implement validation at ingestion"
+        })
+
+    if 'range_violation' in issue_types or any('violation' in str(t) for t in issue_types):
+        recommendations.append({
+            "type": "business_rules",
+            "priority": "high",
+            "message": "Values outside expected ranges detected. Review business rules and data constraints"
+        })
+
+    if any('allowed' in str(t) for t in issue_types):
+        recommendations.append({
+            "type": "categorical_validation",
+            "priority": "high",
+            "message": "Invalid categorical values found. Verify allowed values match business requirements"
+        })
+
+    return recommendations
+
+
+def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[str, Any]:
+    """Shape a raw QualityPipeline.run_all_checks() result into the
+    dashboard-friendly report the web UI expects.
+
+    Parameters:
+        df: The loaded DataFrame that was analyzed (needed to look up
+            violating cell values and missing-value counts).
+        results: The dict returned by QualityPipeline.run_all_checks()
+            (has 'issues', 'checks', 'summary_stats' keys).
+
+    Returns:
+        {"summary", "issues", "recommendations", "quality_checks", "summary_stats"}
+    """
+    issues: List[Dict[str, Any]] = []
+
+    # Transform QualityPipeline issues (which have 'column', 'rule', 'violating_rows')
+    # into the UI-shaped format ('type', 'severity', 'message', 'row', 'value').
+    for qp_issue in results.get('issues', []):
+        column = qp_issue.get('column')
+        rule = qp_issue.get('rule', '')
+        violating_rows = qp_issue.get('violating_rows', [])
+
+        if 'min >=' in rule or 'max <=' in rule:
+            issue_type = "range_violation"
+            severity = "error"
+        elif 'allowed_values' in rule:
+            issue_type = "invalid_categorical_value"
+            severity = "error"
+        elif qp_issue.get('issue') == 'type_mismatch':
+            issue_type = "type_mismatch"
+            severity = "error"
+        elif qp_issue.get('issue') == 'datetime_validation_failed':
+            issue_type = "invalid_date"
+            severity = "error"
+        else:
+            issue_type = qp_issue.get('issue', 'validation_error')
+            severity = "error"
+
+        for row_idx in violating_rows:
+            value = df[column].iloc[row_idx] if column in df.columns and row_idx < len(df) else None
+            value = _json_safe(value)
+
+            issues.append({
+                "type": issue_type,
+                "severity": severity,
+                "column": column,
+                "row": int(row_idx),
+                "value": value,
+                "message": f"Value {value} in column '{column}' violates rule: {rule}"
+            })
+
+    # Add missing-value issues (not produced by QualityChecker itself).
+    for col in df.columns:
+        missing = int(df[col].isnull().sum())
+        if missing > 0:
+            issues.append({
+                "type": "missing_values",
+                "severity": "warning",
+                "column": col,
+                "count": missing,
+                "percentage": round(missing / len(df) * 100, 2),
+                "message": f"Column '{col}' has {missing} missing values ({round(missing / len(df) * 100, 2)}%)"
+            })
+
+    total_cells = len(df) * len(df.columns)
+    completeness = (
+        round((1 - df.isnull().sum().sum() / total_cells) * 100, 2) if total_cells else 100.0
+    )
+
+    summary = {
+        "total_rows": len(df),
+        "total_columns": len(df.columns),
+        "issues_found": len(issues),
+        "critical_issues": sum(1 for i in issues if i.get('severity') == 'error'),
+        "warnings": sum(1 for i in issues if i.get('severity') == 'warning'),
+        "data_types": results.get('summary_stats', {}).get('dtypes', {col: str(df[col].dtype) for col in df.columns}),
+        "completeness": completeness
+    }
+
+    report = {
+        "summary": summary,
+        "issues": issues,
+        "recommendations": _generate_quality_recommendations(issues),
+        "quality_checks": results.get('checks', {}),
+        "summary_stats": results.get('summary_stats', {})
+    }
+    # QualityChecker.get_summary_stats()/run_all_checks() surface numpy
+    # scalars (Series.to_dict(), .sum(), etc.) in checks/summary_stats that
+    # pydantic can't serialize on its own - sanitize the whole tree.
+    return _json_safe_deep(report)
+
+# ============================================================================
 # Error Handlers
 # ============================================================================
 
@@ -381,6 +569,7 @@ async def root():
         "version": "1.0.0",
         "docs": "/api/v1/docs",
         "health": "/api/v1/health",
+        "analyze": "/api/v1/analyze",
     }
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -413,6 +602,156 @@ async def health_check(request: Request):
         timestamp=datetime.now().isoformat(),
         services=services_status,
     )
+
+# ============================================================================
+# Data Analysis Endpoints
+# ============================================================================
+
+@app.post("/api/v1/analyze", response_model=QualityAnalysisResponse)
+@limiter.limit("30/minute")
+async def analyze_data(
+    request: Request,
+    data_file: UploadFile = File(..., description="Dataset file to analyze (CSV, JSON, or tab-separated TXT)"),
+    # Python identifier is column_schema (not "schema") to avoid shadowing
+    # BaseModel.schema() on FastAPI's auto-generated request body model; the
+    # wire-level form field name stays "schema" via alias=.
+    column_schema: Optional[str] = Form(
+        None,
+        alias="schema",
+        description='Optional JSON-encoded column-type map, e.g. \'{"age": "int"}\'. '
+                     'Supported types: int, float, str, bool, datetime.'
+    ),
+    rules: Optional[str] = Form(
+        None,
+        description='Optional JSON-encoded validation rules, e.g. \'{"age": {"min": 0, "max": 120}}\'. '
+                     'Supports "min"/"max" for numeric columns and "allowed" for categorical columns.'
+    ),
+    min_rows: int = Form(1, ge=0, description="Minimum required row count"),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Run rule-based data quality analysis on an uploaded dataset.
+
+    This exposes the same validation engine (QualityPipeline/QualityChecker
+    from mcp_server.py) that web_app.py's dashboard has always used - it is
+    rule-based and does NOT call an LLM, so it works with no LLM configured.
+
+    **Supported formats:** CSV (`.csv`), JSON (`.json`), tab-separated
+    (`.txt`/`.tsv`) - mirrors the formats the Streamlit UI's file uploader
+    already accepts.
+
+    **Rate Limit**: 30 requests per minute (no LLM cost, so a higher limit
+    than dictionary parsing is fine)
+
+    **Authentication**: Requires valid API key via X-API-Key header
+
+    **Parameters:**
+    - `data_file`: Dataset file to analyze
+    - `schema`: Optional JSON string mapping column names to expected types
+      (`int`, `float`, `str`, `bool`, `datetime`)
+    - `rules`: Optional JSON string mapping column names to validation rules
+      (`min`/`max` for numeric columns, `allowed` for categorical columns)
+    - `min_rows`: Minimum required row count (default 1)
+
+    **Returns:**
+    - `summary`: row/column counts, issue counts, completeness percentage
+    - `issues`: one entry per violation (range/type/categorical/missing-value),
+      each with column, row, value, severity, and a human-readable message
+    - `recommendations`: suggested next steps based on the issues found
+    - `quality_checks`: raw per-check results from QualityPipeline
+    - `summary_stats`: dataset shape, dtypes, missing-value counts, numeric stats
+    """
+    if mcp_server is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Analysis engine not available (mcp_server failed to import)."
+        )
+
+    # Validate file format
+    filename = data_file.filename or "uploaded"
+    file_extension = Path(filename).suffix.lower()
+    supported_extensions = ['.csv', '.json', '.txt', '.tsv']
+
+    if file_extension not in supported_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file format: {file_extension}. Supported: {', '.join(supported_extensions)}"
+        )
+
+    # Parse optional JSON form fields
+    schema_dict: Optional[Dict[str, Any]] = None
+    rules_dict: Optional[Dict[str, Any]] = None
+
+    if column_schema:
+        try:
+            schema_dict = json.loads(column_schema)
+            if not isinstance(schema_dict, dict):
+                raise ValueError("'schema' must be a JSON object")
+        except (json.JSONDecodeError, ValueError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid 'schema' JSON: {str(e)}"
+            )
+
+    if rules:
+        try:
+            rules_dict = json.loads(rules)
+            if not isinstance(rules_dict, dict):
+                raise ValueError("'rules' must be a JSON object")
+        except (json.JSONDecodeError, ValueError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid 'rules' JSON: {str(e)}"
+            )
+
+    logger.info(f"Analyzing data file: {filename} (schema={'yes' if schema_dict else 'no'}, rules={'yes' if rules_dict else 'no'})")
+
+    try:
+        content_bytes = await data_file.read()
+        if not content_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty."
+            )
+
+        # Mirror web_app.py's file_uploader parsing (pandas, by extension) so
+        # the engine sees the same DataFrame whether loaded via the UI or
+        # posted directly to this endpoint.
+        try:
+            if file_extension == '.csv':
+                df = pd.read_csv(io.BytesIO(content_bytes))
+            elif file_extension == '.json':
+                df = pd.read_json(io.BytesIO(content_bytes))
+            else:  # .txt / .tsv
+                df = pd.read_csv(io.BytesIO(content_bytes), sep='\t')
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to parse {file_extension} file: {str(e)}"
+            )
+
+        # Run the shared validation engine - single source of truth for all
+        # quality-check logic (row count, type, and range/allowed-value checks).
+        pipeline = mcp_server.QualityPipeline(df, schema=schema_dict, rules=rules_dict)
+        results = pipeline.run_all_checks(min_rows=min_rows)
+
+        report = _build_quality_report(df, results)
+
+        logger.info(
+            f"Analysis complete for {filename}: {report['summary']['issues_found']} issues "
+            f"({report['summary']['critical_issues']} critical, {report['summary']['warnings']} warnings)"
+        )
+        return report
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error analyzing data: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}"
+        )
 
 # ============================================================================
 # Dictionary Management Endpoints
