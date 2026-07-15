@@ -1,0 +1,80 @@
+# ============================================================================
+# Docker Compose Development Override
+# ============================================================================
+# This file provides development-specific overrides for the API server:
+# - Source code volume mount for hot reload
+# - Debug mode enabled
+# - Reduced resource limits
+# - Extended health check timeouts
+#
+# Usage:
+#   docker-compose -f docker-compose.api.yml -f docker-compose.dev.yml up
+#
+# This allows you to edit code locally and see changes reflected immediately
+# without rebuilding the Docker image.
+# ============================================================================
+
+version: '3.8'
+
+services:
+  api:
+    # Override build to always rebuild in development
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+
+    # Override environment for development
+    environment:
+      - APP_ENV=dev
+      - LOG_LEVEL=DEBUG
+
+    # Mount source code for hot reload
+    # Changes to these files will trigger uvicorn to reload
+    volumes:
+      # Mount source code
+      - ./api_server.py:/app/api_server.py
+      - ./src:/app/src
+
+      # Program cache (keep from base config)
+      - program-cache:/app/data
+
+      # Mount logs to local directory for easy access
+      - ./logs:/app/logs
+
+    # Override CMD to enable hot reload
+    command: [
+      "uvicorn", "api_server:app",
+      "--host", "0.0.0.0",
+      "--port", "8000",
+      "--reload",              # Enable auto-reload on code changes
+      "--log-level", "debug"   # Verbose logging for development
+    ]
+
+    # Relax health check for development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 60s            # Check less frequently
+      timeout: 10s
+      retries: 5               # More retries during development
+      start_period: 60s        # Longer startup time allowed
+
+    # Reduced resource limits for local development
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+# Use the same volumes and networks as production
+volumes:
+  program-cache:
+    external: true
+    name: data-analyzer-program-cache
+
+networks:
+  api-network:
+    external: true
+    name: data-analyzer-api-network

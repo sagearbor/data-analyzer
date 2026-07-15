@@ -1,0 +1,113 @@
+# ============================================================================
+# Azure Container Apps — deployment definition for the Data Analyzer API
+# ============================================================================
+# ACA-native config. DISTINCT from docker-compose.*.yml (VM/NGINX pattern).
+#
+# Every <PLACEHOLDER> below is filled from the gitignored `azure-environment.md`
+# at the repo root. Real subscription/RG/registry/identity IDs are kept OUT of
+# this committed file on purpose — the repo is public. Fill them in at deploy
+# time (or template with envsubst); do not commit the resolved values.
+#
+# The target is a Workload-Profiles ACA env that is VNET-integrated and private
+# (see azure-environment.md). Build images linux/amd64.
+#
+# Deploy:
+#   az containerapp create --name data-analyzer-api \
+#     --resource-group <RESOURCE_GROUP> --yaml deploy/aca/containerapp.yaml
+#
+# Secrets are set separately (never in this file):
+#   az containerapp secret set --name data-analyzer-api \
+#     --resource-group <RESOURCE_GROUP> \
+#     --secrets data-analyzer-api-key=<VALUE> azure-openai-api-key=<VALUE>
+# ============================================================================
+
+# User-assigned managed identity — used both to pull from ACR and, at runtime,
+# for the app's Key Vault / Storage access. Postgres auth uses an Entra ID
+# access token via this identity (NOT the psqladmin password, which stays in
+# Key Vault as break-glass only).
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>": {}
+
+properties:
+  managedEnvironmentId: "<MANAGED_ENVIRONMENT_RESOURCE_ID>"
+  # ACE is a Workload Profiles environment. Use the profile name IT exposes
+  # (commonly "Consumption" unless a dedicated profile was assigned).
+  workloadProfileName: "<WORKLOAD_PROFILE_NAME>"
+  configuration:
+    activeRevisionsMode: Single
+    # ------------------------------------------------------------------
+    # Ingress is INTERNAL: the ACE denies public access and is the private
+    # load balancer / endpoint on its own VNET subnet. external:false =
+    # reachable only from within the VNET (Duke VPN required).
+    # ------------------------------------------------------------------
+    ingress:
+      external: false
+      targetPort: 8000
+      transport: http
+      allowInsecure: false
+      traffic:
+        - latestRevision: true
+          weight: 100
+    secrets:
+      - name: data-analyzer-api-key
+        value: "<set-via-az-containerapp-secret-set>"
+      - name: azure-openai-api-key
+        value: "<set-via-az-containerapp-secret-set>"
+    registries:
+      - server: "<ACR_LOGIN_SERVER>"
+        identity: "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>"  # pull images with the UAMI
+  template:
+    containers:
+      - name: data-analyzer-api
+        image: "<ACR_LOGIN_SERVER>/data-analyzer-api:latest"
+        resources:
+          cpu: 0.5      # start small per IT guidance; scale workers, not SKU
+          memory: 1.0Gi
+        env:
+          # APP_ENV=prod hides the dev banner AND makes api_server.py fail-closed
+          # if DATA_ANALYZER_API_KEY is missing.
+          - name: APP_ENV
+            value: prod
+          - name: DATA_ANALYZER_API_KEY
+            secretRef: data-analyzer-api-key
+          - name: AZURE_OPENAI_API_KEY
+            secretRef: azure-openai-api-key
+          - name: AZURE_OPENAI_ENDPOINT
+            value: "<AZURE_OPENAI_ENDPOINT>"
+          # Client id of the user-assigned MI, so azure-identity picks the right
+          # identity for Key Vault / Storage / Postgres-AAD token calls.
+          - name: AZURE_CLIENT_ID
+            value: "<USER_ASSIGNED_IDENTITY_CLIENT_ID>"
+          # Ingress is internal-only; no browser cross-origin expected. Set to
+          # the real internal frontend origin if one calls this API from a page.
+          - name: ALLOWED_ORIGINS
+            value: ""
+          - name: API_RELOAD
+            value: "false"
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          - type: Readiness
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+    # Scale per IT guidance: scale-to-zero, cap at 2 replicas.
+    scale:
+      minReplicas: 0
+      maxReplicas: 2
+      # KEDA polling/cooldown IT specified (pollingInterval 30s, cooldown 600s).
+      pollingInterval: 30
+      cooldownPeriod: 600
+      rules:
+        - name: http-scaling
+          http:
+            metadata:
+              concurrentRequests: "50"

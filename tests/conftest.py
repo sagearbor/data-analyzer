@@ -11,13 +11,39 @@ import shutil
 
 # Get the tests directory
 TESTS_DIR = Path(__file__).parent
-DATA_DIR = TESTS_DIR / "data"
+DATA_DIR = TESTS_DIR / "test_data"
 
 
 @pytest.fixture(scope="session")
 def test_data_dir():
     """Return the test data directory path"""
     return DATA_DIR
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """
+    Reset slowapi's in-memory rate limit counters before every test.
+
+    api_server.py's `client` TestClient fixtures are module-scoped, so the
+    underlying app (and the app.state.limiter it holds) persists across every
+    test in that module. Without a reset here, production rate limits (e.g.
+    5/minute on /api/v1/dictionary/parse) accumulate across unrelated tests
+    run earlier in the same session and cause order-dependent 429 failures
+    for tests that aren't themselves testing rate-limiting behavior.
+
+    This is applied session-wide (autouse, function-scoped) so it covers all
+    test modules that exercise api_server endpoints, not just one file. It
+    does not touch api_server.py or change rate-limiting behavior/thresholds
+    - it only clears counters between tests so each test starts with a fresh
+    limiter window, as it would against a freshly started server.
+    """
+    try:
+        from api_server import limiter
+        limiter.reset()
+    except ImportError:
+        pass
+    yield
 
 
 @pytest.fixture
@@ -234,13 +260,14 @@ def mock_mcp_request():
 
 
 # Async fixtures for MCP testing
-@pytest.fixture
-async def mock_mcp_server():
-    """Mock MCP server for testing"""
-    from mcp_server import create_server
-    server = await create_server()
-    yield server
-    # Cleanup if needed
+# TODO: Re-enable when create_server() function is implemented in mcp_server.py
+# @pytest.fixture
+# async def mock_mcp_server():
+#     """Mock MCP server for testing"""
+#     from mcp_server import create_server
+#     server = await create_server()
+#     yield server
+#     # Cleanup if needed
 
 
 # Markers for test organization

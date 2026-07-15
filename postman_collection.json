@@ -1,0 +1,630 @@
+{
+  "info": {
+    "name": "Data Analyzer REST API",
+    "_postman_id": "data-analyzer-api-v1",
+    "description": "Comprehensive API collection for Data Analyzer - data quality analysis and validation program management",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "value",
+        "value": "{{API_KEY}}",
+        "type": "string"
+      },
+      {
+        "key": "key",
+        "value": "X-API-Key",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://localhost:8000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "API_KEY",
+      "value": "your-api-key-here",
+      "type": "string"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "value": "your-admin-password-here",
+      "type": "string"
+    },
+    {
+      "key": "PROGRAM_ID",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "PROGRAM_NAME",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/health",
+              "host": ["{{BASE_URL}}"],
+              "path": ["health"]
+            },
+            "description": "Check API health and service availability. No authentication required.\n\n**Rate Limit:** 60 requests/minute\n\n**Use Case:** Monitoring, readiness probes"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has status field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "});",
+                  "",
+                  "pm.test(\"Status is healthy or degraded\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(['healthy', 'degraded']).to.include(jsonData.status);",
+                  "});",
+                  "",
+                  "pm.test(\"All services are present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.services).to.have.property('llm_client');",
+                  "    pm.expect(jsonData.services).to.have.property('program_manager');",
+                  "    pm.expect(jsonData.services).to.have.property('logic_validator');",
+                  "    pm.expect(jsonData.services).to.have.property('mcp_server');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Root Endpoint",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8000",
+              "path": [""]
+            },
+            "description": "Get API information and links to documentation"
+          },
+          "response": []
+        }
+      ],
+      "description": "System endpoints for health checks and API information"
+    },
+    {
+      "name": "Dictionary Management",
+      "item": [
+        {
+          "name": "Parse Dictionary",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "dictionary_file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Dictionary file (CSV, JSON, TXT, or PDF)"
+                },
+                {
+                  "key": "save_program",
+                  "value": "true",
+                  "type": "text",
+                  "description": "Whether to save as cached program (default: true)"
+                },
+                {
+                  "key": "program_name",
+                  "value": "MyTestProgram",
+                  "type": "text",
+                  "description": "Optional custom name override",
+                  "disabled": true
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/dictionary/parse",
+              "host": ["{{BASE_URL}}"],
+              "path": ["dictionary", "parse"]
+            },
+            "description": "Parse a data dictionary file using AI to extract field definitions and validation rules.\n\n**Rate Limit:** 5 requests/minute (LLM calls are expensive)\n\n**Supported Formats:**\n- CSV (REDCap, custom formats)\n- JSON (FHIR, custom schemas)\n- TXT (plain text descriptions)\n- PDF (not yet implemented)\n\n**File Size Limit:** 10 MB\n\n**Authentication:** API key required"
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "dictionary_file",
+                      "type": "file",
+                      "src": "clinical_trial_dict.csv"
+                    },
+                    {
+                      "key": "save_program",
+                      "value": "true",
+                      "type": "text"
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{BASE_URL}}/dictionary/parse",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["dictionary", "parse"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [],
+              "body": "{\n  \"program_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"program_name\": \"20241202-143022-ClinicalTrial\",\n  \"fields_extracted\": 45,\n  \"rules_extracted\": 23,\n  \"logic_rules_extracted\": 8,\n  \"generated_code\": \"def validate_logic_rules(df: pd.DataFrame)...\",\n  \"schema\": {\n    \"patient_id\": {\n      \"field_type\": \"integer\",\n      \"required\": true,\n      \"description\": \"Unique patient identifier\"\n    }\n  },\n  \"dictionary_format\": \"redcap_csv\",\n  \"generation_time_seconds\": 12.5,\n  \"model_used\": \"gpt-4o\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has program_id\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('program_id');",
+                  "    pm.collectionVariables.set('PROGRAM_ID', jsonData.program_id);",
+                  "    pm.collectionVariables.set('PROGRAM_NAME', jsonData.program_name);",
+                  "});",
+                  "",
+                  "pm.test(\"Fields extracted is positive\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.fields_extracted).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.test(\"Has schema object\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('schema');",
+                  "    pm.expect(typeof jsonData.schema).to.equal('object');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Dictionary by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/dictionary/{{PROGRAM_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["dictionary", "{{PROGRAM_ID}}"]
+            },
+            "description": "Retrieve a saved validation program by UUID.\n\n**Rate Limit:** 30 requests/minute\n\n**Authentication:** API key required\n\n**Path Parameter:**\n- `dict_id`: Program UUID (set from Parse Dictionary response)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has complete program details\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('program_id');",
+                  "    pm.expect(jsonData).to.have.property('name');",
+                  "    pm.expect(jsonData).to.have.property('schema');",
+                  "    pm.expect(jsonData).to.have.property('rules');",
+                  "    pm.expect(jsonData).to.have.property('generated_code');",
+                  "});",
+                  "",
+                  "pm.test(\"Has usage statistics\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('use_count');",
+                  "    pm.expect(jsonData).to.have.property('last_used');",
+                  "    pm.expect(jsonData).to.have.property('created_at');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Dictionary by Name",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/dictionary/{{PROGRAM_NAME}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["dictionary", "{{PROGRAM_NAME}}"]
+            },
+            "description": "Retrieve a saved validation program by name.\n\n**Rate Limit:** 30 requests/minute\n\n**Authentication:** API key required\n\n**Example Names:**\n- `20241202-143022-ClinicalTrial`\n- `20241202-151530-EmployeeRecords`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Dictionary by Alias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/dictionary/johnDoesFav01",
+              "host": ["{{BASE_URL}}"],
+              "path": ["dictionary", "johnDoesFav01"]
+            },
+            "description": "Retrieve a saved validation program by alias.\n\n**Rate Limit:** 30 requests/minute\n\n**Authentication:** API key required\n\n**Note:** Replace `johnDoesFav01` with an actual alias created in your system"
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints for parsing data dictionaries and retrieving saved programs",
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          {
+            "key": "value",
+            "value": "{{API_KEY}}",
+            "type": "string"
+          },
+          {
+            "key": "key",
+            "value": "X-API-Key",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Program Management (Planned)",
+      "item": [
+        {
+          "name": "List Programs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/programs?search=&status=active&limit=50&offset=0",
+              "host": ["{{BASE_URL}}"],
+              "path": ["programs"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Text search in name, source, description"
+                },
+                {
+                  "key": "dictionary_source",
+                  "value": "",
+                  "description": "Filter by source file",
+                  "disabled": true
+                },
+                {
+                  "key": "created_by",
+                  "value": "",
+                  "description": "Filter by creator",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "active, deleted, or all"
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Pagination limit"
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Pagination offset"
+                }
+              ]
+            },
+            "description": "**Status:** Planned for future release (api_5)\n\nList all validation programs with optional search and filters.\n\n**Rate Limit:** 30 requests/minute\n\n**Authentication:** API key required"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Program Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/programs/{{PROGRAM_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["programs", "{{PROGRAM_ID}}"]
+            },
+            "description": "**Status:** Planned for future release (api_5)\n\nGet detailed program information by ID or alias.\n\n**Rate Limit:** 30 requests/minute\n\n**Authentication:** API key required"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Alias",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"alias\": \"johnDoesFav01\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/programs/{{PROGRAM_ID}}/alias",
+              "host": ["{{BASE_URL}}"],
+              "path": ["programs", "{{PROGRAM_ID}}", "alias"]
+            },
+            "description": "**Status:** Planned for future release (api_5)\n\nCreate a user-friendly alias for a program.\n\n**Rate Limit:** 10 requests/minute\n\n**Authentication:** API key required\n\n**Request Body:**\n```json\n{\n  \"alias\": \"johnDoesFav01\"\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Program (Admin)",
+          "request": {
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "value",
+                  "value": "{{ADMIN_PASSWORD}}",
+                  "type": "string"
+                },
+                {
+                  "key": "key",
+                  "value": "X-Admin-Password",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Contains errors in validation logic\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/programs/{{PROGRAM_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["programs", "{{PROGRAM_ID}}"]
+            },
+            "description": "**Status:** Planned for future release (api_5)\n\nSoft delete a validation program (admin only).\n\n**Rate Limit:** 10 requests/minute\n\n**Authentication:** Admin password required\n\n**Request Body:**\n```json\n{\n  \"reason\": \"Contains errors in validation logic\"\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Restore Program (Admin)",
+          "request": {
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "value",
+                  "value": "{{ADMIN_PASSWORD}}",
+                  "type": "string"
+                },
+                {
+                  "key": "key",
+                  "value": "X-Admin-Password",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/programs/{{PROGRAM_ID}}/restore",
+              "host": ["{{BASE_URL}}"],
+              "path": ["programs", "{{PROGRAM_ID}}", "restore"]
+            },
+            "description": "**Status:** Planned for future release (api_5)\n\nRestore a deleted program (admin only).\n\n**Rate Limit:** 10 requests/minute\n\n**Authentication:** Admin password required"
+          },
+          "response": []
+        }
+      ],
+      "description": "Program management endpoints (planned for future release)\n\n**Note:** These endpoints are planned but not yet implemented. See developer_checklist.yaml task api_5 for status.",
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          {
+            "key": "value",
+            "value": "{{API_KEY}}",
+            "type": "string"
+          },
+          {
+            "key": "key",
+            "value": "X-API-Key",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Data Analysis (Planned)",
+      "item": [
+        {
+          "name": "Analyze Data",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data_file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Data file (CSV, JSON, Excel, Parquet)"
+                },
+                {
+                  "key": "dictionary_file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Optional dictionary file",
+                  "disabled": true
+                },
+                {
+                  "key": "format",
+                  "value": "csv",
+                  "type": "text",
+                  "description": "Data format"
+                },
+                {
+                  "key": "validate_logic",
+                  "value": "true",
+                  "type": "text",
+                  "description": "Run logic validation"
+                },
+                {
+                  "key": "return_format",
+                  "value": "json",
+                  "type": "text",
+                  "description": "json, html, or excel"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/analyze",
+              "host": ["{{BASE_URL}}"],
+              "path": ["analyze"]
+            },
+            "description": "**Status:** Planned for future release (api_3)\n\nAnalyze data file with optional dictionary for validation.\n\n**Rate Limit:** 10 requests/minute\n\n**Authentication:** API key required\n\n**Supported Data Formats:**\n- CSV\n- JSON\n- Excel\n- Parquet\n\n**File Size Limit:** 50 MB"
+          },
+          "response": []
+        },
+        {
+          "name": "Analyze with Program",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data_file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Data file to analyze"
+                },
+                {
+                  "key": "program",
+                  "value": "{{PROGRAM_ID}}",
+                  "type": "text",
+                  "description": "Program ID, name, or alias"
+                },
+                {
+                  "key": "format",
+                  "value": "csv",
+                  "type": "text",
+                  "description": "Data format"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/analyze/with-program",
+              "host": ["{{BASE_URL}}"],
+              "path": ["analyze", "with-program"]
+            },
+            "description": "**Status:** Planned for future release (api_3)\n\nAnalyze data using a cached validation program.\n\n**Rate Limit:** 10 requests/minute\n\n**Authentication:** API key required"
+          },
+          "response": []
+        }
+      ],
+      "description": "Data analysis endpoints (planned for future release)\n\n**Note:** These endpoints are planned but not yet implemented. See developer_checklist.yaml task api_3 for status.",
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          {
+            "key": "value",
+            "value": "{{API_KEY}}",
+            "type": "string"
+          },
+          {
+            "key": "key",
+            "value": "X-API-Key",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Add request timestamp",
+          "pm.variables.set('timestamp', new Date().toISOString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test: Check response time",
+          "pm.test(\"Response time is less than 5000ms\", function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "// Global test: Check content type",
+          "pm.test(\"Content-Type is application/json\", function () {",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});"
+        ]
+      }
+    }
+  ]
+}
