@@ -2,6 +2,26 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Resuming work — read this first
+
+State travels with the git branch — there are no local-only handoff files. Reconstruct
+context from git before doing anything else.
+
+**RESUMING:** To continue prior work:
+1. If an open PR exists for the branch, its description is the live handoff — read it first.
+2. If no PR, read `git log --oneline -20` and the latest commit body
+   (`git show -s --format=%B HEAD`); a handoff commit ends with a `Handoff:` section
+   listing next steps.
+
+Then continue.
+
+**HANDING OFF:** When you pause or finish a chunk, leave a clean handoff that travels
+with the branch:
+- At a PR-worthy point, open or update a PR whose description lists what's done, what's
+  pending, required env vars, and the exact commands to run.
+- Mid-work (no PR yet), commit your progress with a `Handoff:` section at the end of the
+  commit message (done / next steps / caveats) and push.
+
 ## CRITICAL: Agent Delegation Philosophy
 
 **YOU MUST PROACTIVELY DELEGATE TO AGENTS TO CONSERVE CONTEXT.**

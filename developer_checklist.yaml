@@ -1,862 +1,865 @@
-# Developer Checklist for Data Analyzer - MAJOR NEW FEATURES
+# Developer Checklist for Data Analyzer - ACTIVE TASKS ONLY
 # Status: TODO | INPROGRESS | DONE
+# Completed tasks moved to: archive/developer_checklist_archived.yaml
 # AI agents: Please update status and add notes when working on tasks
-# IMPORTANT: Read IMPLEMENTATION_PLAN.md before starting development
 
 project_info:
-  name: Data Analyzer - Three Major Features
-  version: 2.0.0
-  last_updated: 2024-12-02T14:30:00Z
-  planning_session: 2024-12-02
-  implementation_status: PLANNING_COMPLETE_READY_FOR_DEVELOPMENT
+  name: Data Analyzer - Active Development
+  version: 1.0.0
+  last_updated: 2026-06-15T00:00:00Z
 
 # =========================================================
-# CRITICAL - READ FIRST
+# CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
 # =========================================================
-# THREE MAJOR FEATURES PLANNED (see IMPLEMENTATION_PLAN.md):
-# 1. Logic Validation Engine - Validate conditional rules from data dictionaries
-# 2. Named Program Cache System - User-friendly caching with aliases
-# 3. REST API - Programmatic access to analysis functionality
+# FIXES COMPLETED TODAY BY CLAUDE:
+# 1. ✅ Export dropdown - Shows download button immediately
+# 2. ✅ PDF dictionary caching - Saves to ~/.data_analyzer_cache/
+# 3. ✅ PDF progress - Shows every page update (not batched)
+# 4. ✅ Port issue - Fixed multiple instances, runs on 8501
+# 5. ⚠️  Mermaid diagram - STILL BROKEN (see core_1c below)
 #
-# ESTIMATED TIMELINE: 4-6 weeks total
-# RECOMMENDED ORDER: Feature 2 → Feature 1 → Feature 3
-#
-# NEXT STEPS:
-# 1. Read IMPLEMENTATION_PLAN.md completely
-# 2. Start with Feature 2 (Program Cache) - foundational for others
-# 3. Use tech-lead-developer agents in parallel for independent tasks
-# 4. Test thoroughly with qc-test-maintainer agent after each phase
+# MAJOR DISCOVERIES - IMPORTANT:
+# - MCPClient is 100% SIMULATED - NO real MCP (see core_1)
+# - Azure OpenAI was NEVER IMPLEMENTED (see core_1b)
+# - Dictionary parsing uses BASIC REGEX ONLY
+# - The app has been running on simulations all along!
 # =========================================================
 
-# PRIORITY 1: Feature 2 - Named Program Cache System (FOUNDATIONAL)
-# Start with this because Features 1 and 3 both depend on it
-phase_program_cache:
-  name: "Named Program Cache System"
+# PRIORITY 1: Frontend Cleanup & Visual Improvements
+phase_frontend_cleanup:
+  name: "Frontend Visual Overhaul"
   status: TODO
   priority: CRITICAL
-  description: |
-    Replace hash-based caching with user-friendly named programs and aliases.
-    Users can save validation programs with names like "20241202-143022-ClinicalTrial"
-    and create aliases like "johnDoesFav01". Admin can delete bad programs.
-  estimated_effort: "1-2 weeks"
-  depends_on: []
-  blocks: ["phase_logic_validation", "phase_rest_api"]
-
   tasks:
-    - id: cache_1
-      name: "Create Data Model and Database Schema"
-      description: "Design ValidationProgram dataclass and SQLite schema"
+    - id: ui_cleanup_1
+      name: "Fix Navigation Bar"
+      description: "Professional navbar with better styling and responsiveness"
+      status: DONE
+      priority: CRITICAL
+      effort: "4 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Implemented horizontal navigation with streamlit-option-menu, custom gradient styling"
+      subtasks:
+        - "Fix navbar spacing and alignment"
+        - "Add hover effects and transitions"
+        - "Ensure mobile responsiveness"
+        - "Fix active page highlighting"
+        - "Add logo/branding area"
+        - "Implement breadcrumb navigation"
+
+    - id: ui_cleanup_2
+      name: "Sidebar Reorganization"
+      description: "Streamline sidebar to reduce clutter"
       status: TODO
       priority: CRITICAL
-      effort: "1 day"
-      files_to_create:
-        - "src/program_cache.py"
-      notes: |
-        Create ValidationProgram dataclass with:
-        - program_id (UUID)
-        - name (auto-generated: YYYYMMDD-HHMMSS-description)
-        - aliases (list of user-friendly names)
-        - dictionary_source, dictionary_hash
-        - generated_code (validation Python code)
-        - schema, rules, metadata
-        - created_by, created_at, last_used, use_count
-        - status (active/deleted)
+      effort: "3 hours"
+      subtasks:
+        - "Group related controls in expanders"
+        - "Move debug/advanced options to collapsible section"
+        - "Add icons to all controls"
+        - "Implement smart defaults"
+        - "Add tooltips for all options"
+        - "Create 'Quick Start' section at top"
 
-        Create SQLite database (~/.data_analyzer/programs.db):
-        - programs table
-        - aliases table
-        - execution_history table
-
-        See IMPLEMENTATION_PLAN.md section "Feature 2" for complete schema
-
-    - id: cache_2
-      name: "Implement ProgramDatabase Class"
-      description: "SQLite interface for program CRUD operations"
-      status: TODO
+    - id: ui_cleanup_3
+      name: "Main Content Area Restructuring"
+      description: "Reduce scrolling and improve information hierarchy"
+      status: DONE
       priority: CRITICAL
-      effort: "2 days"
-      depends_on: ["cache_1"]
-      files_to_create:
-        - "src/program_cache.py"
-      methods_to_implement:
-        - "save_program()"
-        - "load_program(id_or_name_or_alias)"
-        - "search_programs()"
-        - "list_all_programs()"
-        - "create_alias()"
-        - "delete_program() - admin only"
-        - "restore_program() - admin only"
-        - "increment_use_count()"
-        - "record_execution()"
-      notes: |
-        Implement all database operations with:
-        - Parameterized queries (SQL injection prevention)
-        - Error handling and logging
-        - Transaction support
-        - Unique constraint checking for aliases
+      effort: "6 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Implemented tabbed interface for Analysis page (Upload, Analyze, Results, Export tabs)"
+      subtasks:
+        - "Replace vertical layout with tabbed interface"
+        - "Create summary dashboard as first view"
+        - "Move detailed results to secondary tabs"
+        - "Implement lazy loading for heavy content"
+        - "Add 'Jump to Section' navigation"
+        - "Create collapsible result cards"
 
-    - id: cache_3
-      name: "Implement ProgramManager Class"
-      description: "High-level interface for program management"
+    - id: ui_cleanup_4
+      name: "Schema/Rules Editor Overhaul"
+      description: "Replace individual inputs with table-based editor"
       status: TODO
       priority: HIGH
-      effort: "2 days"
-      depends_on: ["cache_2"]
-      files_to_create:
-        - "src/program_manager.py"
-      methods_to_implement:
-        - "create_program_from_dictionary()"
-        - "find_or_create_program()"
-        - "execute_program()"
-        - "search_programs()"
-      notes: |
-        ProgramManager orchestrates:
-        - LLMDictionaryParser (parse dictionary)
-        - LogicCodeGenerator (generate code) - will be implemented in Feature 1
-        - ProgramDatabase (save/load programs)
+      effort: "5 hours"
+      dependencies: []
+      subtasks:
+        - "Install streamlit-aggrid for Excel-like editing"
+        - "Create bulk edit interface"
+        - "Add copy/paste support"
+        - "Implement undo/redo functionality"
+        - "Add import from clipboard feature"
+        - "Create schema templates dropdown"
 
-        Handles graceful degradation:
-        - If program deleted → offer to regenerate
-        - If program fails → return error with suggestion
-
-    - id: cache_4
-      name: "Implement Auto-Naming Logic"
-      description: "Generate meaningful names from dictionary content"
+    - id: ui_cleanup_5
+      name: "Results Dashboard Redesign"
+      description: "Professional analytics dashboard"
       status: TODO
+      priority: HIGH
+      effort: "6 hours"
+      subtasks:
+        - "Create status cards with metrics"
+        - "Add progress indicators during analysis"
+        - "Implement color-coded severity levels"
+        - "Create interactive issue explorer"
+        - "Add filtering and sorting for issues"
+        - "Implement issue grouping by type/column"
+
+    - id: ui_cleanup_6
+      name: "Visual Polish & Theming"
+      description: "Professional appearance with consistent design"
+      status: DONE
       priority: MEDIUM
-      effort: "1 day"
-      depends_on: ["cache_2"]
-      files_to_modify:
-        - "src/program_manager.py"
-      notes: |
-        Format: YYYYMMDD-HHMMSS-{description}
+      effort: "4 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Added gradient backgrounds, professional cards, hover effects, modern button styling"
+      subtasks:
+        - "Implement consistent color scheme"
+        - "Add Tailwind CSS or Bootstrap integration"
+        - "Create custom CSS for components"
+        - "Add smooth animations and transitions"
+        - "Implement dark mode toggle"
+        - "Fix spacing and padding throughout"
 
-        Description generation strategies:
-        1. Use dictionary name from metadata
-        2. Use source filename
-        3. Analyze field names for domain (clinical, employee, etc.)
-        4. Default to "DataValidation"
-
-        Examples:
-        - "20241202-143022-ClinicalTrial"
-        - "20241202-151530-EmployeeRecords"
-
-    - id: cache_5
-      name: "Implement Admin Operations"
-      description: "Admin-only operations with password protection"
-      status: TODO
+    - id: ui_cleanup_7
+      name: "Responsive Design"
+      description: "Ensure works well on all screen sizes"
+      status: DONE
       priority: MEDIUM
-      effort: "1 day"
-      depends_on: ["cache_2"]
-      files_to_create:
-        - "src/admin_operations.py"
-      methods_to_implement:
-        - "verify_admin(password)"
-        - "delete_program_admin()"
-        - "restore_program_admin()"
-        - "view_deleted_programs()"
-        - "purge_program() - hard delete"
-      notes: |
-        Admin password from environment variable:
-        DATA_ANALYZER_ADMIN_PASSWORD
+      effort: "3 hours"
+      completed_date: "2025-09-28T07:48:00Z"
+      notes: "Added comprehensive media queries for mobile, tablet, and desktop views"
+      subtasks:
+        - "Test on mobile devices"
+        - "Implement responsive grid layouts"
+        - "Create mobile-friendly navigation"
+        - "Optimize for tablet views"
+        - "Add viewport meta tags"
 
-        All admin operations:
-        - Require password verification
-        - Log to execution_history
-        - Support soft delete (status=deleted)
-        - Store deletion reason
-
-    - id: cache_6
-      name: "Unit Tests for Program Cache"
-      description: "Comprehensive tests for all cache operations"
-      status: TODO
+    - id: ui_cleanup_8
+      name: "Loading States & Feedback"
+      description: "Better user feedback during operations"
+      status: DONE
       priority: HIGH
-      effort: "2 days"
-      depends_on: ["cache_2", "cache_3", "cache_4", "cache_5"]
-      files_to_create:
-        - "tests/test_program_cache.py"
-        - "tests/test_program_manager.py"
-      test_coverage:
-        - "CRUD operations"
-        - "Alias creation and uniqueness"
-        - "Admin operations"
-        - "Auto-naming logic"
-        - "Error handling"
-        - "Concurrent access"
+      effort: "2 hours"
+      completed_date: "2025-09-28T07:45:00Z"
+      notes: "Implemented progress bars, spinners, and status messages during analysis"
+      subtasks:
+        - "Add skeleton loaders"
+        - "Implement progress bars for long operations"
+        - "Add success/error toast notifications"
+        - "Create loading overlays"
+        - "Add operation time estimates"
 
-    - id: cache_7
-      name: "Integration with Web App"
-      description: "Add program management UI to web_app.py"
-      status: TODO
-      priority: HIGH
-      effort: "3 days"
-      depends_on: ["cache_3"]
-      files_to_modify:
-        - "web_app.py"
-      ui_sections_to_add:
-        - "Saved Programs List - view all programs with metadata"
-        - "Create Alias UI - add aliases to programs"
-        - "Program Search - find programs by name/alias/source"
-        - "Admin Panel - delete/restore programs (password protected)"
-        - "Program Usage History - show execution stats"
-      notes: |
-        Update web_app.py to:
-        1. After dictionary parsing, save as program
-        2. Allow users to select saved programs for analysis
-        3. Display program metadata (use count, last used, etc.)
-        4. Create aliases with uniqueness check
-        5. Admin panel for program management
-
-# PRIORITY 2: Feature 1 - Logic Validation Engine (CORE FUNCTIONALITY)
-phase_logic_validation:
-  name: "Logic Validation Engine"
+# PRIORITY 2: Download with Error Highlighting Feature
+phase_error_export:
+  name: "Export Data with Error Highlighting"
   status: TODO
-  priority: CRITICAL
-  description: |
-    Extract and validate conditional logic rules from data dictionaries.
-    Examples: "If male, skip pregnancy questions", "If placebo, dosage must be blank"
-  estimated_effort: "2-3 weeks"
-  depends_on: ["phase_program_cache"]
-  blocks: []
-
+  priority: HIGH
   tasks:
-    - id: logic_1
-      name: "Extend FieldDefinition for Conditional Rules"
-      description: "Add ConditionalRule dataclass to llm_client.py"
-      status: TODO
-      priority: CRITICAL
-      effort: "1 day"
-      files_to_modify:
-        - "src/llm_client.py"
-      notes: |
-        Add ConditionalRule dataclass:
-        - rule_id (unique identifier)
-        - rule_type (skip_if, required_if, allowed_if, calculate, range_if)
-        - condition (Python expression: "row['gender'] == 'Male'")
-        - action (skip, require, validate_range, calculate)
-        - affected_fields (list of field names)
-        - description (natural language)
-        - severity (error, warning)
-        - confidence (0.0-1.0 for learned rules)
-
-        Update FieldDefinition to include:
-        - conditional_rules: List[ConditionalRule]
-
-    - id: logic_2
-      name: "Update LLM Extraction Prompt for Logic"
-      description: "Enhance prompt to extract conditional logic rules"
-      status: TODO
-      priority: CRITICAL
-      effort: "2 days"
-      depends_on: ["logic_1"]
-      files_to_modify:
-        - "src/llm_client.py"
-      notes: |
-        Update create_extraction_prompt() to request:
-        - Skip logic patterns
-        - Conditional requirements
-        - Field dependencies
-        - Calculations
-        - Range dependencies based on other fields
-
-        Provide examples of logic patterns:
-        - "If [field] = [value], then [action] on [target_fields]"
-        - "Skip Q5-Q10 if Q4='No'"
-        - "Required if [condition]"
-
-    - id: logic_3
-      name: "Enhance LLM Response Parsing for Logic"
-      description: "Parse conditional_rules from LLM JSON response"
-      status: TODO
-      priority: CRITICAL
-      effort: "2 days"
-      depends_on: ["logic_2"]
-      files_to_modify:
-        - "src/llm_client.py"
-      notes: |
-        Update parse_llm_response() to:
-        - Parse conditional_rules array
-        - Convert natural language conditions to Python expressions
-        - Validate expressions are safe (no imports, no file I/O)
-        - Handle nested conditions
-
-    - id: logic_4
-      name: "Test Logic Extraction with REDCap Dictionary"
-      description: "Test extraction with real REDCap dictionary"
+    - id: export_1
+      name: "Excel Export with Error Highlighting"
+      description: "Download Excel files with errors highlighted in red"
       status: TODO
       priority: HIGH
       effort: "1 day"
-      depends_on: ["logic_3"]
-      files_to_create:
-        - "tests/test_data/redcap_with_logic.csv"
-        - "tests/test_logic_extraction.py"
-      notes: |
-        Create test REDCap dictionary with:
-        - Skip logic (branching logic column)
-        - Conditional fields
-        - Calculated fields
+      subtasks:
+        - "Use openpyxl for Excel manipulation"
+        - "Apply red background to error cells"
+        - "Add error comments to cells"
+        - "Create error summary sheet"
+        - "Include validation report as separate sheet"
+        - "Add conditional formatting for warnings"
 
-        Verify extraction accuracy
+    - id: export_2
+      name: "CSV Export with Error Markers"
+      description: "Mark errors in CSV format"
+      status: TODO
+      priority: HIGH
+      effort: "4 hours"
+      subtasks:
+        - "Add _ERROR suffix to problematic values"
+        - "Create companion error report file"
+        - "Add error line numbers in separate column"
+        - "Generate error mapping file"
 
-    - id: logic_5
-      name: "Create LogicCodeGenerator Class"
-      description: "Generate Python validation code from rules"
+    - id: export_3
+      name: "JSON Export with Error Annotations"
+      description: "Annotate JSON with error metadata"
+      status: TODO
+      priority: MEDIUM
+      effort: "4 hours"
+      subtasks:
+        - "Add _errors field to objects with issues"
+        - "Include error types and messages"
+        - "Maintain original structure"
+        - "Create error summary at root level"
+
+    - id: export_4
+      name: "HTML Report Generation"
+      description: "Interactive HTML report with errors"
+      status: TODO
+      priority: MEDIUM
+      effort: "6 hours"
+      subtasks:
+        - "Create HTML template with styling"
+        - "Highlight errors with CSS"
+        - "Add interactive filtering"
+        - "Include charts and visualizations"
+        - "Make report self-contained (inline CSS/JS)"
+
+    - id: export_5
+      name: "Download UI Integration"
+      description: "Add download buttons to interface"
+      status: TODO
+      priority: HIGH
+      effort: "2 hours"
+      subtasks:
+        - "Add download section to results"
+        - "Provide format selection dropdown"
+        - "Show download size estimate"
+        - "Add batch download for all formats"
+
+# PRIORITY 3: Testing & Debugging Core Functionality
+phase_testing_debugging:
+  name: "Fix Core Bugs and Test All Features"
+  status: INPROGRESS
+  priority: CRITICAL
+  tasks:
+    - id: test_debug_1
+      name: "Fix JSON Format Support"
+      description: "JSON analysis currently broken - showing 'Unsupported format: json'"
       status: TODO
       priority: CRITICAL
-      effort: "3 days"
-      depends_on: ["logic_3"]
-      files_to_create:
-        - "src/logic_engine.py"
-      methods_to_implement:
-        - "generate_validation_function(rules)"
-        - "validate_generated_code(code)"
-        - "_create_prompt_for_code_generation()"
-        - "_parse_code_response()"
-      notes: |
-        LogicCodeGenerator uses LLM to generate Python code that:
-        - Takes DataFrame as input
-        - Iterates through rows
-        - Checks each conditional rule
-        - Returns list of violations
+      effort: "2 hours"
+      bug_reported: "User reported: JSON Mixed demo data causes error"
+      subtasks:
+        - "Debug _simulate_mcp_call method for JSON handling"
+        - "Fix JSON data loading in web_app.py"
+        - "Test with all JSON demo formats"
+        - "Handle nested JSON structures properly"
+        - "Fix JSON preview display"
 
-        Generated code must be:
-        - Clean and readable
-        - Well-documented with docstrings
-        - Type-hinted
-        - Safe (no dangerous operations)
-
-    - id: logic_6
-      name: "Create LogicValidator Class"
-      description: "Execute validation code in sandboxed environment"
+    - id: test_debug_2
+      name: "Test All Demo Data Formats"
+      description: "Systematically test each demo data format"
       status: TODO
       priority: CRITICAL
-      effort: "2 days"
-      depends_on: ["logic_5"]
-      files_to_modify:
-        - "src/logic_engine.py"
-      methods_to_implement:
-        - "execute_validation(code, df)"
-        - "_create_safe_globals()"
-        - "_validate_code_safety()"
-      notes: |
-        LogicValidator provides:
-        - Sandboxed execution (RestrictedPython or AST validation)
-        - Timeout protection (60 seconds max)
-        - Safe modules only (pandas, numpy, datetime)
-        - No file I/O, no imports, no exec/eval
-        - Exception handling and logging
+      effort: "3 hours"
+      subtasks:
+        - "Test CSV - Western demo data"
+        - "Test CSV - Asian demo data"
+        - "Test JSON - Mixed demo data"
+        - "Test CSV - Clinical Trial demo data"
+        - "Document all errors found"
+        - "Fix each format's specific issues"
 
-        Returns standardized violation format
-
-    - id: logic_7
-      name: "Test Code Generation and Execution"
-      description: "Test full logic validation pipeline"
+    - id: test_debug_3
+      name: "Data Dictionary Testing"
+      description: "Test data dictionary parsing and application"
       status: TODO
       priority: HIGH
-      effort: "2 days"
-      depends_on: ["logic_6"]
-      files_to_create:
-        - "tests/test_logic_engine.py"
-        - "tests/test_data/sample_logic_violations.csv"
-      test_coverage:
-        - "Code generation from rules"
-        - "Safe execution"
-        - "Violation detection"
-        - "Error handling"
-        - "Performance with large datasets"
+      effort: "2 hours"
+      subtasks:
+        - "Test loading each demo dictionary"
+        - "Verify schema extraction works"
+        - "Test rules extraction"
+        - "Apply dictionaries to matching demo data"
+        - "Fix any parsing errors"
+        - "Test dictionary UI integration"
 
-    - id: logic_8
-      name: "Integrate Logic Validation with QualityPipeline"
-      description: "Add logic validation to existing pipeline"
+    - id: test_debug_4
+      name: "File Upload Testing"
+      description: "Test various file upload scenarios"
       status: TODO
       priority: HIGH
-      effort: "2 days"
-      depends_on: ["logic_6"]
-      files_to_modify:
-        - "mcp_server.py"
-      notes: |
-        Add validate_logic() method to QualityPipeline:
-        - Load validation program from cache
-        - Execute logic validator
-        - Merge logic violations with existing issues
-        - Return comprehensive results
+      effort: "2 hours"
+      subtasks:
+        - "Test CSV file uploads"
+        - "Test Excel file uploads"
+        - "Test JSON file uploads"
+        - "Test Parquet file uploads"
+        - "Test large file handling"
+        - "Test invalid file formats"
+        - "Test empty files"
 
-    - id: logic_9
-      name: "Update Web App for Logic Violations"
-      description: "Display logic violations in results"
+    - id: test_debug_5
+      name: "Schema and Rules Validation Testing"
+      description: "Verify schema and rules work correctly"
       status: TODO
       priority: HIGH
-      effort: "2 days"
-      depends_on: ["logic_8"]
-      files_to_modify:
-        - "web_app.py"
-      ui_updates:
-        - "Add 'Logic Violations' section to results"
-        - "Show rule description and affected rows"
-        - "Color-code by severity"
-        - "Add filters for violation types"
+      effort: "2 hours"
+      subtasks:
+        - "Test manual schema creation"
+        - "Test auto-detection of types"
+        - "Test rules with min/max values"
+        - "Test allowed values validation"
+        - "Test datetime validation"
+        - "Fix validation error messages"
 
-    - id: logic_10
-      name: "Optional: Statistical Pattern Learning"
-      description: "Learn implicit rules from data patterns"
+    - id: test_debug_6
+      name: "Error Display Testing"
+      description: "Ensure errors are displayed correctly"
+      status: TODO
+      priority: HIGH
+      effort: "1 hour"
+      subtasks:
+        - "Test error highlighting in results"
+        - "Verify error counts are accurate"
+        - "Test error message clarity"
+        - "Check error navigation"
+        - "Test error export functionality"
+
+    - id: test_debug_7
+      name: "Cross-Browser Testing"
+      description: "Test application in different browsers"
+      status: TODO
+      priority: MEDIUM
+      effort: "1 hour"
+      subtasks:
+        - "Test in Chrome"
+        - "Test in Firefox"
+        - "Test in Safari"
+        - "Test in Edge"
+        - "Document browser-specific issues"
+
+    - id: test_debug_8
+      name: "Performance Testing"
+      description: "Test with various data sizes"
+      status: TODO
+      priority: MEDIUM
+      effort: "2 hours"
+      subtasks:
+        - "Test with 100 rows"
+        - "Test with 1,000 rows"
+        - "Test with 10,000 rows"
+        - "Test with 100,000 rows"
+        - "Monitor memory usage"
+        - "Check for memory leaks"
+
+# PRIORITY 4: Performance & UX Improvements
+phase_performance_ux:
+  name: "Performance and User Experience"
+  status: TODO
+  tasks:
+    - id: perf_ux_1
+      name: "Implement Caching"
+      description: "Cache analysis results and schemas"
+      status: TODO
+      priority: MEDIUM
+      effort: "4 hours"
+      subtasks:
+        - "Use st.cache_data for analysis results"
+        - "Cache uploaded file processing"
+        - "Store user preferences in session"
+        - "Implement smart cache invalidation"
+
+    - id: perf_ux_2
+      name: "Streaming for Large Files"
+      description: "Handle files > 100MB efficiently"
+      status: TODO
+      priority: HIGH
+      effort: "1 day"
+      subtasks:
+        - "Implement chunked file reading"
+        - "Add streaming preview"
+        - "Progressive analysis with updates"
+        - "Memory usage monitoring"
+
+    - id: perf_ux_3
+      name: "Keyboard Shortcuts"
+      description: "Power user features"
       status: TODO
       priority: LOW
+      effort: "2 hours"
+      subtasks:
+        - "Ctrl+Enter to run analysis"
+        - "Tab navigation between sections"
+        - "Escape to close modals"
+        - "Ctrl+S to save configuration"
+
+    - id: perf_ux_4
+      name: "Configuration Save/Load"
+      description: "Save and reuse configurations"
+      status: TODO
+      priority: MEDIUM
+      effort: "3 hours"
+      subtasks:
+        - "Export schema/rules as JSON"
+        - "Import saved configurations"
+        - "Create configuration library"
+        - "Share configurations via URL"
+
+# PRIORITY 5A: LLM Integration (IMMEDIATE)
+phase_llm_integration:
+  name: "LLM/Azure OpenAI Implementation"
+  status: DONE
+  description: "Get actual AI working with API keys in .env"
+  completed: "2025-09-28"
+  tasks:
+    - id: llm_1
+      name: "Basic Azure OpenAI Connection"
+      description: "Connect to Azure OpenAI using existing .env credentials"
+      status: DONE
+      priority: CRITICAL
+      effort: "2-3 hours"
+      notes: |
+        # COMPLETED:
+        # ✅ Created src/llm_client.py with Azure OpenAI integration
+        # ✅ Successfully connected to Azure OpenAI endpoint
+        # ✅ Using gpt-4o-mini model for cost-effective processing
+        # ✅ Implemented token counting and chunking for large documents
+        # 4. Create connection class
+        # 5. Test with simple prompt
+
+        # Required .env variables:
+        # AZURE_OPENAI_API_KEY=xxx
+        # AZURE_OPENAI_ENDPOINT=xxx
+        # AZURE_OPENAI_DEPLOYMENT_NAME=xxx
+
+    - id: llm_2
+      name: "Dictionary Parser with LLM"
+      description: "Replace regex parsing with GPT-4 extraction"
+      status: DONE
+      priority: HIGH
+      effort: "3-4 days"
+      notes: |
+        # COMPLETED:
+        # ✅ Implemented LLMDictionaryParser class in src/llm_client.py
+        # ✅ Added support for CSV, PDF, JSON, TXT dictionaries
+        # ✅ Integrated into web app with checkbox toggle
+        # ✅ Extracts field names, types, ranges, allowed values
+        # ✅ Successfully tested with sample dictionaries
+        # ✅ Returns structured schema for validation
+        #    - Skip patterns (basic, not full logic)
+        # 3. Return structured JSON schema
+        # 4. Cache results to avoid API costs
+
+    - id: llm_3
+      name: "Enhanced Data Quality Checks"
+      description: "Use LLM to detect complex data issues"
+      status: DONE
+      priority: MEDIUM
+      effort: "2-3 days"
+      notes: |
+        # COMPLETED:
+        # ✅ Implemented validate_data_with_llm() method
+        # ✅ Detects semantic inconsistencies
+        # ✅ Identifies data entry errors
+        # ✅ Finds range violations and missing required fields
+        # ✅ Provides detailed issue reports with severity levels
+        # ✅ Generates actionable recommendations
+        # ✅ Successfully tested with sample data
+
+# PRIORITY 5B: Logic Validation (COMPLEX)
+phase_logic_validation:
+  name: "Conditional Logic Engine"
+  status: TODO
+  description: "The hardest problem - validating conditional rules"
+  tasks:
+    - id: logic_1
+      name: "Template-Based Logic Detection"
+      description: "Start with common patterns"
+      status: TODO
+      priority: HIGH
+      effort: "3-4 days"
+      notes: |
+        # Phase 1 - Simple templates
+        # Detect patterns like:
+        # - "If X = Y, then Z is required"
+        # - "Skip to Q if condition"
+        # - "Show only if"
+
+        # Create src/logic_templates.py
+
+    - id: logic_2
+      name: "Statistical Logic Discovery"
+      description: "Learn patterns from data"
+      status: TODO
+      priority: MEDIUM
+      effort: "5-7 days"
+      notes: |
+        # Analyze actual data to find patterns
+        # When field A=X, field B is always blank
+        # Build confidence scores
+        # Flag violations
+
+    - id: logic_3
+      name: "LLM Logic Extraction"
+      description: "Use GPT-4 to understand complex logic"
+      status: TODO
+      priority: HIGH
       effort: "1 week"
-      depends_on: ["logic_8"]
-      files_to_create:
-        - "src/pattern_learner.py"
       notes: |
-        OPTIONAL FEATURE - Can be implemented later
+        # Send dictionary sections to GPT-4
+        # Extract complex conditional rules
+        # Generate Python validation code
+        # This is part of core_1b2 task
 
-        PatternLearner discovers:
-        - Co-occurrence patterns (A=X implies B=Y)
-        - Null patterns (A=X implies B is null)
-        - Range correlations
-
-        Presents as "suspected rules" with confidence scores
-        for human review
-
-# PRIORITY 3: Feature 3 - REST API (EXTERNAL ACCESS)
-phase_rest_api:
-  name: "REST API for Programmatic Access"
+# PRIORITY 5C: Core Infrastructure
+phase_core_remaining:
+  name: "Core Infrastructure Improvements"
   status: TODO
-  priority: HIGH
-  description: |
-    FastAPI-based REST API for programmatic access to all functionality.
-    Supports data analysis, dictionary parsing, program management.
-  estimated_effort: "1-2 weeks"
-  depends_on: ["phase_program_cache", "phase_logic_validation"]
-  blocks: []
-
   tasks:
-    - id: api_1
-      name: "Set Up FastAPI Application"
-      description: "Create basic FastAPI app structure"
+    - id: core_1
+      name: "MCP Client Integration"
+      description: "Replace simulated MCP calls with actual client"
+      status: TODO
+      priority: MEDIUM
+      effort: "3-5 days"
+      notes: |
+        CRITICAL CONTEXT - MUST READ:
+        # Current State (as of 2025-09-28):
+        # - The ENTIRE MCPClient class in web_app.py (line 181) is SIMULATED
+        # - NO real MCP server connection exists
+        # - analyze_data_quality() method uses basic pattern matching, NOT AI
+        # - This is NOT a bug - it was intentionally left as simulation
+
+        # What's Being Simulated:
+        # 1. Data quality analysis - just regex checks for "invalid", "error", etc.
+        # 2. Range validation - simple numeric comparisons
+        # 3. Missing value detection - basic pandas isnull() checks
+        # 4. NO machine learning or AI analysis happening
+
+        # To Implement Real MCP:
+        # - Install actual MCP client library
+        # - Replace MCPClient class with real implementation
+        # - Connect to actual MCP server (mcp_server.py exists but not connected)
+        # - Remove all simulation code
+
+    - id: core_1b
+      name: "Azure OpenAI/LLM Dictionary Parsing"
+      description: "Implement AI-powered dictionary parsing"
+      status: TODO
+      priority: HIGH
+      effort: "5-7 days"
+      notes: |
+        IMPORTANT: This feature was NEVER IMPLEMENTED despite being in docs
+        # Current State (as of 2025-09-28):
+        # - NO Azure OpenAI code exists in repository (verified with grep)
+        # - NO LLM integration exists
+        # - PDF dictionary parsing uses BASIC REGEX ONLY:
+        #   * Date fields: looks for "date" in field names
+        #   * Ranges: looks for "range/between" + two numbers
+        #   * That's it! Very primitive.
+
+        # Original Plan (never built):
+        # - Use Azure OpenAI GPT-4o-mini to generate Python parser code
+        # - Parse complex dictionaries (REDCap, Clinical, etc.)
+        # - Generate deterministic, verifiable parser code
+        # - Cache parsers for reuse
+
+        # Why It Matters:
+        # - Current regex parsing is almost useless for real dictionaries
+        # - Can't detect: data types, enumerations, patterns, dependencies
+        # - Can't understand complex formats or nested structures
+
+        # To Implement:
+        # 1. Add openai Python library to requirements
+        # 2. Add Azure OpenAI credentials to .env
+        # 3. Create LLM prompt for dictionary parsing
+        # 4. Generate Python parser code via LLM
+        # 5. Execute parser in sandbox with timeout
+        # 6. Cache successful parsers
+
+    - id: core_1b2
+      name: "Conditional Logic Validation Engine"
+      description: "Detect and validate conditional logic rules in data"
       status: TODO
       priority: CRITICAL
-      effort: "1 day"
-      files_to_create:
-        - "api_server.py"
-        - "api_requirements.txt"
+      effort: "10-15 days"
       notes: |
-        Install FastAPI dependencies:
-        - fastapi
-        - uvicorn[standard]
-        - python-multipart
-        - slowapi (rate limiting)
-        - pydantic
+        MAJOR FEATURE: This is one of the hardest problems in data quality
+        # The Problem:
+        # - Data dictionaries contain conditional logic (skip patterns, branching)
+        # - Example: "If Question 3 = 'No', skip to Question 7"
+        # - Example: "If Age < 18, ParentConsent must be 'Yes'"
+        # - Example: "If Treatment = 'Placebo', DoseAmount should be blank"
+        # - EVERY dictionary expresses this differently!
 
-        Set up:
-        - CORS middleware
-        - Rate limiting
-        - Error handlers
-        - Logging
+        # Why It's Hard:
+        # 1. No standard format for expressing logic
+        # 2. Logic can be in text, tables, or separate documents
+        # 3. Complex nested conditions (IF A=1 AND B=2 THEN C must be blank)
+        # 4. Temporal dependencies (If Visit1_Status = 'Complete', Visit2 can be entered)
 
-    - id: api_2
-      name: "Implement Authentication"
-      description: "API key-based authentication"
+        # APPROACH 1: LLM-Powered Rule Extraction
+        # =========================================
+        # Use GPT-4 to extract logical rules and generate validation code
+        #
+        # Pros:
+        # - Can understand natural language descriptions
+        # - Handles various formats (REDCap, Clinical, custom)
+        # - Can generate Python validation functions
+        #
+        # Cons:
+        # - Expensive (API calls)
+        # - Not 100% accurate
+        # - Need to verify generated code
+        #
+        # Implementation:
+        # 1. Send dictionary pages to GPT-4 with specialized prompt
+        # 2. Extract rules in structured format (JSON)
+        # 3. Generate Python validation functions
+        # 4. Test on sample data
+        # 5. Cache successful validators
+
+        # APPROACH 2: Statistical Pattern Learning
+        # =========================================
+        # Learn patterns from the data itself (unsupervised)
+        #
+        # Pros:
+        # - No need to parse dictionary
+        # - Finds actual patterns in real data
+        # - Can detect undocumented rules
+        #
+        # Cons:
+        # - Needs sufficient data
+        # - May find spurious correlations
+        # - Can't distinguish required vs coincidental patterns
+        #
+        # Implementation:
+        # 1. Analyze field combinations in actual data
+        # 2. Find patterns: "When A=X, B is always Y or blank"
+        # 3. Calculate confidence scores (95% = likely rule)
+        # 4. Flag violations of high-confidence patterns
+        # 5. Present findings for human review
+
+        # APPROACH 3: Hybrid Template + Learning
+        # =========================================
+        # Combine template matching with ML pattern discovery
+        #
+        # Pros:
+        # - Best of both worlds
+        # - Can handle known and unknown patterns
+        # - More robust than either alone
+        #
+        # Cons:
+        # - Most complex to implement
+        # - Requires both dictionary AND data
+        # - Needs careful tuning
+        #
+        # Implementation:
+        # 1. Pre-built templates for common patterns:
+        #    - "If [field] = [value], then [field2] = [value2/blank]"
+        #    - "Skip to [field] if [condition]"
+        #    - "Required if [condition]"
+        # 2. Use regex/NLP to match templates in dictionary
+        # 3. Validate patterns against actual data
+        # 4. Use ML to find additional patterns not in templates
+        # 5. Combine findings with confidence scores
+
+        # Example Logic Patterns to Detect:
+        # - Skip logic: "Skip Q5-Q10 if Q4='No'"
+        # - Conditional requirements: "If pregnant='Yes', due_date required"
+        # - Mutual exclusivity: "If option_A selected, option_B must be blank"
+        # - Range dependencies: "If age<18, parent_signature required"
+        # - Cascade logic: "If country='US', show state dropdown"
+
+        # Recommended Starting Point:
+        # Start with Approach 3 (Hybrid) because:
+        # - Can begin with simple template matching
+        # - Add LLM enhancement later
+        # - Statistical validation provides safety net
+        # - Most practical for production use
+
+    - id: core_1c
+      name: "Fix Mermaid Diagram Rendering"
+      description: "Mermaid diagram shows as text instead of flowchart"
       status: TODO
-      priority: HIGH
-      effort: "1 day"
-      depends_on: ["api_1"]
-      files_to_modify:
-        - "api_server.py"
+      priority: LOW
+      effort: "2-3 hours"
       notes: |
-        Implement:
-        - API key header validation (X-API-Key)
-        - Store keys in database or environment
-        - Rate limiting per key
-        - Admin password header (X-Admin-Password)
+        # Issue (as of 2025-09-28):
+        # - Mermaid diagram in About page shows raw text not visual
+        # - Located in assets/data_flow_diagram.mmd
+        # - render_mermaid() function creates iframe but Mermaid.js fails
+        # - Error: "transform: Expected number, translate(undefined, NaN)"
 
-    - id: api_3
-      name: "Implement Data Analysis Endpoints"
-      description: "POST /api/v1/analyze and /analyze/with-program"
-      status: TODO
-      priority: CRITICAL
-      effort: "2 days"
-      depends_on: ["api_2"]
-      files_to_modify:
-        - "api_server.py"
-      endpoints_to_implement:
-        - "POST /api/v1/analyze - analyze with optional dictionary"
-        - "POST /api/v1/analyze/with-program - analyze using cached program"
-      notes: |
-        Both endpoints:
-        - Accept file uploads (CSV, JSON, Excel, Parquet)
-        - Run QualityPipeline with logic validation
-        - Return standardized JSON response
-        - Support different return formats (json, html, excel)
+        # Attempted Fixes That Failed:
+        # 1. Simplified diagram syntax (graph LR)
+        # 2. Installed streamlit-mermaid package
+        # 3. Used st_mermaid() function
+        # 4. All result in empty iframe or text display
 
-    - id: api_4
-      name: "Implement Dictionary Management Endpoints"
-      description: "POST /api/v1/dictionary/parse, GET /dictionary/{id}"
+        # Possible Solutions:
+        # - Use graphviz instead of Mermaid
+        # - Use static PNG/SVG image instead
+        # - Try different Mermaid.js version
+        # - Use Streamlit's native diagram support if available
+
+    - id: core_2
+      name: "Error Recovery"
+      description: "Graceful error handling throughout"
       status: TODO
       priority: HIGH
       effort: "1 day"
-      depends_on: ["api_2"]
-      files_to_modify:
-        - "api_server.py"
-      endpoints_to_implement:
-        - "POST /api/v1/dictionary/parse - parse and optionally save"
-        - "GET /api/v1/dictionary/{dict_id} - get dictionary details"
+      subtasks:
+        - "Add try-catch blocks everywhere"
+        - "Provide helpful error messages"
+        - "Add retry mechanisms"
+        - "Log errors for debugging"
 
-    - id: api_5
-      name: "Implement Program Management Endpoints"
-      description: "Full CRUD for validation programs"
-      status: TODO
-      priority: HIGH
-      effort: "2 days"
-      depends_on: ["api_2"]
-      files_to_modify:
-        - "api_server.py"
-      endpoints_to_implement:
-        - "GET /api/v1/programs - list programs with search/filters"
-        - "GET /api/v1/programs/{id_or_alias} - get program details"
-        - "POST /api/v1/programs/{id}/alias - create alias"
-        - "DELETE /api/v1/programs/{id} - delete program (admin)"
-        - "POST /api/v1/programs/{id}/restore - restore deleted (admin)"
-
-    - id: api_6
-      name: "Implement System Endpoints"
-      description: "Health check and documentation"
-      status: TODO
-      priority: MEDIUM
-      effort: "1 day"
-      depends_on: ["api_1"]
-      files_to_modify:
-        - "api_server.py"
-      endpoints_to_implement:
-        - "GET /api/v1/health - health check"
-        - "GET /api/v1/docs - auto-generated Swagger UI"
-        - "GET /api/v1/openapi.json - OpenAPI spec"
-
-    - id: api_7
-      name: "Create Pydantic Models"
-      description: "Request/response validation models"
-      status: TODO
-      priority: HIGH
-      effort: "1 day"
-      depends_on: ["api_1"]
-      files_to_create:
-        - "src/api_models.py"
-      models_to_create:
-        - "AnalyzeRequest"
-        - "AnalyzeResponse"
-        - "ProgramResponse"
-        - "CreateAliasRequest"
-        - "DeleteProgramRequest"
-        - "ErrorResponse"
-
-    - id: api_8
-      name: "API Testing Suite"
-      description: "Comprehensive API tests"
-      status: TODO
-      priority: HIGH
-      effort: "2 days"
-      depends_on: ["api_3", "api_4", "api_5"]
-      files_to_create:
-        - "tests/test_api.py"
-        - "tests/test_api_auth.py"
-      test_coverage:
-        - "All endpoints with valid requests"
-        - "Authentication failures"
-        - "Rate limiting"
-        - "Invalid inputs"
-        - "File upload validation"
-
-    - id: api_9
-      name: "API Documentation"
-      description: "Create comprehensive API docs"
-      status: TODO
-      priority: MEDIUM
-      effort: "2 days"
-      depends_on: ["api_6"]
-      files_to_create:
-        - "docs/API.md"
-        - "postman_collection.json"
-      documentation_includes:
-        - "Authentication guide"
-        - "Endpoint descriptions"
-        - "Example requests/responses"
-        - "Error codes"
-        - "Rate limits"
-
-    - id: api_10
-      name: "Docker Configuration for API"
-      description: "Containerize API server"
-      status: TODO
-      priority: MEDIUM
-      effort: "1 day"
-      depends_on: ["api_1"]
-      files_to_create:
-        - "Dockerfile.api"
-        - "docker-compose.yml"
-      notes: |
-        Create production-ready Docker setup:
-        - Multi-stage build for smaller image
-        - Environment variable configuration
-        - Volume for program cache
-        - Health checks
-        - Resource limits
-
-# PRIORITY 4: Testing and Quality Assurance
-phase_testing_qa:
-  name: "Comprehensive Testing and QA"
+# PRIORITY 6: Testing & Documentation
+phase_testing_docs:
+  name: "Testing and Documentation"
   status: TODO
-  priority: HIGH
-  estimated_effort: "1 week"
-  depends_on: ["phase_program_cache", "phase_logic_validation", "phase_rest_api"]
-
   tasks:
-    - id: qa_1
-      name: "End-to-End Integration Tests"
-      description: "Test complete workflows"
-      status: TODO
-      priority: CRITICAL
-      effort: "3 days"
-      files_to_create:
-        - "tests/test_integration.py"
-      test_scenarios:
-        - "Upload dictionary → Parse → Generate code → Save program → Analyze data"
-        - "Use cached program → Create alias → Use alias to analyze"
-        - "Admin delete program → Try to use → Regenerate"
-        - "API workflow → Upload via API → Get results"
-
-    - id: qa_2
-      name: "Performance Testing"
-      description: "Test with large datasets"
-      status: TODO
-      priority: HIGH
-      effort: "2 days"
-      files_to_create:
-        - "tests/test_performance.py"
-      test_scenarios:
-        - "10k rows, 50 columns"
-        - "100k rows, 100 columns"
-        - "1M rows, 25 columns"
-      metrics_to_measure:
-        - "Analysis time"
-        - "Memory usage"
-        - "Logic validation time"
-
-    - id: qa_3
-      name: "Security Testing"
-      description: "Security audit and penetration testing"
-      status: TODO
-      priority: CRITICAL
-      effort: "2 days"
-      files_to_create:
-        - "docs/SECURITY_AUDIT.md"
-      test_areas:
-        - "Code injection attempts"
-        - "SQL injection"
-        - "API authentication bypass"
-        - "Admin password brute force"
-        - "File upload attacks"
-
-    - id: qa_4
-      name: "Load Testing for API"
-      description: "Test API under load"
+    - id: test_1
+      name: "UI Testing"
+      description: "Test all UI components"
       status: TODO
       priority: MEDIUM
       effort: "1 day"
-      files_to_create:
-        - "tests/load_test.py"
-      test_scenarios:
-        - "100 concurrent requests"
-        - "1000 requests per minute"
-        - "Sustained load for 1 hour"
+      subtasks:
+        - "Test file upload scenarios"
+        - "Verify all buttons work"
+        - "Check responsive design"
+        - "Test error states"
 
-    - id: qa_5
-      name: "Code Cleanup and Optimization"
-      description: "Use code-cleaner agent for optimization"
-      status: TODO
-      priority: MEDIUM
-      effort: "2 days"
-      agent_to_use: "code-cleaner"
-      notes: |
-        Run code-cleaner agent multiple times to:
-        - Remove code duplication
-        - Simplify complex logic
-        - Optimize database queries
-        - Remove orphaned code
-        - Update tracking file
-
-# PRIORITY 5: Documentation and Deployment
-phase_documentation_deployment:
-  name: "Documentation and Deployment"
-  status: TODO
-  priority: HIGH
-  estimated_effort: "1 week"
-  depends_on: ["phase_testing_qa"]
-
-  tasks:
     - id: doc_1
-      name: "User Documentation"
-      description: "Comprehensive user guide"
+      name: "User Guide"
+      description: "Comprehensive user documentation"
       status: TODO
       priority: HIGH
-      effort: "2 days"
-      files_to_create:
-        - "docs/USER_GUIDE.md"
-        - "docs/QUICKSTART.md"
-      sections_to_include:
-        - "Getting started"
-        - "Uploading data and dictionaries"
-        - "Understanding logic validation"
-        - "Managing validation programs"
-        - "Creating and using aliases"
-        - "API usage examples"
-        - "Troubleshooting"
+      effort: "4 hours"
+      subtasks:
+        - "Getting started tutorial"
+        - "Feature walkthroughs"
+        - "Video demonstrations"
+        - "FAQ section"
 
-    - id: doc_2
-      name: "Developer Documentation"
-      description: "Technical documentation for developers"
-      status: TODO
-      priority: MEDIUM
-      effort: "2 days"
-      files_to_create:
-        - "docs/DEVELOPER.md"
-        - "docs/ARCHITECTURE.md"
-      sections_to_include:
-        - "System architecture"
-        - "Database schema"
-        - "Code generation process"
-        - "API authentication"
-        - "Testing strategy"
-        - "Contributing guide"
-
-    - id: doc_3
-      name: "Update README"
-      description: "Update main README with new features"
-      status: TODO
-      priority: HIGH
-      effort: "1 day"
-      files_to_modify:
-        - "README.md"
-      updates_needed:
-        - "Add logic validation feature"
-        - "Add program management section"
-        - "Add REST API documentation"
-        - "Update installation instructions"
-        - "Add new examples"
-
-    - id: doc_4
-      name: "Deployment Guide"
-      description: "Production deployment instructions"
-      status: TODO
-      priority: HIGH
-      effort: "2 days"
-      files_to_create:
-        - "docs/DEPLOYMENT.md"
-      deployment_options:
-        - "Azure Container Apps"
-        - "Docker Compose"
-        - "Kubernetes"
-        - "Azure VM"
-
-# Known Issues and Bugs
-known_issues:
-  - id: issue_1
-    description: "Mermaid diagram in About page shows as text not flowchart"
-    status: KNOWN
-    priority: LOW
-    workaround: "Consider using static image or graphviz instead"
-
-  - id: issue_2
+# Known Bugs to Fix
+bugs:
+  - id: bug_1
     description: "Large files (>200MB) cause memory issues"
     status: TODO
     priority: HIGH
-    solution: "Implement streaming analysis"
 
-# Immediate Action Items for Next Session
-next_session_tasks:
-  priority: |
-    START WITH FEATURE 2 (PROGRAM CACHE) - IT'S FOUNDATIONAL
+  - id: bug_2
+    description: "Special characters in CSV headers cause issues"
+    status: TODO
+    priority: MEDIUM
 
-  recommended_order:
-    1: "Read IMPLEMENTATION_PLAN.md completely"
-    2: "Create branch: feature/program-cache"
-    3: "Start with cache_1: Create data model and database schema"
-    4: "Implement cache_2: ProgramDatabase class"
-    5: "Implement cache_3: ProgramManager class"
-    6: "Test with cache_6: Unit tests"
-    7: "Integrate with cache_7: Update web_app.py"
-    8: "Commit and test end-to-end"
+  - id: bug_3
+    description: "Navbar doesn't highlight active page correctly"
+    status: TODO
+    priority: HIGH
 
-  parallel_development:
-    - "Use multiple tech-lead-developer agents for independent tasks"
-    - "Example: cache_2 (ProgramDatabase) and cache_4 (auto-naming) can be done in parallel"
+  - id: bug_4
+    description: "Schema editor allows duplicate column names"
+    status: TODO
+    priority: MEDIUM
 
-  testing_strategy:
-    - "Use qc-test-maintainer agent after each major task"
-    - "Write tests as you develop, not after"
-    - "Test with demo data before moving to next task"
+  - id: bug_5
+    description: "File upload doesn't clear previous analysis"
+    status: TODO
+    priority: HIGH
 
-# Instructions for Next Claude Session
-instructions_for_next_session: |
-  CRITICAL: Before starting any development:
+# Immediate Action Items (For Tonight's Work)
+immediate_tasks:
+  order_of_execution:
+    1: "test_debug_1 - Fix JSON Format Support (CRITICAL BUG)"
+    2: "test_debug_2 - Test All Demo Data Formats"
+    3: "test_debug_3 - Data Dictionary Testing"
+    4: "ui_cleanup_1 - Fix Navigation Bar"
+    5: "ui_cleanup_2 - Sidebar Reorganization"
+    6: "ui_cleanup_3 - Main Content Area Restructuring"
+    7: "ui_cleanup_6 - Visual Polish (CSS/theming)"
+    8: "ui_cleanup_5 - Results Dashboard Redesign"
+    9: "export_1 - Excel Export with Error Highlighting"
+    10: "export_5 - Download UI Integration"
 
-  1. READ IMPLEMENTATION_PLAN.md FROM START TO FINISH
-     - It contains detailed specifications for all three features
-     - Includes code examples, database schemas, API endpoints
-     - Provides testing strategy and security considerations
+  estimated_time: "10-12 hours total"
 
-  2. UNDERSTAND THE DEPENDENCY CHAIN
-     - Feature 2 (Program Cache) is foundational
-     - Feature 1 (Logic Validation) needs Feature 2
-     - Feature 3 (REST API) needs both Feature 1 and 2
+  notes: |
+    CRITICAL: Fix JSON support bug first - user reported this is broken!
+    Then ensure all core functionality works before UI improvements.
+    Focus on making the UI clean, professional, and less cluttered.
+    Priority is reducing scrolling and improving visual hierarchy.
+    The download feature with error highlighting is a key differentiator.
 
-  3. START WITH FEATURE 2 (PROGRAM CACHE)
-     - Create src/program_cache.py with SQLite schema
-     - Implement ProgramDatabase class
-     - Implement ProgramManager class
-     - Write comprehensive tests
-     - Integrate with web_app.py
+# AI Agent Instructions
+ai_instructions:
+  approach: |
+    1. Start with ui_cleanup_1 through ui_cleanup_3 for maximum impact
+    2. Use streamlit native components where possible
+    3. Add streamlit-aggrid only for schema editor
+    4. Test each change before moving to next task
+    5. Commit after each major task completion
+    6. Focus on user experience over perfect code
 
-  4. USE AGENTS EFFECTIVELY
-     - tech-lead-developer for implementation
-     - qc-test-maintainer for testing
-     - security-reviewer for security audit (after completion)
-     - code-cleaner for optimization (after completion)
+  style_guide: |
+    - Use consistent spacing (st.markdown("&nbsp;") for gaps)
+    - Apply color coding: green=success, yellow=warning, red=error
+    - Use icons from emoji set consistently
+    - Keep sidebar width reasonable (don't overcrowd)
+    - Ensure all text is readable (good contrast)
 
-  5. COMMIT FREQUENTLY
-     - Small, focused commits
-     - Test before committing
-     - Use descriptive commit messages
+  testing: |
+    - Test with demo data after each change
+    - Verify no functionality is broken
+    - Check responsive design at different widths
+    - Ensure loading states work properly
 
-  6. UPDATE THIS CHECKLIST
-     - Mark tasks as INPROGRESS when starting
-     - Mark as DONE when completed
-     - Add notes about decisions made
-     - Update timestamps
-
-# AI Agent Guidelines
-ai_agent_guidelines:
-  general_approach: |
-    - Read IMPLEMENTATION_PLAN.md first
-    - Follow the detailed specifications exactly
-    - Ask questions if anything is unclear
-    - Test thoroughly before moving on
-    - Document your code well
-
-  code_quality:
-    - "Use type hints (from __future__ import annotations)"
-    - "Write comprehensive docstrings"
-    - "Follow existing code style"
-    - "Add inline comments for complex logic"
-    - "Use meaningful variable names"
-
-  testing:
-    - "Write tests as you develop"
-    - "Aim for 80%+ code coverage"
-    - "Include edge cases and error scenarios"
-    - "Use pytest fixtures for common setup"
-    - "Test with real data samples"
-
-  git_workflow:
-    - "Create feature branch (feature/program-cache)"
-    - "Commit frequently with clear messages"
-    - "Test before pushing"
-    - "Create PR when feature complete"
-    - "Update documentation in same PR"
+# =========================================================
+# 2026-06-15 — REST API, MCP refactor, and A2A interface
+# =========================================================
+phase_multi_transport:
+  name: "Multi-Transport Interfaces (REST / MCP / A2A)"
+  status: DONE
+  priority: HIGH
+  completed_date: "2026-06-15T00:00:00Z"
+  notes: |
+    DONE:
+    - Implemented analysis_service.py: shared core with two functions
+      analyze(payload) and get_info(payload). All heavy imports (pandas,
+      mcp_server classes) are lazy so this module loads with stdlib only.
+    - Refactored mcp_server.py tool handlers (analyze_data, get_data_info)
+      to delegate to analysis_service via lazy import. Tool schemas and
+      MCP output format are unchanged; business logic is now in one place.
+    - Implemented a2a_agent.py: DataAnalyzerAgent (agent_id='data-analyzer'),
+      build_card(), register(). Pure stdlib at import; lazy-imports
+      analysis_service inside run(). Dispatches on operation key:
+      'analyze' -> analyze(), 'get_info'/'data_info' -> get_info(),
+      unknown -> {"error": ..., "type": "unknown_operation"}.
+    - Implemented api_server.py: FastAPI app with GET /health,
+      POST /analyze, POST /data-info, GET /.well-known/agent.json,
+      POST /a2a/{agent_id}. Registers agent on startup. Entry point
+      runs uvicorn on API_PORT (default 8003).
+    - Created tests/test_a2a_runtime.py: stdlib-only tests covering
+      encode/decode round-trip, cycle int-coercion, AgentRegistry,
+      A2AClient in-process and remote LookupError, AgentCard shape.
+      Runnable as python3 tests/test_a2a_runtime.py (no pytest needed).
+    - Created tests/test_a2a_agent.py: covers register, build_card,
+      unknown-operation path (no pandas), and full analyze/get_info
+      paths (gated with pytest.importorskip("pandas")).
+    - Created tests/test_api_server.py: covers /health and
+      /.well-known/agent.json without pandas; analysis endpoints
+      gated with pytest.importorskip("pandas").
+    - Created docs/INTEGRATION.md with curl examples for all three
+      interfaces, AgentCard discovery, a2a_runtime shim explanation,
+      and production auth note.
+    - Added "Calling this service" section to README.md linking to
+      docs/INTEGRATION.md.
+    - Added dcri-a2a-core comment line to mcp_requirements.txt.
+  tasks:
+    - id: transport_1
+      name: "Shared analysis_service.py"
+      status: DONE
+    - id: transport_2
+      name: "MCP handler delegation to analysis_service"
+      status: DONE
+    - id: transport_3
+      name: "a2a_agent.py DataAnalyzerAgent + registry helpers"
+      status: DONE
+    - id: transport_4
+      name: "api_server.py FastAPI REST + A2A gateway"
+      status: DONE
+    - id: transport_5
+      name: "Test suite: test_a2a_runtime, test_a2a_agent, test_api_server"
+      status: DONE
+    - id: transport_6
+      name: "docs/INTEGRATION.md and README.md update"
+      status: DONE

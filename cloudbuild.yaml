@@ -1,0 +1,41 @@
+# cloudbuild.yaml — Google Cloud Build configuration for the API image.
+#
+# Usage (via deploy/cloudrun.sh or manually):
+#   gcloud builds submit --config cloudbuild.yaml \
+#       --substitutions=_IMAGE=us-central1-docker.pkg.dev/MY_PROJECT/apps/data-analyzer-api:latest .
+#
+# Substitutions:
+#   _IMAGE  Full image tag, e.g. REGION-docker.pkg.dev/PROJECT/REPO/SERVICE:TAG
+#           Must be supplied at submit time (no built-in default so the build
+#           fails loudly if the caller forgets it).
+
+substitutions:
+  _IMAGE: ''   # Required — overridden at submit time via --substitutions=_IMAGE=...
+
+steps:
+  # Step 1: Build the API image using Dockerfile.api.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: build
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.api'
+      - '-t'
+      - '$_IMAGE'
+      - '.'
+
+  # Step 2: Push the built image to Artifact Registry.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: push
+    args:
+      - 'push'
+      - '$_IMAGE'
+    waitFor:
+      - build
+
+# Declare the image so Cloud Build records it in the build provenance.
+images:
+  - '$_IMAGE'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

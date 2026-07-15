@@ -810,112 +810,47 @@ async def handle_list_tools() -> list[types.Tool]:
 
 @app.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    """Handle tool calls"""
-    
+    """Handle tool calls by delegating to the shared analysis_service module.
+
+    Both ``analyze_data`` and ``get_data_info`` delegate to ``analysis_service``
+    so the business logic is defined in exactly one place and all three transport
+    layers (REST, MCP, A2A) stay in sync automatically.
+    """
+    # Lazy import avoids a circular dependency at module load time.
+    import analysis_service  # noqa: PLC0415
+
     if name == "analyze_data":
-        try:
-            data_content = arguments["data_content"]
-            file_format = arguments.get("file_format", "csv")
-            schema = arguments.get("schema", {})
-            rules = arguments.get("rules", {})
-            min_rows = arguments.get("min_rows", 1)
-            encoding = arguments.get("encoding", "utf-8")
-            
-            # Try to detect if content is base64 encoded
-            try:
-                if data_content.startswith("data:"):
-                    # Handle data URLs
-                    header, data = data_content.split(",", 1)
-                    data_content = base64.b64decode(data).decode(encoding)
-                elif len(data_content) % 4 == 0 and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in data_content):
-                    # Might be base64
-                    try:
-                        decoded = base64.b64decode(data_content).decode(encoding)
-                        if "," in decoded or "\t" in decoded:  # Basic delimiter check
-                            data_content = decoded
-                    except:
-                        pass  # Not base64, use as-is
-            except:
-                pass  # Use content as-is
-            
-            # Load data using the extensible loader
-            df = DataLoader.load_data(data_content, file_format)
-            
-            # Run quality pipeline
-            pipeline = QualityPipeline(df, schema, rules)
-            results = pipeline.run_all_checks(min_rows)
-            
-            return [
-                types.TextContent(
-                    type="text",
-                    text=json.dumps(results, indent=2, default=str)
-                )
-            ]
-            
-        except Exception as e:
-            return [
-                types.TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "error": str(e),
-                        "type": "analysis_error"
-                    }, indent=2)
-                )
-            ]
-    
+        payload = {
+            "data_content": arguments.get("data_content", ""),
+            "file_format": arguments.get("file_format", "csv"),
+            "schema": arguments.get("schema", {}),
+            "rules": arguments.get("rules", {}),
+            "min_rows": arguments.get("min_rows", 1),
+            "encoding": arguments.get("encoding", "utf-8"),
+        }
+        result = analysis_service.analyze(payload)
+        return [
+            types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, default=str),
+            )
+        ]
+
     elif name == "get_data_info":
-        try:
-            data_content = arguments["data_content"]
-            file_format = arguments.get("file_format", "csv")
-            sample_rows = arguments.get("sample_rows", 5)
-            
-            # Handle base64 encoding
-            try:
-                if data_content.startswith("data:"):
-                    header, data = data_content.split(",", 1)
-                    data_content = base64.b64decode(data).decode('utf-8')
-                elif len(data_content) % 4 == 0:
-                    try:
-                        decoded = base64.b64decode(data_content).decode('utf-8')
-                        if "," in decoded or "\t" in decoded:
-                            data_content = decoded
-                    except:
-                        pass
-            except:
-                pass
-            
-            # Load data using the extensible loader
-            df = DataLoader.load_data(data_content, file_format)
-            
-            # Get basic info
-            info = {
-                "format": file_format,
-                "shape": {"rows": len(df), "columns": len(df.columns)},
-                "columns": list(df.columns),
-                "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-                "sample_data": df.head(sample_rows).to_dict(orient='records'),
-                "missing_values": df.isnull().sum().to_dict(),
-                "duplicate_rows": int(df.duplicated().sum())
-            }
-            
-            return [
-                types.TextContent(
-                    type="text",
-                    text=json.dumps(info, indent=2, default=str)
-                )
-            ]
-            
-        except Exception as e:
-            return [
-                types.TextContent(
-                    type="text",
-                    text=json.dumps({
-                        "error": str(e),
-                        "type": "info_error"
-                    }, indent=2)
-                )
-            ]
-    
+        payload = {
+            "data_content": arguments.get("data_content", ""),
+            "file_format": arguments.get("file_format", "csv"),
+            "sample_rows": arguments.get("sample_rows", 5),
+            "encoding": arguments.get("encoding", "utf-8"),
+        }
+        result = analysis_service.get_info(payload)
+        return [
+            types.TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, default=str),
+            )
+        ]
+
     else:
         raise ValueError(f"Unknown tool: {name}")
 

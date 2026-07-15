@@ -2,6 +2,16 @@
 
 A comprehensive data quality analysis tool built with Azure MCP (Model Context Protocol) server and Streamlit web interface. Supports multiple data formats including CSV, JSON, Excel (XLSX/XLS), and Parquet with comprehensive data quality analysis capabilities. Based on your [csvChecker](https://github.com/sagearbor/csvChecker) repository with enhanced cloud capabilities.
 
+## Calling this service (REST / MCP / A2A)
+
+This service exposes the same analysis core through three interfaces:
+
+- **REST API** — `python api_server.py` (default port 8003); endpoints `/analyze`, `/data-info`, `/health`
+- **MCP** — `python mcp_server.py` (stdio); tools `analyze_data` and `get_data_info` for Claude Desktop / Cursor
+- **A2A** — `POST /a2a/data-analyzer` with an encoded A2A Message envelope; AgentCard at `GET /.well-known/agent.json`
+
+See **[docs/INTEGRATION.md](docs/INTEGRATION.md)** for full curl examples, payload schemas, and A2A envelope details.
+
 ## 🏗️ Architecture
 
 ```
