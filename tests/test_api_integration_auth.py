@@ -125,7 +125,10 @@ class TestAuthenticationConfiguration:
 
     def test_auth_disabled_when_not_configured(self):
         """When API key is not configured, authentication should be disabled"""
-        with patch.dict(os.environ, {}, clear=True):
+        # load_dotenv() in api_server re-reads the local .env file even with a
+        # cleared os.environ — no-op it so the test is hermetic on dev machines.
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("dotenv.load_dotenv", lambda *a, **k: None):
             import importlib
             import api_server
             importlib.reload(api_server)
