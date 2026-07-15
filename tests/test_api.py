@@ -193,6 +193,187 @@ class TestHealthEndpoint:
 
 
 # ============================================================================
+# Data Quality Analysis Endpoint Tests
+# ============================================================================
+
+
+class TestAnalyzeEndpoint:
+    """Test POST /api/v1/analyze endpoint (rule-based QualityPipeline analysis)"""
+
+    def test_analyze_missing_auth(self, client, sample_data_csv):
+        """Request without API key should return 401"""
+        files = {"data_file": ("data.csv", sample_data_csv, "text/csv")}
+        response = client.post("/api/v1/analyze", files=files)
+        assert response.status_code == 401
+
+    def test_analyze_invalid_auth(self, client, sample_data_csv, invalid_api_headers):
+        """Request with wrong API key should return 403"""
+        files = {"data_file": ("data.csv", sample_data_csv, "text/csv")}
+        response = client.post("/api/v1/analyze", files=files, headers=invalid_api_headers)
+        assert response.status_code == 403
+
+    def test_analyze_valid_csv_with_rules(self, client, sample_data_csv, api_headers):
+        """Valid CSV + rules should return expected range/categorical violations"""
+        files = {"data_file": ("data.csv", sample_data_csv, "text/csv")}
+        data = {
+            "rules": json.dumps({
+                "age": {"min": 0, "max": 120},
+                "gender": {"allowed": [1, 2, 3]},
+            })
+        }
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 200
+
+        result = response.json()
+        # Response shape matches web_app.py's DataQualityAnalyzer contract
+        assert set(result.keys()) == {
+            "summary", "issues", "recommendations", "quality_checks", "summary_stats"
+        }
+
+        summary = result["summary"]
+        assert summary["total_rows"] == 5
+        assert summary["total_columns"] == 4
+        assert summary["issues_found"] >= 2  # age=150 and age=-5 both violate max/min
+
+        issue_types = {issue["type"] for issue in result["issues"]}
+        assert "range_violation" in issue_types
+        # gender has one missing value (row 4) -> missing_values issue
+        assert "missing_values" in issue_types
+
+        for issue in result["issues"]:
+            assert issue["severity"] in ("error", "warning", "info")
+            assert "message" in issue
+
+    def test_analyze_with_schema(self, client, api_headers):
+        """Schema type mismatches should surface in the raw quality_checks output.
+
+        Note: QualityChecker's data_types check reports invalid values via an
+        'invalid_values' list rather than 'violating_rows', so (matching
+        web_app.py's original DataQualityAnalyzer transform, ported as-is)
+        these don't get expanded into the shaped top-level 'issues' list -
+        only range/allowed-value violations do. They're still visible in the
+        raw 'quality_checks' passthrough, which this test asserts on.
+        """
+        csv_content = "id,signup_date\n1,2023-01-15\n2,not-a-date\n"
+        files = {"data_file": ("data.csv", csv_content, "text/csv")}
+        data = {"schema": json.dumps({"signup_date": "datetime"})}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 200
+        result = response.json()
+        type_check = result["quality_checks"]["data_types"]
+        assert type_check["passed"] is False
+        assert type_check["issues"][0]["issue"] == "datetime_validation_failed"
+        assert type_check["issues"][0]["column"] == "signup_date"
+
+    def test_analyze_no_schema_no_rules(self, client, api_headers):
+        """schema and rules are both optional - omitting them should still succeed"""
+        csv_content = "id,name\n1,Alice\n2,Bob\n"
+        files = {"data_file": ("data.csv", csv_content, "text/csv")}
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 200
+        result = response.json()
+        assert result["summary"]["total_rows"] == 2
+        assert result["issues"] == []
+
+    def test_analyze_clean_data_no_issues(self, client, api_headers):
+        """All-valid data against its rules should report zero issues"""
+        csv_content = "id,age\n1,25\n2,30\n3,45\n"
+        files = {"data_file": ("clean.csv", csv_content, "text/csv")}
+        data = {"rules": json.dumps({"age": {"min": 0, "max": 120}})}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 200
+        result = response.json()
+        assert result["issues"] == []
+        assert result["summary"]["issues_found"] == 0
+        assert result["summary"]["critical_issues"] == 0
+        assert result["summary"]["completeness"] == 100.0
+
+    def test_analyze_invalid_schema_json(self, client, sample_data_csv, api_headers):
+        """Malformed 'schema' JSON should return 400, not 500"""
+        files = {"data_file": ("data.csv", sample_data_csv, "text/csv")}
+        data = {"schema": "{not valid json"}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 400
+
+    def test_analyze_schema_not_an_object(self, client, sample_data_csv, api_headers):
+        """A JSON value that isn't an object (e.g. a list) should return 400"""
+        files = {"data_file": ("data.csv", sample_data_csv, "text/csv")}
+        data = {"schema": json.dumps(["age", "gender"])}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 400
+
+    def test_analyze_invalid_rules_json(self, client, sample_data_csv, api_headers):
+        """Malformed 'rules' JSON should return 400, not 500"""
+        files = {"data_file": ("data.csv", sample_data_csv, "text/csv")}
+        data = {"rules": "[1, 2, broken"}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 400
+
+    def test_analyze_unsupported_file_type(self, client, api_headers):
+        """Unsupported file extensions should be rejected with 400"""
+        files = {"data_file": ("data.pdf", b"%PDF-1.4 fake content", "application/pdf")}
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 400
+
+    def test_analyze_empty_file(self, client, api_headers):
+        """A zero-byte upload should be rejected with 400, not crash the server"""
+        files = {"data_file": ("empty.csv", b"", "text/csv")}
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 400
+
+    def test_analyze_malformed_csv(self, client, api_headers):
+        """Unparseable CSV content should return 400, not 500"""
+        # Ragged rows with mismatched column counts and an unterminated quote
+        malformed_csv = 'a,b,c\n1,2\n"unterminated,3,4,5\n'
+        files = {"data_file": ("bad.csv", malformed_csv, "text/csv")}
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 400
+
+    def test_analyze_json_file(self, client, api_headers):
+        """JSON-format datasets should be parsed the same way web_app.py's uploader does"""
+        json_content = json.dumps([
+            {"id": 1, "age": 25},
+            {"id": 2, "age": 999},
+        ])
+        files = {"data_file": ("data.json", json_content, "application/json")}
+        data = {"rules": json.dumps({"age": {"max": 120}})}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 200
+        result = response.json()
+        assert result["summary"]["total_rows"] == 2
+        assert any(i["type"] == "range_violation" for i in result["issues"])
+
+    def test_analyze_tsv_file(self, client, api_headers):
+        """Tab-separated .txt uploads should be parsed as TSV"""
+        tsv_content = "id\tage\n1\t25\n2\t30\n"
+        files = {"data_file": ("data.txt", tsv_content, "text/plain")}
+        response = client.post("/api/v1/analyze", files=files, headers=api_headers)
+        assert response.status_code == 200
+        assert response.json()["summary"]["total_rows"] == 2
+
+    def test_analyze_response_matches_model_fields(self, client, sample_data_csv, api_headers):
+        """Issue entries should carry column/row/value plus a human-readable message,
+        matching the contract web_app.py's dashboard renders directly."""
+        files = {"data_file": ("data.csv", sample_data_csv, "text/csv")}
+        data = {"rules": json.dumps({"age": {"min": 0, "max": 120}})}
+        response = client.post("/api/v1/analyze", files=files, data=data, headers=api_headers)
+        assert response.status_code == 200
+        result = response.json()
+
+        range_issues = [i for i in result["issues"] if i["type"] == "range_violation"]
+        assert len(range_issues) >= 1
+        for issue in range_issues:
+            assert issue["column"] == "age"
+            assert isinstance(issue["row"], int)
+            assert "value" in issue
+            assert "message" in issue
+
+        stats = result["summary_stats"]
+        assert "shape" in stats
+        assert stats["shape"]["rows"] == 5
+
+
+# ============================================================================
 # Dictionary Parse Endpoint Tests
 # ============================================================================
 

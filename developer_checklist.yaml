@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Three Major Features
   version: 2.0.0
-  last_updated: 2024-12-02T14:30:00Z
+  last_updated: 2026-07-13T00:00:00Z
   planning_session: 2024-12-02
   implementation_status: PLANNING_COMPLETE_READY_FOR_DEVELOPMENT
 
@@ -471,7 +471,7 @@ phase_rest_api:
     - id: api_3
       name: "Implement Data Analysis Endpoints"
       description: "POST /api/v1/analyze and /analyze/with-program"
-      status: TODO
+      status: INPROGRESS
       priority: CRITICAL
       effort: "2 days"
       depends_on: ["api_2"]
@@ -481,11 +481,42 @@ phase_rest_api:
         - "POST /api/v1/analyze - analyze with optional dictionary"
         - "POST /api/v1/analyze/with-program - analyze using cached program"
       notes: |
-        Both endpoints:
-        - Accept file uploads (CSV, JSON, Excel, Parquet)
-        - Run QualityPipeline with logic validation
-        - Return standardized JSON response
-        - Support different return formats (json, html, excel)
+        DONE (Option A - centralize the runtime, see session notes):
+        - POST /api/v1/analyze implemented in api_server.py. Multipart upload
+          (data_file: CSV/JSON/TSV-TXT) + optional 'schema'/'rules' JSON-string
+          form fields, X-API-Key auth via verify_api_key, 30/minute rate limit.
+          Reuses mcp_server.QualityPipeline/QualityChecker as the engine (no
+          duplicated validation logic) - it is rule-based only, does NOT call
+          the LLM, and works with no LLM configured.
+        - Response shape mirrors what web_app.py's DataQualityAnalyzer has
+          always produced for the dashboard: summary/issues/recommendations/
+          quality_checks/summary_stats (see QualityAnalysisResponse and
+          friends in src/api_models.py, and _build_quality_report() in
+          api_server.py).
+        - web_app.py's DataQualityAnalyzer rewired to call this endpoint over
+          HTTP (requests) instead of importing QualityPipeline in-process -
+          UI, API, and MCP server now share one running backend for rule-based
+          checks. Conditional logic validation (RuleExtractor/LogicValidator,
+          driven by dictionary 'fields') stays local in web_app.py since it's
+          LLM/dictionary-driven and out of scope for this rule-based endpoint;
+          its violations are merged into the API's issues/summary client-side.
+        - Tests: tests/test_api.py::TestAnalyzeEndpoint (FastAPI TestClient,
+          real engine, no live server) and tests/test_upload.py (mocks
+          requests.post, no live server). Full suite green: see test run in
+          session notes.
+
+        REMAINING (not done in this pass):
+        - POST /api/v1/analyze/with-program (cached-program variant) - not
+          implemented. api_endpoints_analyze.py has an old unwired draft of
+          this using FieldViolation/LogicViolation/AnalysisSummary models
+          that predates this session's work; it was NOT used as the basis for
+          /api/v1/analyze (different response contract - see AnalyzeResponse
+          vs QualityAnalysisResponse in src/api_models.py) and still needs
+          triage: either wire it up as a second endpoint or delete the file.
+        - Excel/Parquet upload support for /api/v1/analyze (currently CSV/
+          JSON/TSV only, matching what web_app.py's file_uploader accepts
+          today).
+        - html/excel return_format support (JSON only for now).
 
     - id: api_4
       name: "Implement Dictionary Management Endpoints"

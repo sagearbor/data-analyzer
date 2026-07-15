@@ -1,13 +1,34 @@
 #!/usr/bin/env python3
 """
-Quick test to verify the refactored validation works
-Tests that DataQualityAnalyzer properly uses QualityPipeline
+Quick manual smoke-test script to eyeball DataQualityAnalyzer's output
+(prints results; has no assertions of its own beyond a soft warning print).
+
+DataQualityAnalyzer (web_app.py) now calls the centralized data-analyzer
+REST API (POST /api/v1/analyze) instead of running QualityPipeline
+in-process, so this script needs a live server. It's gated behind
+RUN_LIVE_API_TESTS=1 (same pattern as RUN_LIVE_LLM_TESTS for the LLM tests)
+so `pytest tests/` stays green and offline by default. To run it for real:
+
+    python api_server.py &
+    RUN_LIVE_API_TESTS=1 DATA_ANALYZER_API_URL=http://localhost:8000 \\
+        pytest tests/test_refactor.py -v -s
+
+For deterministic, offline coverage of the same DataQualityAnalyzer mapping
+logic, see tests/test_upload.py (mocks requests.post) and tests/test_api.py's
+TestAnalyzeEndpoint (exercises the real engine via FastAPI TestClient).
 """
+
+import os
 
 import pandas as pd
 import asyncio
 import pytest
 from web_app import DataQualityAnalyzer
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("RUN_LIVE_API_TESTS"),
+    reason="Requires a live data-analyzer API server; set RUN_LIVE_API_TESTS=1 to run.",
+)
 
 # Create demo data matching the Western demo
 demo_data = pd.DataFrame({

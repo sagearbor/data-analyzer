@@ -10,6 +10,7 @@ pyarrow>=14.0.0
 chardet>=5.2.0
 matplotlib>=3.7.0
 pypdf>=4.0.0
+requests>=2.31.0  # HTTP client for calling the data-analyzer REST API (see DataQualityAnalyzer in web_app.py)
 
 # LLM Integration Requirements
 openai>=1.0.0

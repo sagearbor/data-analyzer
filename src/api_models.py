@@ -288,6 +288,184 @@ class AnalyzeWithProgramRequest(BaseModel):
 
 
 # =============================================================================
+# QUALITY ANALYSIS MODELS (POST /api/v1/analyze)
+# =============================================================================
+#
+# These models back the rule-based QualityPipeline/QualityChecker analysis
+# exposed at POST /api/v1/analyze. Unlike AnalyzeResponse above (which is
+# shaped around FieldViolation/LogicViolation for the dictionary+logic-engine
+# analysis flow), QualityAnalysisResponse mirrors the exact dict shape that
+# web_app.py's DataQualityAnalyzer.analyze_data_quality() has always returned
+# to the Streamlit dashboard (summary/issues/recommendations/quality_checks/
+# summary_stats), so the UI can consume this response with no reshaping.
+
+class QualityIssue(BaseModel):
+    """
+    A single data-quality issue found by QualityChecker, shaped for direct
+    dashboard rendering.
+
+    Attributes:
+        type: Issue category (e.g. "range_violation", "type_mismatch",
+            "invalid_categorical_value", "invalid_date", "missing_values")
+        severity: Severity level (error, warning, info)
+        column: Column the issue was found in
+        row: 0-indexed row number the issue occurred on (violation-type issues only)
+        value: The offending value (violation-type issues only)
+        count: Number of affected rows (missing_values issues only)
+        percentage: Percentage of rows affected (missing_values issues only)
+        message: Human-readable description of the issue
+    """
+    type: str = Field(description="Issue category")
+    severity: SeverityEnum = Field(description="Severity level")
+    column: Optional[str] = Field(default=None, description="Column the issue was found in")
+    row: Optional[int] = Field(default=None, ge=0, description="0-indexed row number (violation issues)")
+    value: Optional[Any] = Field(default=None, description="Offending value (violation issues)")
+    count: Optional[int] = Field(default=None, ge=0, description="Affected row count (missing_values issues)")
+    percentage: Optional[float] = Field(default=None, ge=0.0, le=100.0, description="Percentage affected (missing_values issues)")
+    message: str = Field(description="Human-readable description")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "type": "range_violation",
+                "severity": "error",
+                "column": "age",
+                "row": 42,
+                "value": 150,
+                "message": "Value 150 in column 'age' violates rule: max <= 120"
+            }
+        }
+    }
+
+
+class QualityRecommendation(BaseModel):
+    """
+    A suggested next step based on the issues found.
+
+    Attributes:
+        type: Recommendation category (e.g. "data_cleaning", "data_validation")
+        priority: Priority level (e.g. "high", "critical")
+        message: Human-readable recommendation text
+    """
+    type: str = Field(description="Recommendation category")
+    priority: str = Field(description="Priority level")
+    message: str = Field(description="Human-readable recommendation text")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "type": "data_validation",
+                "priority": "critical",
+                "message": "Data type issues detected. Review data source and implement validation at ingestion"
+            }
+        }
+    }
+
+
+class QualityAnalysisSummary(BaseModel):
+    """
+    Top-line summary metrics for a quality analysis run.
+
+    Attributes:
+        total_rows: Number of rows in the analyzed dataset
+        total_columns: Number of columns in the analyzed dataset
+        issues_found: Total number of issues (all severities)
+        critical_issues: Number of error-severity issues
+        warnings: Number of warning-severity issues
+        data_types: Column name -> pandas dtype string
+        completeness: Percentage of non-missing cells across the dataset
+    """
+    total_rows: int = Field(ge=0, description="Number of rows analyzed")
+    total_columns: int = Field(ge=0, description="Number of columns analyzed")
+    issues_found: int = Field(ge=0, description="Total issues found (all severities)")
+    critical_issues: int = Field(ge=0, description="Number of error-severity issues")
+    warnings: int = Field(ge=0, description="Number of warning-severity issues")
+    data_types: Dict[str, str] = Field(description="Column name -> pandas dtype string")
+    completeness: float = Field(ge=0.0, le=100.0, description="Percentage of non-missing cells")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "total_rows": 1000,
+                "total_columns": 12,
+                "issues_found": 7,
+                "critical_issues": 5,
+                "warnings": 2,
+                "data_types": {"age": "int64", "email": "object"},
+                "completeness": 98.5
+            }
+        }
+    }
+
+
+class QualityAnalysisResponse(BaseModel):
+    """
+    Response for POST /api/v1/analyze.
+
+    This is the rule-based analysis (QualityPipeline/QualityChecker from
+    mcp_server.py) — it does not call an LLM and works with no LLM configured.
+    It mirrors the dict shape previously produced in-process by web_app.py's
+    DataQualityAnalyzer so the UI can render it directly.
+
+    Attributes:
+        summary: Top-line counts and completeness percentage
+        issues: One entry per violation/missing-value finding
+        recommendations: Suggested next steps based on the issues found
+        quality_checks: Raw per-check results from QualityPipeline
+            (row_count, data_types, value_ranges), for callers that want the
+            unshaped engine output
+        summary_stats: Dataset shape, dtypes, missing-value counts, duplicate
+            row count, and numeric column statistics from QualityChecker
+    """
+    summary: QualityAnalysisSummary = Field(description="Top-line summary metrics")
+    issues: List[QualityIssue] = Field(default=[], description="Issues found")
+    recommendations: List[QualityRecommendation] = Field(
+        default=[], description="Suggested next steps"
+    )
+    quality_checks: Dict[str, Any] = Field(
+        default={}, description="Raw per-check results from QualityPipeline"
+    )
+    summary_stats: Dict[str, Any] = Field(
+        default={}, description="Dataset shape, dtypes, missing values, numeric stats"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "summary": {
+                    "total_rows": 1000,
+                    "total_columns": 12,
+                    "issues_found": 7,
+                    "critical_issues": 5,
+                    "warnings": 2,
+                    "data_types": {"age": "int64", "email": "object"},
+                    "completeness": 98.5
+                },
+                "issues": [
+                    {
+                        "type": "range_violation",
+                        "severity": "error",
+                        "column": "age",
+                        "row": 42,
+                        "value": 150,
+                        "message": "Value 150 in column 'age' violates rule: max <= 120"
+                    }
+                ],
+                "recommendations": [
+                    {
+                        "type": "business_rules",
+                        "priority": "high",
+                        "message": "Values outside expected ranges detected. Review business rules and data constraints"
+                    }
+                ],
+                "quality_checks": {},
+                "summary_stats": {}
+            }
+        }
+    }
+
+
+# =============================================================================
 # DICTIONARY PARSING MODELS
 # =============================================================================
 

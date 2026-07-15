@@ -10,6 +10,7 @@ import base64
 import io
 import asyncio
 import csv
+import requests
 from typing import Dict, Any, Optional
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -26,8 +27,11 @@ from pathlib import Path
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
-# Import real validation classes from mcp_server (no MCP server needed to run)
-from mcp_server import QualityPipeline, QualityChecker
+# NOTE: QualityPipeline/QualityChecker (mcp_server.py) are no longer imported
+# here. Rule-based quality analysis now runs centrally behind the REST API
+# (POST /api/v1/analyze) so the UI, the API, and the MCP server all share one
+# running backend instead of the UI running the engine in-process. See
+# DataQualityAnalyzer below.
 # Force use of custom renderer for better compatibility
 MERMAID_AVAILABLE = False
 from mermaid_renderer import render_mermaid
@@ -232,23 +236,57 @@ st.markdown("""
 
 class DataQualityAnalyzer:
     """
-    Wrapper for real QualityPipeline validation logic.
-    Uses actual validation classes from mcp_server.py (no MCP server needed).
+    HTTP client for the centralized data-analyzer REST API.
+
+    Historically this class ran mcp_server.QualityPipeline in-process. It now
+    POSTs to the API's POST /api/v1/analyze endpoint instead, so there is a
+    single running backend for rule-based quality checks shared by the API,
+    the MCP server, and this UI (Option A: centralize the runtime).
+
+    Conditional logic validation (extracted from a dictionary's 'fields' via
+    RuleExtractor/LogicValidator) is NOT part of /api/v1/analyze - that
+    endpoint is intentionally rule-based only (schema/range/allowed-value
+    checks, no LLM). Logic validation stays local here and its violations are
+    merged into the API's issues/summary after the HTTP call returns.
+
+    Configuration (environment variables):
+        DATA_ANALYZER_API_URL: Base URL of the data-analyzer REST API.
+            Defaults to "http://localhost:8000" for local dev (matches
+            api_server.py's default API_PORT). For deployment, set this to
+            the API Container App's internal DNS FQDN so UI -> API traffic
+            stays inside the Azure Container Apps environment's VNET rather
+            than round-tripping over the public internet.
+        DATA_ANALYZER_API_KEY: Value sent as the X-API-Key header. Must match
+            the API app's own DATA_ANALYZER_API_KEY.
     """
+
+    def __init__(self):
+        self.api_base_url = os.getenv("DATA_ANALYZER_API_URL", "http://localhost:8000").rstrip("/")
+        self.api_key = os.getenv("DATA_ANALYZER_API_KEY", "")
 
     async def analyze_data_quality(self, data: pd.DataFrame, dictionary: Optional[Dict] = None) -> Dict[str, Any]:
         """
-        Run data quality analysis using real QualityPipeline.
+        Run data quality analysis via the centralized REST API.
 
         Args:
             data: DataFrame to analyze
-            dictionary: Optional dictionary with validation rules and schema
-                       Can have 'rules' and/or 'schema' keys, or direct field definitions
+            dictionary: Optional dictionary with validation rules and schema.
+                       Can have 'rules' and/or 'schema' keys, or direct field definitions.
 
         Returns:
-            Dict with summary, issues, and recommendations
+            Dict with summary, issues, recommendations, quality_checks, and
+            summary_stats - the exact shape the rest of this module (the
+            dashboard rendering code) has always consumed.
+
+        Raises:
+            RuntimeError: if the API call fails (non-200 response, connection
+                error, or timeout). Callers should catch this and surface it
+                via st.error(...) rather than letting the UI crash.
         """
-        # Parse dictionary to extract schema and rules for QualityPipeline
+        # Parse dictionary to extract schema and rules to send to the API
+        # (unchanged from the old in-process code path - only the destination
+        # of schema/rules changed, from a local QualityPipeline call to an
+        # HTTP request).
         schema = None
         rules = None
 
@@ -287,64 +325,20 @@ class DataQualityAnalyzer:
                 schema = dictionary.get('schema')
                 rules = dictionary.get('validation_rules', {})
 
-        # Run QualityPipeline analysis
-        pipeline = QualityPipeline(data, schema=schema, rules=rules)
-        results = pipeline.run_all_checks(min_rows=1)
+        # Run the rule-based engine via the API (replaces the old in-process
+        # QualityPipeline(data, schema, rules).run_all_checks() call). The
+        # API already returns issues/summary/recommendations/quality_checks/
+        # summary_stats in this exact shape - no reshaping needed here.
+        result = self._call_analyze_api(data, schema, rules)
 
-        # Transform QualityPipeline results to web_app expected format
-        issues = []
+        issues = result["issues"]
+        summary = result["summary"]
+        recommendations = result["recommendations"]
 
-        # Transform QualityPipeline issues (which have 'column', 'rule', 'violating_rows')
-        # into web UI format (which needs 'type', 'severity', 'message', 'row', 'value')
-        for qp_issue in results.get('issues', []):
-            column = qp_issue.get('column')
-            rule = qp_issue.get('rule', '')
-            violating_rows = qp_issue.get('violating_rows', [])
-
-            # Determine issue type and severity based on the rule
-            if 'min >=' in rule or 'max <=' in rule:
-                issue_type = "range_violation"
-                severity = "error"
-            elif 'allowed_values' in rule:
-                issue_type = "invalid_categorical_value"
-                severity = "error"
-            elif qp_issue.get('issue') == 'type_mismatch':
-                issue_type = "type_mismatch"
-                severity = "error"
-            elif qp_issue.get('issue') == 'datetime_validation_failed':
-                issue_type = "invalid_date"
-                severity = "error"
-            else:
-                issue_type = qp_issue.get('issue', 'validation_error')
-                severity = "error"
-
-            # Create individual issue for each violating row
-            for row_idx in violating_rows:
-                value = data[column].iloc[row_idx] if column in data.columns and row_idx < len(data) else None
-
-                issues.append({
-                    "type": issue_type,
-                    "severity": severity,
-                    "column": column,
-                    "row": int(row_idx),
-                    "value": value,
-                    "message": f"Value {value} in column '{column}' violates rule: {rule}"
-                })
-
-        # Add missing value issues
-        for col in data.columns:
-            missing = data[col].isnull().sum()
-            if missing > 0:
-                issues.append({
-                    "type": "missing_values",
-                    "severity": "warning",
-                    "column": col,
-                    "count": int(missing),
-                    "percentage": round(missing / len(data) * 100, 2),
-                    "message": f"Column '{col}' has {missing} missing values ({round(missing/len(data)*100, 2)}%)"
-                })
-
-        # LOGIC VALIDATION - Run conditional logic checks if available
+        # LOGIC VALIDATION - Run conditional logic checks if available.
+        # This is separate from the rule-based REST engine (it's driven by
+        # dictionary 'fields' extracted via RuleExtractor, not schema/rules),
+        # so it stays local and its results are merged in after the API call.
         logic_violations_count = 0
         if PROGRAM_CACHE_AVAILABLE and dictionary and 'fields' in dictionary:
             try:
@@ -376,68 +370,87 @@ class DataQualityAnalyzer:
                 # Log error but don't fail the entire analysis
                 print(f"Logic validation error: {e}")
 
-        # Build summary
-        summary = {
-            "total_rows": len(data),
-            "total_columns": len(data.columns),
-            "issues_found": len(issues),
-            "critical_issues": sum(1 for i in issues if i.get('severity') == 'error'),
-            "warnings": sum(1 for i in issues if i.get('severity') == 'warning'),
-            "logic_violations_count": logic_violations_count,
-            "data_types": results.get('summary_stats', {}).get('dtypes', {col: str(data[col].dtype) for col in data.columns}),
-            "completeness": round((1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100, 2)
-        }
-
-        return {
-            "summary": summary,
-            "issues": issues,
-            "recommendations": self._generate_recommendations(issues),
-            "quality_checks": results.get('checks', {}),
-            "summary_stats": results.get('summary_stats', {})
-        }
-
-    def _generate_recommendations(self, issues):
-        """Generate recommendations based on issues found"""
-        recommendations = []
-
-        issue_types = set(i.get('type', i.get('issue', 'unknown')) for i in issues)
-
-        if 'missing_values' in issue_types:
-            recommendations.append({
-                "type": "data_cleaning",
-                "priority": "high",
-                "message": "Consider implementing data imputation strategies for columns with missing values"
-            })
-
-        if any(t in issue_types for t in ['type_mismatch', 'datetime_validation_failed', 'invalid_value']):
-            recommendations.append({
-                "type": "data_validation",
-                "priority": "critical",
-                "message": "Data type issues detected. Review data source and implement validation at ingestion"
-            })
-
-        if 'range_violation' in issue_types or any('violation' in str(t) for t in issue_types):
-            recommendations.append({
-                "type": "business_rules",
-                "priority": "high",
-                "message": "Values outside expected ranges detected. Review business rules and data constraints"
-            })
-
-        if any('allowed' in str(t) for t in issue_types):
-            recommendations.append({
-                "type": "categorical_validation",
-                "priority": "high",
-                "message": "Invalid categorical values found. Verify allowed values match business requirements"
-            })
-
-        if 'logic_violation' in issue_types:
+        if logic_violations_count:
+            # Logic issues were appended after the API computed its counts -
+            # recompute them so the summary stays consistent with `issues`.
+            summary["issues_found"] = len(issues)
+            summary["critical_issues"] = sum(1 for i in issues if i.get('severity') == 'error')
+            summary["warnings"] = sum(1 for i in issues if i.get('severity') == 'warning')
             recommendations.append({
                 "type": "conditional_logic",
                 "priority": "critical",
                 "message": "Conditional logic violations detected. Review field dependencies and branching rules in data dictionary"
             })
+        summary["logic_violations_count"] = logic_violations_count
 
-        return recommendations
+        return {
+            "summary": summary,
+            "issues": issues,
+            "recommendations": recommendations,
+            "quality_checks": result["quality_checks"],
+            "summary_stats": result["summary_stats"]
+        }
+
+    def _call_analyze_api(self, data: pd.DataFrame, schema: Optional[Dict], rules: Optional[Dict]) -> Dict[str, Any]:
+        """POST a DataFrame to the API's /api/v1/analyze endpoint and return
+        the parsed JSON report.
+
+        Args:
+            data: DataFrame to analyze (serialized to CSV for the upload).
+            schema: Optional column-type map, sent as a JSON form field.
+            rules: Optional validation-rule map, sent as a JSON form field.
+
+        Returns:
+            The parsed JSON body: {"summary", "issues", "recommendations",
+            "quality_checks", "summary_stats"}.
+
+        Raises:
+            RuntimeError: on any non-200 response, connection error, or
+                timeout, with a message suitable for st.error(...).
+        """
+        csv_bytes = data.to_csv(index=False).encode("utf-8")
+        files = {"data_file": ("data.csv", csv_bytes, "text/csv")}
+
+        form_data = {}
+        if schema:
+            form_data["schema"] = json.dumps(schema, default=str)
+        if rules:
+            form_data["rules"] = json.dumps(rules, default=str)
+
+        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+
+        try:
+            response = requests.post(
+                f"{self.api_base_url}/api/v1/analyze",
+                files=files,
+                data=form_data,
+                headers=headers,
+                timeout=60,
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise RuntimeError(
+                f"Could not connect to the data-analyzer API at {self.api_base_url}. "
+                f"Is it running and reachable? ({e})"
+            )
+        except requests.exceptions.Timeout:
+            raise RuntimeError(
+                f"Data-analyzer API request timed out after 60s ({self.api_base_url}/api/v1/analyze)."
+            )
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Data-analyzer API request failed: {e}")
+
+        if response.status_code != 200:
+            try:
+                error_body = response.json()
+                detail = error_body.get("detail") or error_body.get("error") or response.text
+            except ValueError:
+                detail = response.text
+            raise RuntimeError(f"Data-analyzer API returned HTTP {response.status_code}: {detail}")
+
+        try:
+            return response.json()
+        except ValueError as e:
+            raise RuntimeError(f"Data-analyzer API returned a non-JSON response: {e}")
 
 def load_demo_data(dataset_name: str):
     """Load demo dataset matching the dictionary options"""
