@@ -276,6 +276,88 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# --- Dark mode toggle -------------------------------------------------------
+# Deliberately NOT rendered inside the .app-title-bar HTML block above: that
+# block is raw injected HTML (see NAVBAR APPROACH note), and Streamlit
+# widgets cannot be mounted inside injected markup - they have to be created
+# via a real st.* call so Streamlit can wire up their callbacks/state. A
+# right-aligned st.toggle in a narrow top row of columns, directly under the
+# fixed navbar, gets the "top-right" placement without fighting that
+# constraint. Persisted via st.session_state so switching tabs or re-running
+# the script doesn't reset it, and toggling itself never touches
+# st.session_state.data/dictionary/analysis_results, so uploaded data
+# survives a theme change.
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+_dm_spacer, _dm_toggle_col = st.columns([6, 1])
+with _dm_toggle_col:
+    st.toggle("🌙 Dark mode", key="dark_mode")
+
+if st.session_state.dark_mode:
+    # CSS-override dark mode: aim for "readable everywhere" rather than
+    # pixel-perfect theming. The navbar is already dark (.app-title-bar /
+    # .stTabs styling above) and is left as-is. Some Streamlit-internal
+    # widgets that don't expose a stable class hook may stay light - that is
+    # accepted (see task notes).
+    st.markdown("""
+    <style>
+        .stApp {
+            background: #0f172a !important;
+        }
+        .block-container {
+            background: #0f172a !important;
+        }
+        .stApp, .block-container, p, span, label, li, div[data-testid="stMarkdownContainer"] {
+            color: #e2e8f0 !important;
+        }
+        h1, h2, h3, h4, h5, h6 {
+            color: #f1f5f9 !important;
+        }
+        /* Expanders */
+        [data-testid="stExpander"] {
+            background: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 6px;
+        }
+        [data-testid="stExpander"] summary {
+            background: #1e293b !important;
+            color: #e2e8f0 !important;
+        }
+        /* Tabs content area (tab strip itself stays dark navbar styling) */
+        .stTabs [data-baseweb="tab-panel"] {
+            background: #0f172a !important;
+        }
+        /* Text inputs, selects, textareas, file uploader */
+        input, textarea, select,
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="input"] > div {
+            background-color: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-color: #334155 !important;
+        }
+        [data-testid="stFileUploaderDropzone"] {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+        /* Code blocks */
+        pre, code {
+            background-color: #1e293b !important;
+            color: #e2e8f0 !important;
+        }
+        /* Metrics */
+        [data-testid="metric-container"] {
+            background: #1e293b !important;
+            border: 1px solid #334155 !important;
+        }
+        /* DataFrames/tables */
+        [data-testid="stDataFrame"] {
+            background: #1e293b !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+# --- End dark mode toggle ----------------------------------------------------
+
 class DataQualityAnalyzer:
     """
     HTTP client for the centralized data-analyzer REST API.
@@ -579,6 +661,55 @@ def load_demo_data(dataset_name: str):
             'hired': ['2022-05-01', '2023-08-15', 'invalid-date', '2021-12-01', '2023-03-10'],
             'active': [True, False, None, True, True],
             'department': ['Research', 'invalid', 'Engineering', 'Quality', 'Sales']
+        }),
+        # Synthetic REDCap-style clinical dataset matching the field set of the
+        # "REDCap - Clinical (synthetic, with branching logic)" demo dictionary
+        # in demo_dictionaries.py (16 columns spanning the demographics,
+        # treatment, medical_history, and safety REDCap forms). 20 rows,
+        # deliberately containing several quality issues so the demo produces
+        # findings:
+        #   1. age[4] = 91          -> ERROR: exceeds dictionary max (85)
+        #   2. gender[7] = 'Unknown'-> ERROR: not in allowed values (Male/Female/Other)
+        #   3. lab_glucose[9] = None-> WARNING: missing value where diabetic + required
+        #   4. dosage_mg[9] = 750   -> ERROR: exceeds dictionary max (500)
+        #   5. BRANCHING-LOGIC VIOLATION row 14 (subject TEST-014): pregnant='Yes'
+        #      but gender='Male' (pregnant should only be answerable when
+        #      gender='Female' per the dictionary's branching logic) -
+        #      demonstrates a logic-check finding.
+        'redcap_clinical': pd.DataFrame({
+            'subject_id': [f'TEST-{i:03d}' for i in range(1, 21)],
+            'age': [34, 45, 58, 91, 27, 62, 39, 50, 71, 44,  # row 4 (idx3) = 91 -> ERROR (max 85)
+                    29, 55, 48, 36, 60, 41, 33, 52, 67, 25],
+            'gender': ['Female', 'Male', 'Female', 'Male', 'Other', 'Female', 'Unknown', 'Male', 'Female', 'Male',
+                       'Female', 'Male', 'Female', 'Male', 'Female', 'Male', 'Female', 'Male', 'Female', 'Male'],  # row 7 (idx6) = 'Unknown' -> ERROR
+            'pregnant': ['No', None, 'Yes', None, None, 'No', None, None, 'No', None,
+                         'Yes', None, 'No', 'Yes', 'No', None, 'No', None, 'No', None],  # row 14 (idx13) = 'Yes' but gender[13]='Male' -> BRANCHING-LOGIC VIOLATION
+            'weeks_pregnant': [None, None, 24, None, None, None, None, None, None, None,
+                               12, None, None, None, None, None, None, None, None, None],
+            'due_date': [None, None, '2024-08-15', None, None, None, None, None, None, None,
+                         '2024-11-02', None, None, None, None, None, None, None, None, None],
+            'treatment_arm': ['Active Treatment', 'Placebo', 'Active Treatment', 'Placebo', 'Active Treatment',
+                               'Placebo', 'Active Treatment', 'Placebo', 'Active Treatment', 'Placebo',
+                               'Active Treatment', 'Placebo', 'Active Treatment', 'Placebo', 'Active Treatment',
+                               'Placebo', 'Active Treatment', 'Placebo', 'Active Treatment', 'Placebo'],
+            'dosage_mg': [120, None, 85, None, 200, None, 150, None, 750, None,  # row 9 (idx8) = 750 -> ERROR (max 500)
+                          95, None, 180, None, 110, None, 60, None, 140, None],
+            'placebo_type': [None, 'Tablet', None, 'Capsule', None, 'Tablet', None, 'Capsule', None, 'Tablet',
+                              None, 'Capsule', None, 'Tablet', None, 'Capsule', None, 'Tablet', None, 'Capsule'],
+            'diabetes': ['No', 'Yes', 'No', 'Yes', 'No', 'Yes', 'No', 'Yes', 'No', 'Yes',
+                         'No', 'Yes', 'No', 'Yes', 'No', 'Yes', 'No', 'Yes', 'No', 'Yes'],
+            'diabetes_type': [None, 'Type 2', None, 'Type 1', None, 'Type 2', None, 'Type 2', None, 'Type 1',
+                               None, 'Type 2', None, 'Type 2', None, 'Type 1', None, 'Type 2', None, 'Type 2'],
+            'insulin_dependent': [None, 'No', None, 'Yes', None, 'No', None, 'No', None, 'Yes',
+                                   None, 'No', None, 'No', None, 'Yes', None, 'No', None, 'No'],
+            'lab_glucose': [None, 145.0, None, 210.5, None, 130.0, None, None, None, 190.0,  # row 8 (idx7): diabetic + required but missing -> WARNING
+                             None, 128.0, None, 175.0, None, 205.0, None, 122.0, None, 168.0],
+            'adverse_event': ['No', 'No', 'Yes', 'No', 'No', 'Yes', 'No', 'No', 'No', 'Yes',
+                               'No', 'No', 'Yes', 'No', 'No', 'No', 'Yes', 'No', 'No', 'No'],
+            'ae_description': [None, None, 'Mild headache, resolved', None, None, 'Nausea after dosing', None, None, None, 'Dizziness',
+                                None, None, 'Injection site rash', None, None, None, 'Fatigue', None, None, None],
+            'ae_severity': [None, None, 'Mild', None, None, 'Moderate', None, None, None, 'Mild',
+                             None, None, 'Mild', None, None, None, 'Moderate', None, None, None],
         })
     }
     return demo_data.get(dataset_name, demo_data['western'])
@@ -823,7 +954,7 @@ with tab1:
         # Demo data selector below file uploader
         demo_option = st.selectbox(
             "Or load demo data:",
-            ["None", "CSV - Western", "CSV - Asian", "CSV - Clinical", "JSON - Mixed"],
+            ["None", "CSV - Western", "CSV - Asian", "CSV - Clinical", "JSON - Mixed", "REDCap - Clinical (synthetic)"],
             key="demo_selector",
             help="Clinical data includes matching dictionary in demo_data/clinical_dict.json"
         )
@@ -833,7 +964,8 @@ with tab1:
                 "CSV - Western": "western",
                 "CSV - Asian": "asian",
                 "CSV - Clinical": "clinical",
-                "JSON - Mixed": "mixed"
+                "JSON - Mixed": "mixed",
+                "REDCap - Clinical (synthetic)": "redcap_clinical"
             }
             if demo_option in dataset_map:
                 st.session_state.data = load_demo_data(dataset_map[demo_option])
@@ -844,6 +976,8 @@ with tab1:
                 st.success(f"✅ Loaded {demo_option} demo data")
                 if demo_option == "CSV - Clinical":
                     st.info("📖 Matching dictionary available: Upload 'demo_data/clinical_dict.json' for validation rules")
+                if demo_option == "REDCap - Clinical (synthetic)":
+                    st.info("📖 Matching dictionary available: select 'REDCap - Clinical (synthetic, with branching logic)' under 'Or load demo dictionary' below")
 
     with col2:
         st.markdown("### 📋 Dictionary")
@@ -1579,34 +1713,60 @@ with tab2:
             "owner); requests are rate-limited."
         )
 
+        # Fill the example with the RUNTIME base URL / key when available, so
+        # this is copy-paste-ready rather than a templated placeholder.
+        # Deliberate decision by the app owner: everyone who can reach this
+        # page is already on the Duke VPN and trusted, so showing the working
+        # key here is intentional (see caption below the examples).
+        _runtime_api_url = os.getenv("DATA_ANALYZER_API_URL", "")
+        _runtime_api_key = os.getenv("DATA_ANALYZER_API_KEY", "")
+
+        _placeholder_url = "https://<data-analyzer-api-fqdn>"
+        _placeholder_key = "<your-api-key>"
+
+        _example_url = _runtime_api_url or _placeholder_url
+        _docker_hint_comment = ""
+        # "://api:" is the docker-compose service hostname (see
+        # docker-compose.fullstack.yml) - it resolves inside the container
+        # network only. When the running UI sees that value it's still the
+        # *correct* value for server-to-server calls, but useless to a human
+        # copy-pasting the example onto their own machine, so swap in
+        # localhost for display purposes and explain why.
+        if "://api:" in _example_url:
+            _example_url = "http://localhost:8000"
+            _docker_hint_comment = "\n# running via docker-compose.fullstack.yml - use localhost:8000 from your machine"
+
+        _example_key = _runtime_api_key or _placeholder_key
+        _key_is_real = bool(_runtime_api_key)
+
         st.markdown("**Python example**")
         st.code(
-            '''import os
+            f'''import os
 import requests
 
 # Base URL and API key are read from the environment - never hardcode them.
 # In production the API is only reachable over the Duke VPN (internal/VPN-only
-# Azure FQDN); DATA_ANALYZER_API_URL below is a placeholder for local/dev use.
-API_URL = os.environ.get("DATA_ANALYZER_API_URL", "https://<data-analyzer-api-fqdn>")
-API_KEY = os.environ["DATA_ANALYZER_API_KEY"]
+# Azure FQDN); DATA_ANALYZER_API_URL below is a placeholder for local/dev use.{_docker_hint_comment}
+API_URL = os.environ.get("DATA_ANALYZER_API_URL", "{_example_url}")
+API_KEY = os.environ.get("DATA_ANALYZER_API_KEY", "{_example_key}")
 
-headers = {"X-API-Key": API_KEY}
+headers = {{"X-API-Key": API_KEY}}
 
 # 1. Health check (no auth required)
-resp = requests.get(f"{API_URL}/api/v1/health", timeout=10)
+resp = requests.get(f"{{API_URL}}/api/v1/health", timeout=10)
 resp.raise_for_status()
 print(resp.json())
 
 # 2. Analyze a dataset (CSV or Excel), with optional schema/rules
 with open("my_data.csv", "rb") as f:
-    files = {"data_file": ("my_data.csv", f, "text/csv")}
-    data = {
-        "schema": '{"age": "int"}',        # optional, JSON-encoded
-        "rules": '{"age": {"min": 0, "max": 120}}',  # optional, JSON-encoded
+    files = {{"data_file": ("my_data.csv", f, "text/csv")}}
+    data = {{
+        "schema": '{{"age": "int"}}',        # optional, JSON-encoded
+        "rules": '{{"age": {{"min": 0, "max": 120}}}}',  # optional, JSON-encoded
         "min_rows": "1",                   # optional, default 1
-    }
+    }}
     resp = requests.post(
-        f"{API_URL}/api/v1/analyze",
+        f"{{API_URL}}/api/v1/analyze",
         headers=headers,
         files=files,
         data=data,
@@ -1621,13 +1781,31 @@ print(result["summary"])
 
         st.markdown("**curl equivalent**")
         st.code(
-            'curl -sS -X POST "$DATA_ANALYZER_API_URL/api/v1/analyze" \\\n'
-            '  -H "X-API-Key: $DATA_ANALYZER_API_KEY" \\\n'
+            f'curl -sS -X POST "{_example_url}/api/v1/analyze" \\\n'
+            f'  -H "X-API-Key: {_example_key}" \\\n'
             '  -F "data_file=@my_data.csv;type=text/csv" \\\n'
             '  -F \'schema={"age": "int"}\' \\\n'
             '  -F \'rules={"age": {"min": 0, "max": 120}}\' \\\n'
             '  -F "min_rows=1"',
             language="bash",
+        )
+
+        if _key_is_real:
+            st.caption(
+                "🔑 This key is shared for all VPN users of this tool; heavy use is "
+                "rate-limited. It may be rotated at any time."
+            )
+
+        st.markdown("**Test the API**")
+        st.markdown(
+            f"- **Paste in a browser** (works in incognito): "
+            f"[`{_example_url}/api/v1/health`]({_example_url}/api/v1/health) returns JSON; "
+            f"[`{_example_url}/api/v1/docs`]({_example_url}/api/v1/docs) is an interactive "
+            f"Swagger UI where you can execute `/analyze` directly from the browser.\n"
+            f"- **curl one-liner** for `/analyze` - see the curl example above.\n"
+            f"- Incognito/private browsing only avoids sending cookies - it does **not** "
+            f"simulate being off the VPN. To test the VPN requirement itself, use a "
+            f"device that is actually off-network (e.g. a phone on cellular data, wifi off)."
         )
 
     st.markdown(f"""

@@ -59,7 +59,42 @@ adverse_event,string,No,,,Adverse event description,,
 lab_value,decimal,No,50,200,Primary lab result,,mg/dL
 compliance_pct,decimal,Yes,0,100,Treatment compliance,,percent
 completed_study,string,Yes,,,Study completion,"Y,N",
-protocol_version,decimal,Yes,,,Protocol version,"2.0,2.1","""
+protocol_version,decimal,Yes,,,Protocol version,"2.0,2.1",""",
+
+    # Synthetic REDCap-style data dictionary (16 fields across 4 REDCap forms:
+    # demographics, treatment, medical_history, safety), re-expressed in this
+    # module's generic Column/Type/Required/Min/Max/Description/Allowed_Values
+    # format so it loads through the same "load demo dictionary" quick-parse
+    # path (web_app.py, ~line 1289) as every other entry in this dict, which
+    # only understands that generic header - it does not build a 'fields' list
+    # or invoke RuleExtractor/LogicValidator (see DataQualityAnalyzer in
+    # web_app.py for where *real* REDCap uploads get branching-logic checks
+    # via the LLM parser instead). Each field's original REDCap "Branching
+    # Logic (Show field only if...)" condition is preserved in the
+    # Description column so the relationship is still visible here even
+    # though it isn't mechanically enforced by this quick-load path.
+    # Source (16 fields, verbatim structure): mirrors
+    # tests/test_data/dictionaries/synthetic/redcap_clinical_with_logic.csv
+    # (not read at runtime - the Dockerfile does not COPY tests/, so the
+    # content is embedded directly here to ship in the image).
+    "REDCap - Clinical (synthetic, with branching logic)": """Column,Type,Required,Min,Max,Description,Allowed_Values
+subject_id,string,Yes,,,Subject ID (synthetic test data) - fake identifier e.g. TEST-001,
+age,integer,Yes,18,85,Age (years) - synthetic value,
+gender,string,Yes,,,Biological Gender,"Male,Female,Other"
+pregnant,string,No,,,"Currently Pregnant? Branching: shown only if gender='Female'","No,Yes"
+weeks_pregnant,integer,No,0,42,"Weeks Pregnant. Branching: shown only if pregnant='Yes'",
+due_date,date,No,,,"Expected Due Date (synthetic). Branching: shown only if pregnant='Yes'",
+treatment_arm,string,Yes,,,Treatment Assignment,"Active Treatment,Placebo"
+dosage_mg,decimal,No,5,500,"Dosage (mg), based on weight at 0.5mg/kg. Branching: shown only if treatment_arm='Active Treatment'",
+placebo_type,string,No,,,"Placebo Formulation. Branching: shown only if treatment_arm='Placebo'","Tablet,Capsule"
+diabetes,string,Yes,,,History of Diabetes?,"No,Yes"
+diabetes_type,string,No,,,"Diabetes Type. Branching: shown only if diabetes='Yes'","Type 1,Type 2"
+insulin_dependent,string,No,,,"Insulin Dependent? Branching: shown only if diabetes='Yes'","No,Yes"
+lab_glucose,decimal,Yes,50,400,"Fasting Glucose (mg/dL), required if diabetic. Branching: shown only if diabetes='Yes'",
+adverse_event,string,Yes,,,Any Adverse Events?,"No,Yes"
+ae_description,string,No,,,"Describe Adverse Event (synthetic placeholder text). Branching: shown only if adverse_event='Yes'",
+ae_severity,string,No,,,"Severity. Branching: shown only if adverse_event='Yes' and gender='Female'","Mild,Moderate,Severe,Life-threatening"
+"""
 }
 
 def get_demo_dictionary(dataset_type: str) -> str:
