@@ -45,7 +45,7 @@ from mermaid_renderer import render_mermaid
 
 # Import LLM parser
 try:
-    from src.llm_client import LLMDictionaryParser
+    from src.llm_client import LLMDictionaryParser, get_available_deployments
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
@@ -165,23 +165,37 @@ if ENVBANNER_AVAILABLE:
         banner_text = f"{app_env.upper()} - do NOT use real data or files with PHI."
         envbanner.streamlit(position="bottom", opacity=0.9, text=banner_text)
 
-# Clean, modern CSS without overlapping issues
+# --- Design system -----------------------------------------------------
 #
-# NAVBAR APPROACH (version-robust):
-# Older versions of this file relied on styling Streamlit's *internal* DOM
-# structure for st.tabs (e.g. `.stTabs [data-baseweb="tab-list"]` pinned with
-# position:fixed, with the title injected via a `::before` pseudo-element).
-# That structure is not a public API and changed between Streamlit releases
-# (broke going from 1.28 -> 1.59), silently breaking the navbar in production.
+# Palette (single accent, navy anchor):
+#   Navy (navbar / dark text):     #1e293b
+#   Navy, deeper (dark mode bg):   #0f172a
+#   Slate borders/surfaces:        #e2e8f0 / #334155
+#   Accent (primary actions):      #2563eb   (hover/active: #1d4ed8)
+#   Accent, soft surfaces:         #eff6ff / #3b82f6 (used sparingly - focus
+#                                   rings, links, chart highlight - not a
+#                                   second competing hue)
+#   Body text:                     #1e293b (light) / #e2e8f0 (dark)
+#   Muted text:                    #64748b (light) / #94a3b8 (dark)
 #
-# The title/version bar below is now a plain, self-contained HTML block
-# rendered via st.markdown(unsafe_allow_html=True). It does not reference any
-# Streamlit-internal CSS selector, so it cannot be broken by a Streamlit DOM
-# change. Only minimal, defensive color/hover styling is applied to st.tabs
-# itself (no position:fixed, no ::before content injection) so the tabs
-# degrade gracefully - worst case on a future Streamlit version they simply
-# render as normal (unstyled) tabs directly beneath the fixed title bar,
-# rather than disappearing or breaking layout.
+# NAVBAR APPROACH (version-robust, and actually contains the nav):
+# Older versions of this file rendered the title as raw injected HTML
+# (`.app-title-bar`, position:fixed) sitting ABOVE st.tabs, with a *separate*
+# st.toggle placed in normal document flow just below it - so the "navbar"
+# never actually contained navigation or the toggle, just the title.
+#
+# This version uses `st.container(key="navbar")`, which Streamlit guarantees
+# renders a DOM node carrying a stable, public CSS class `.st-key-navbar`
+# (documented, public `key=` behavior - unlike `data-baseweb` internals,
+# which are private implementation detail and have broken across Streamlit
+# versions before, e.g. 1.28 -> 1.59). Real Streamlit widgets (title
+# markdown, in-bar navigation, dark-mode toggle) are mounted inside that
+# container via ordinary st.* calls - widgets cannot be mounted inside raw
+# `unsafe_allow_html` markup, only inside a real container - and the
+# container itself is pinned with position:fixed. Navigation inside the bar
+# uses st.segmented_control (its own public testid root,
+# [data-testid="stSegmentedControl"], not a data-baseweb internal) instead of
+# st.tabs, because st.tabs cannot be relocated into an arbitrary container.
 st.markdown("""
 <style>
     /* Hide Streamlit default elements */
@@ -195,206 +209,236 @@ st.markdown("""
         display: none !important;
     }
 
-    /* Remove excess padding; leave room for the fixed title bar below */
+    html, body, [class*="css"] {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* Leave room for the fixed navbar below; generous, calm spacing */
     .block-container {
-        padding-top: 3.25rem !important;
-        padding-bottom: 2rem !important;
+        padding-top: 4.75rem !important;
+        padding-bottom: 3rem !important;
         max-width: 100% !important;
     }
 
-    /* Clean modern styling */
     .stApp {
         background: #ffffff;
     }
 
-    /* Minimal, defensive styling of st.tabs - colors/hover only, no
-       reliance on Streamlit-internal layout (no position:fixed here). */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #1e293b;
-        gap: 0.25rem;
-        padding: 0.25rem 1rem 0 1rem;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        color: #e2e8f0;
-        font-weight: 500;
-        padding: 0.5rem 1.5rem;
-        background-color: transparent;
-    }
-
-    .stTabs [data-baseweb="tab"]:hover {
-        background-color: #334155;
-        border-radius: 4px;
-    }
-
-    .stTabs [aria-selected="true"] {
-        background-color: #3b82f6 !important;
-        border-radius: 4px;
-    }
-
-    /* Upload sections styling */
-    .upload-section {
-        background: #f8fafc;
-        border: 2px dashed #cbd5e1;
-        border-radius: 8px;
-        padding: 1.5rem;
-        text-align: center;
-        transition: all 0.3s ease;
-    }
-
-    .upload-section:hover {
-        border-color: #3b82f6;
-        background: #f0f9ff;
-    }
-
-    /* Button styling */
-    .stButton > button {
-        width: 100%;
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-        color: white;
-        border: none;
-        padding: 0.75rem 1.5rem;
-        border-radius: 6px;
+    h1, h2, h3, h4 {
+        color: #1e293b;
         font-weight: 600;
-        transition: all 0.3s ease;
+        letter-spacing: -0.01em;
     }
-
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
-    }
-
-    /* Success/Error message styling */
-    .stSuccess, .stError, .stWarning {
-        border-radius: 6px;
-        padding: 1rem;
-    }
-
-    /* Metrics styling */
-    [data-testid="metric-container"] {
-        background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-        border: 1px solid #bfdbfe;
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-
-    /* DataFrame styling */
-    .dataframe {
-        font-size: 0.9rem;
-    }
-
-    /* Additional spacing for content */
-    .element-container {
-        margin-top: 0.3rem;
-    }
-
-    /* Ensure headings don't wrap */
     h3 {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
+    p, span, label, li {
+        color: #334155;
+    }
 
-    /* Fixed title bar (see .app-title-bar markup below). Self-contained -
-       does not depend on any Streamlit-internal selector, so it keeps
-       working even if a future Streamlit release changes the tab DOM. */
-    .app-title-bar {
+    /* ---- Fixed navbar: st.container(key="navbar") -> .st-key-navbar ---- */
+    .st-key-navbar {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         z-index: 1000;
         background-color: #1e293b;
-        padding: 0.6rem 1.25rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        display: flex;
-        align-items: baseline;
+        padding: 0.65rem 1.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
     }
 
-    .app-title-bar .app-title {
-        color: #e2e8f0;
-        font-size: 1.2rem;
+    /* Title + version subscript (plain markdown mounted inside the bar) */
+    .app-title {
+        color: #f1f5f9;
+        font-size: 1.15rem;
         font-weight: 600;
+        line-height: 2.2rem;
+        white-space: nowrap;
+    }
+    .app-version {
+        color: #94a3b8;
+        font-size: 0.68rem;
+        font-weight: 500;
+        margin-left: 0.4rem;
+        vertical-align: sub;
     }
 
-    .app-title-bar .app-version {
-        color: #94a3b8;
-        font-size: 0.7rem;
+    /* Segmented-control navigation, restyled as light pills on the dark bar.
+       Selector targets the widget's own public testid root only - no
+       data-baseweb descendant selectors. */
+    .st-key-navbar [data-testid="stSegmentedControl"] {
+        display: flex;
+        justify-content: center;
+    }
+    .st-key-navbar [data-testid="stSegmentedControl"] label {
+        background-color: transparent !important;
+        color: #cbd5e1 !important;
+        border: none !important;
         font-weight: 500;
-        margin-left: 0.35rem;
-        vertical-align: sub;
+    }
+    .st-key-navbar [data-testid="stSegmentedControl"] label:hover {
+        background-color: #334155 !important;
+    }
+    .st-key-navbar [data-testid="stSegmentedControl"] label[aria-checked="true"] {
+        background-color: #2563eb !important;
+        color: #ffffff !important;
+    }
+
+    /* Dark-mode toggle mounted in the bar */
+    .st-key-navbar [data-testid="stToggle"] label p {
+        color: #cbd5e1 !important;
+        font-size: 0.85rem;
+    }
+    .st-key-navbar div[data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+    }
+    /* Keep every direct widget wrapper inside the bar vertically centered
+       and free of the default block spacing so title/nav/toggle line up. */
+    .st-key-navbar [data-testid="stVerticalBlockBorderWrapper"],
+    .st-key-navbar [data-testid="element-container"] {
+        display: flex;
+        align-items: center;
+    }
+
+    /* ---- Cards: shared surface treatment for upload / dictionary / results ----
+       Applied via st.container(key="card-...") -> .st-key-card-... */
+    [class*="st-key-card-"] {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 1.25rem 1.5rem 1.5rem 1.5rem;
+        margin-bottom: 0.75rem;
+    }
+    .app-section-title {
+        margin-top: 0 !important;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 0.75rem;
+    }
+
+    [data-testid="stFileUploaderDropzone"] {
+        background: #ffffff;
+        border: 1.5px dashed #cbd5e1;
+        border-radius: 8px;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    [data-testid="stFileUploaderDropzone"]:hover {
+        border-color: #2563eb;
+        background: #eff6ff;
+    }
+
+    /* Primary button: well-proportioned, restrained (native button shape,
+       one accent color, no gradient/glow). */
+    .stButton > button[kind="primary"] {
+        background-color: #2563eb;
+        border: none;
+        font-weight: 600;
+        transition: background-color 0.15s ease;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #1d4ed8;
+    }
+    .stButton > button[kind="secondary"] {
+        font-weight: 500;
+    }
+
+    /* Metrics: quiet surface, accent reserved for the number itself */
+    [data-testid="stMetric"] {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        padding: 0.9rem 1rem;
+        border-radius: 8px;
+    }
+    [data-testid="stMetricValue"] {
+        color: #1e293b;
+    }
+
+    [data-testid="stExpander"] {
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+    }
+
+    .dataframe {
+        font-size: 0.9rem;
+    }
+    .element-container {
+        margin-top: 0.3rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Fixed title bar: plain HTML injected via st.markdown, independent of
-# Streamlit's internal tab DOM (see NAVBAR APPROACH note above). The tabs
-# created later via st.tabs(...) render directly beneath this bar and are
-# styled (not positioned) to visually continue the same dark strip.
-st.markdown(
-    f"""
-    <div class="app-title-bar">
-        <span class="app-title">Data Quality Analyzer</span>
-        <sub class="app-version">v{__version__}</sub>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# --- Dark mode toggle -------------------------------------------------------
-# Deliberately NOT rendered inside the .app-title-bar HTML block above: that
-# block is raw injected HTML (see NAVBAR APPROACH note), and Streamlit
-# widgets cannot be mounted inside injected markup - they have to be created
-# via a real st.* call so Streamlit can wire up their callbacks/state. A
-# right-aligned st.toggle in a narrow top row of columns, directly under the
-# fixed navbar, gets the "top-right" placement without fighting that
-# constraint. Persisted via st.session_state so switching tabs or re-running
-# the script doesn't reset it, and toggling itself never touches
-# st.session_state.data/dictionary/analysis_results, so uploaded data
-# survives a theme change.
+# --- Navbar: title + in-bar navigation + dark-mode toggle, all inside one
+# real st.container(key=...) so they are visually and structurally contained
+# by the fixed bar (not stacked in normal flow beneath it). ------------------
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
 
-_dm_spacer, _dm_toggle_col = st.columns([6, 1])
-with _dm_toggle_col:
-    st.toggle("🌙 Dark mode", key="dark_mode")
+with st.container(key="navbar"):
+    _nav_title_col, _nav_links_col, _nav_toggle_col = st.columns([2.2, 2.5, 1])
 
+    with _nav_title_col:
+        st.markdown(
+            f'<span class="app-title">Data Quality Analyzer'
+            f'<sub class="app-version">v{__version__}</sub></span>',
+            unsafe_allow_html=True,
+        )
+
+    with _nav_links_col:
+        nav_choice = st.segmented_control(
+            "Navigation",
+            ["Analyze", "About"],
+            default="Analyze",
+            required=True,
+            key="nav_choice",
+            label_visibility="collapsed",
+        )
+
+    with _nav_toggle_col:
+        st.toggle("🌙", key="dark_mode", help="Toggle dark mode")
+
+# segmented_control returns None if a user deselects the active pill by
+# clicking it again - treat that the same as staying on "Analyze" so the app
+# never renders a blank page.
+nav_choice = nav_choice or "Analyze"
+
+# --- Dark mode -----------------------------------------------------------
+# Coherent restyle (not a bolted-on override): same card/spacing/radius
+# system as light mode, just remapped color tokens. Persisted via
+# st.session_state so switching pages or re-running the script doesn't reset
+# it, and toggling itself never touches st.session_state.data/dictionary/
+# analysis_results, so uploaded data and results survive a theme change.
 if st.session_state.dark_mode:
-    # CSS-override dark mode: aim for "readable everywhere" rather than
-    # pixel-perfect theming. The navbar is already dark (.app-title-bar /
-    # .stTabs styling above) and is left as-is. Some Streamlit-internal
-    # widgets that don't expose a stable class hook may stay light - that is
-    # accepted (see task notes).
     st.markdown("""
     <style>
-        .stApp {
+        .stApp, .block-container {
             background: #0f172a !important;
         }
-        .block-container {
-            background: #0f172a !important;
-        }
-        .stApp, .block-container, p, span, label, li, div[data-testid="stMarkdownContainer"] {
+        .stApp, .block-container, p, span, label, li,
+        div[data-testid="stMarkdownContainer"] {
             color: #e2e8f0 !important;
         }
         h1, h2, h3, h4, h5, h6 {
             color: #f1f5f9 !important;
         }
-        /* Expanders */
+        [class*="st-key-card-"] {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+        }
+        .app-section-title {
+            color: #f1f5f9 !important;
+        }
         [data-testid="stExpander"] {
             background: #1e293b !important;
             border: 1px solid #334155 !important;
-            border-radius: 6px;
         }
         [data-testid="stExpander"] summary {
             background: #1e293b !important;
             color: #e2e8f0 !important;
         }
-        /* Tabs content area (tab strip itself stays dark navbar styling) */
-        .stTabs [data-baseweb="tab-panel"] {
-            background: #0f172a !important;
-        }
-        /* Text inputs, selects, textareas, file uploader */
         input, textarea, select,
         div[data-baseweb="select"] > div,
         div[data-baseweb="input"] > div {
@@ -406,23 +450,32 @@ if st.session_state.dark_mode:
             background: #1e293b !important;
             border-color: #334155 !important;
         }
-        /* Code blocks */
+        [data-testid="stFileUploaderDropzone"]:hover {
+            border-color: #3b82f6 !important;
+            background: #1e2a3f !important;
+        }
         pre, code {
             background-color: #1e293b !important;
             color: #e2e8f0 !important;
         }
-        /* Metrics */
-        [data-testid="metric-container"] {
+        [data-testid="stMetric"] {
             background: #1e293b !important;
             border: 1px solid #334155 !important;
         }
-        /* DataFrames/tables */
+        [data-testid="stMetricValue"] {
+            color: #f1f5f9 !important;
+        }
         [data-testid="stDataFrame"] {
             background: #1e293b !important;
         }
+        .stButton > button[kind="secondary"] {
+            background-color: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-color: #334155 !important;
+        }
     </style>
     """, unsafe_allow_html=True)
-# --- End dark mode toggle ----------------------------------------------------
+# --- End design system -----------------------------------------------------
 
 class DataQualityAnalyzer:
     """
@@ -1054,598 +1107,619 @@ if 'cache_dir' not in st.session_state:
     print(f"\n📦 Cache directory: {cache_dir}")
     print(f"   (User-specific to avoid multi-user conflicts)\n")
 
-# Create simple navigation tabs - no right-click support but clean UI
-tab1, tab2 = st.tabs(["📊 Analyze", "ℹ️ About"])
-
-with tab1:
-    # Subtitle only - title is now in navbar
+if nav_choice == "Analyze":
+    # Subtitle only - title is in the navbar
     st.markdown("Upload your data, optionally add validation rules, and analyze")
 
     # Create three columns for the main components
     col1, col2, col3 = st.columns([2, 2, 1.5])
 
     with col1:
-        st.markdown("### 📁 Upload Data")
+        with st.container(key="card-upload-data"):
+            st.markdown('<div class="app-section-title">Upload Data</div>', unsafe_allow_html=True)
 
-        # File uploader first
-        uploaded_file = st.file_uploader(
-            " ",  # Empty label to avoid duplication
-            type=['csv', 'json', 'txt', 'xlsx', 'xls'],
-            key="data_uploader",
-            label_visibility="collapsed"
-        )
 
-        if uploaded_file:
-            with st.spinner(f"Processing {uploaded_file.name}..."):
-                try:
-                    if uploaded_file.name.endswith('.csv'):
-                        st.session_state.data = pd.read_csv(uploaded_file)
-                        st.session_state.data_source_format = 'csv'
-                    elif uploaded_file.name.endswith('.json'):
-                        st.session_state.data = pd.read_json(uploaded_file)
-                        st.session_state.data_source_format = 'json'
-                    elif uploaded_file.name.endswith(('.xlsx', '.xls')):
-                        # Shared loader (mcp_server.DataLoader) so MCP server, CLI,
-                        # and this UI all get identical Excel handling/error semantics.
-                        st.session_state.data = DataLoader.load_excel(uploaded_file.read())
-                        # Remember the Excel sub-format so the analysis HTTP
-                        # call (DataQualityAnalyzer._call_analyze_api) can
-                        # re-upload real Excel bytes with the correct
-                        # content-type instead of defaulting to CSV.
-                        st.session_state.data_source_format = 'xlsx' if uploaded_file.name.endswith('.xlsx') else 'xls'
-                    else:
-                        st.session_state.data = pd.read_csv(uploaded_file, sep='\t')
-                        st.session_state.data_source_format = 'tsv'
-                    st.success(f"✅ Loaded {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
-                except Exception as e:
-                    st.error(f"Error loading file: {str(e)}")
-
-        # Demo data selector below file uploader
-        demo_option = st.selectbox(
-            "Or load demo data:",
-            ["None", "CSV - Western", "CSV - Asian", "CSV - Clinical", "JSON - Mixed", "REDCap - Clinical (synthetic)"],
-            key="demo_selector",
-            help="Clinical data includes matching dictionary in demo_data/clinical_dict.json"
-        )
-
-        if demo_option != "None":
-            dataset_map = {
-                "CSV - Western": "western",
-                "CSV - Asian": "asian",
-                "CSV - Clinical": "clinical",
-                "JSON - Mixed": "mixed",
-                "REDCap - Clinical (synthetic)": "redcap_clinical"
-            }
-            if demo_option in dataset_map:
-                st.session_state.data = load_demo_data(dataset_map[demo_option])
-                # Demo datasets are always synthesized in-memory (not loaded
-                # from an Excel file), so fall back to CSV serialization for
-                # the analysis HTTP call.
-                st.session_state.data_source_format = 'csv'
-                st.success(f"✅ Loaded {demo_option} demo data")
-                if demo_option == "CSV - Clinical":
-                    st.info("📖 Matching dictionary available: Upload 'demo_data/clinical_dict.json' for validation rules")
-                if demo_option == "REDCap - Clinical (synthetic)":
-                    st.info("📖 Matching dictionary available: select 'REDCap - Clinical (synthetic, with branching logic)' under 'Or load demo dictionary' below")
-
-    with col2:
-        st.markdown("### 📋 Dictionary")
-
-        # Dictionary file uploader first - aligned with data uploader
-        dict_file = st.file_uploader(
-            " ",  # Empty label to avoid duplication
-            type=['json', 'pdf', 'csv', 'txt', 'xlsx', 'xls'],
-            key="dict_uploader",
-            label_visibility="collapsed",
-            help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, Excel, or TXT)"
-        )
-
-        # Add LLM parsing option if available with auto-detection
-        if LLM_AVAILABLE and dict_file:
-            # DEBUG: Show filename
-            st.caption(f"📎 Uploaded file: **{dict_file.name}** ({dict_file.type if hasattr(dict_file, 'type') else 'unknown type'})")
-
-            llm_mode = st.selectbox(
-                "Dictionary parsing method:",
-                ["Auto-detect (recommended)", "Always use AI parsing", "Never use AI (manual only)"],
-                index=0,  # Default to auto-detect
-                help="Auto: PDF→AI, structured CSV→manual | Always: Force AI for all | Never: Manual parsing only"
+            # File uploader first
+            uploaded_file = st.file_uploader(
+                " ",  # Empty label to avoid duplication
+                type=['csv', 'json', 'txt', 'xlsx', 'xls'],
+                key="data_uploader",
+                label_visibility="collapsed"
             )
 
-            # Determine if we should use LLM based on mode and file type
-            if "Always" in llm_mode:
-                use_llm = True
-            elif "Never" in llm_mode:
-                use_llm = False
-            else:  # Auto-detect
-                # Check file type and structure
-                print(f"\n🔍 AUTO-DETECT: Checking file '{dict_file.name}'")
-                print(f"   Extension check: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}")
-
-                if dict_file.name.endswith('.pdf'):
-                    use_llm = True
-                    st.info("🤖 Auto-detected: PDF requires AI parsing")
-                    print(f"   ✅ Detected as PDF, will use LLM")
-                elif dict_file.name.endswith('.csv'):
-                    # Peek at CSV to check if it's structured
-                    dict_file.seek(0)
-                    sample = dict_file.read(1024).decode('utf-8', errors='ignore')
-                    dict_file.seek(0)
-                    # Check for standard column names
-                    if any(col in sample for col in ['Column', 'Type', 'Min', 'Max', 'Allowed_Values', 'Field Name']):
-                        use_llm = False
-                        st.info("📊 Auto-detected: Structured CSV, using manual parsing")
-                    else:
-                        use_llm = True
-                        st.info("🤖 Auto-detected: Unstructured CSV, using AI parsing")
-                elif dict_file.name.endswith(('.xlsx', '.xls')):
-                    # Peek at Excel column headers to check if it's structured
-                    # (same convention as the CSV structured-column check above)
-                    dict_file.seek(0)
+            if uploaded_file:
+                with st.spinner(f"Processing {uploaded_file.name}..."):
                     try:
-                        peek_df = DataLoader.load_excel(dict_file.read())
-                        columns_str = ' '.join(str(c) for c in peek_df.columns)
-                    except Exception:
-                        columns_str = ""
-                    dict_file.seek(0)
-                    if any(col in columns_str for col in ['Column', 'Type', 'Min', 'Max', 'Allowed_Values', 'Field Name']):
-                        use_llm = False
-                        st.info("📊 Auto-detected: Structured Excel, using manual parsing")
+                        if uploaded_file.name.endswith('.csv'):
+                            st.session_state.data = pd.read_csv(uploaded_file)
+                            st.session_state.data_source_format = 'csv'
+                        elif uploaded_file.name.endswith('.json'):
+                            st.session_state.data = pd.read_json(uploaded_file)
+                            st.session_state.data_source_format = 'json'
+                        elif uploaded_file.name.endswith(('.xlsx', '.xls')):
+                            # Shared loader (mcp_server.DataLoader) so MCP server, CLI,
+                            # and this UI all get identical Excel handling/error semantics.
+                            st.session_state.data = DataLoader.load_excel(uploaded_file.read())
+                            # Remember the Excel sub-format so the analysis HTTP
+                            # call (DataQualityAnalyzer._call_analyze_api) can
+                            # re-upload real Excel bytes with the correct
+                            # content-type instead of defaulting to CSV.
+                            st.session_state.data_source_format = 'xlsx' if uploaded_file.name.endswith('.xlsx') else 'xls'
+                        else:
+                            st.session_state.data = pd.read_csv(uploaded_file, sep='\t')
+                            st.session_state.data_source_format = 'tsv'
+                        st.success(f"✅ Loaded {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
+                    except Exception as e:
+                        st.error(f"Error loading file: {str(e)}")
+
+            # Demo data selector below file uploader
+            demo_option = st.selectbox(
+                "Or load demo data:",
+                ["None", "CSV - Western", "CSV - Asian", "CSV - Clinical", "JSON - Mixed", "REDCap - Clinical (synthetic)"],
+                key="demo_selector",
+                help="Clinical data includes matching dictionary in demo_data/clinical_dict.json"
+            )
+
+            if demo_option != "None":
+                dataset_map = {
+                    "CSV - Western": "western",
+                    "CSV - Asian": "asian",
+                    "CSV - Clinical": "clinical",
+                    "JSON - Mixed": "mixed",
+                    "REDCap - Clinical (synthetic)": "redcap_clinical"
+                }
+                if demo_option in dataset_map:
+                    st.session_state.data = load_demo_data(dataset_map[demo_option])
+                    # Demo datasets are always synthesized in-memory (not loaded
+                    # from an Excel file), so fall back to CSV serialization for
+                    # the analysis HTTP call.
+                    st.session_state.data_source_format = 'csv'
+                    st.success(f"✅ Loaded {demo_option} demo data")
+                    if demo_option == "CSV - Clinical":
+                        st.info("📖 Matching dictionary available: Upload 'demo_data/clinical_dict.json' for validation rules")
+                    if demo_option == "REDCap - Clinical (synthetic)":
+                        st.info("📖 Matching dictionary available: select 'REDCap - Clinical (synthetic, with branching logic)' under 'Or load demo dictionary' below")
+
+    with col2:
+        with st.container(key="card-dictionary"):
+            st.markdown('<div class="app-section-title">Dictionary</div>', unsafe_allow_html=True)
+
+
+            # Dictionary file uploader first - aligned with data uploader
+            dict_file = st.file_uploader(
+                " ",  # Empty label to avoid duplication
+                type=['json', 'pdf', 'csv', 'txt', 'xlsx', 'xls'],
+                key="dict_uploader",
+                label_visibility="collapsed",
+                help="Optional - defines validation rules for data quality checks (JSON, PDF, CSV, Excel, or TXT)"
+            )
+
+            # LLM model selector - visible whenever AI-assisted dictionary
+            # parsing is available at all (not just after a file is uploaded),
+            # so it's already set by the time the user uploads a file that
+            # needs it. Defaults to the first configured deployment.
+            if LLM_AVAILABLE:
+                if "llm_deployment" not in st.session_state:
+                    _available_deployments = get_available_deployments()
+                    st.session_state.llm_deployment = _available_deployments[0] if _available_deployments else None
+
+                st.session_state.llm_deployment = st.selectbox(
+                    "LLM model",
+                    get_available_deployments(),
+                    key="llm_deployment_select",
+                    help="Azure OpenAI deployment used for AI-assisted dictionary parsing.",
+                )
+
+            # Add LLM parsing option if available with auto-detection
+            if LLM_AVAILABLE and dict_file:
+                # DEBUG: Show filename
+                st.caption(f"📎 Uploaded file: **{dict_file.name}** ({dict_file.type if hasattr(dict_file, 'type') else 'unknown type'})")
+
+                llm_mode = st.selectbox(
+                    "Dictionary parsing method:",
+                    ["Auto-detect (recommended)", "Always use AI parsing", "Never use AI (manual only)"],
+                    index=0,  # Default to auto-detect
+                    help="Auto: PDF→AI, structured CSV→manual | Always: Force AI for all | Never: Manual parsing only"
+                )
+
+                # Determine if we should use LLM based on mode and file type
+                if "Always" in llm_mode:
+                    use_llm = True
+                elif "Never" in llm_mode:
+                    use_llm = False
+                else:  # Auto-detect
+                    # Check file type and structure
+                    print(f"\n🔍 AUTO-DETECT: Checking file '{dict_file.name}'")
+                    print(f"   Extension check: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}")
+
+                    if dict_file.name.endswith('.pdf'):
+                        use_llm = True
+                        st.info("🤖 Auto-detected: PDF requires AI parsing")
+                        print(f"   ✅ Detected as PDF, will use LLM")
+                    elif dict_file.name.endswith('.csv'):
+                        # Peek at CSV to check if it's structured
+                        dict_file.seek(0)
+                        sample = dict_file.read(1024).decode('utf-8', errors='ignore')
+                        dict_file.seek(0)
+                        # Check for standard column names
+                        if any(col in sample for col in ['Column', 'Type', 'Min', 'Max', 'Allowed_Values', 'Field Name']):
+                            use_llm = False
+                            st.info("📊 Auto-detected: Structured CSV, using manual parsing")
+                        else:
+                            use_llm = True
+                            st.info("🤖 Auto-detected: Unstructured CSV, using AI parsing")
+                    elif dict_file.name.endswith(('.xlsx', '.xls')):
+                        # Peek at Excel column headers to check if it's structured
+                        # (same convention as the CSV structured-column check above)
+                        dict_file.seek(0)
+                        try:
+                            peek_df = DataLoader.load_excel(dict_file.read())
+                            columns_str = ' '.join(str(c) for c in peek_df.columns)
+                        except Exception:
+                            columns_str = ""
+                        dict_file.seek(0)
+                        if any(col in columns_str for col in ['Column', 'Type', 'Min', 'Max', 'Allowed_Values', 'Field Name']):
+                            use_llm = False
+                            st.info("📊 Auto-detected: Structured Excel, using manual parsing")
+                        else:
+                            use_llm = True
+                            st.info("🤖 Auto-detected: Unstructured Excel, using AI parsing")
                     else:
                         use_llm = True
-                        st.info("🤖 Auto-detected: Unstructured Excel, using AI parsing")
-                else:
-                    use_llm = True
-                    st.info(f"🤖 Auto-detected: {dict_file.name.split('.')[-1].upper()} file, using AI parsing")
-        else:
-            use_llm = False
+                        st.info(f"🤖 Auto-detected: {dict_file.name.split('.')[-1].upper()} file, using AI parsing")
+            else:
+                use_llm = False
 
-        if dict_file:
-            try:
-                # Calculate file hash for caching (works for all file types)
-                dict_file.seek(0)
-                raw_content = dict_file.read()
-                file_hash = hashlib.md5(raw_content).hexdigest()
-                dict_file.seek(0)  # Reset for reading
-
-                # Create cache key with LLM flag
-                cache_key = f"{file_hash}_llm" if use_llm else file_hash
-                cache_file = st.session_state.cache_dir / f"{cache_key}.json"
-
-                # Check if already cached
-                if cache_key in st.session_state.dict_cache:
-                    # Use in-memory cache
-                    st.session_state.dictionary = st.session_state.dict_cache[cache_key]
-
-                    # CLEAR CACHE LOGGING
-                    print("\n" + "="*80)
-                    print("💾 LOADING FROM MEMORY CACHE (NO LLM CALL)")
-                    print(f"   Cache key: {cache_key}")
-                    print(f"   File: {dict_file.name}")
-                    print("="*80 + "\n")
-
-                    st.success(f"⚡ Using cached dictionary (instant load)")
-                    st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
-
-                    if use_llm:
-                        fields_count = len(st.session_state.dictionary.get('fields', []))
-                        st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
-                    else:
-                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
-                elif cache_file.exists():
-                    # Load from persistent cache file (JSON, not pickle - avoids
-                    # insecure deserialization if the cache dir is ever shared/writable)
-                    with open(cache_file, 'r', encoding='utf-8') as f:
-                        st.session_state.dictionary = json.load(f)
-                        st.session_state.dict_cache[cache_key] = st.session_state.dictionary
-
-                    # CLEAR CACHE LOGGING
-                    print("\n" + "="*80)
-                    print("💾 LOADING FROM DISK CACHE (NO LLM CALL)")
-                    print(f"   Cache file: {cache_file.name}")
-                    print(f"   File: {dict_file.name}")
-                    print("="*80 + "\n")
-
-                    st.success(f"⚡ Loaded dictionary from disk cache (no API calls)")
-                    st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
-
-                    if use_llm:
-                        fields_count = len(st.session_state.dictionary.get('fields', []))
-                        st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
-                    else:
-                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
-                # Use LLM parsing if enabled and not cached
-                elif use_llm and LLM_AVAILABLE:
-                    # CLEAR LLM MARKER
-                    st.warning("🤖 **LLM ACTIVE**: Sending data to Azure OpenAI GPT-4 for intelligent dictionary parsing...")
-                    print("\n" + "="*80)
-                    print("🤖 LLM DICTIONARY PARSER INVOKED")
-                    print(f"   File: {dict_file.name}")
-                    print(f"   Size: {len(raw_content)} bytes")
-                    print("="*80 + "\n")
-
-                    # More informative spinner with warning about processing time
-                    with st.spinner("🤖 Using AI to extract field definitions... This may take 30-60 seconds for large PDFs."):
-                        # Read file content
-                        file_content = ""
-                        if dict_file.name.endswith('.pdf'):
-                            pdf_reader = pypdf.PdfReader(dict_file)
-                            for page in pdf_reader.pages:
-                                file_content += page.extract_text() + "\n"
-                        elif dict_file.name.endswith('.csv'):
-                            file_content = dict_file.read().decode('utf-8')
-                        elif dict_file.name.endswith('.txt'):
-                            file_content = dict_file.read().decode('utf-8')
-                        elif dict_file.name.endswith('.json'):
-                            # For JSON, convert to readable text
-                            json_data = json.load(dict_file)
-                            file_content = json.dumps(json_data, indent=2)
-                        elif dict_file.name.endswith(('.xlsx', '.xls')):
-                            # For Excel, convert the sheet to readable text (same
-                            # approach as the JSON branch above - binary content
-                            # can't be decoded as utf-8 like the CSV/TXT branches)
-                            excel_df = DataLoader.load_excel(dict_file.read())
-                            file_content = excel_df.to_csv(index=False)
-                        else:
-                            file_content = dict_file.read().decode('utf-8')
-
-                        # Initialize LLM parser
-                        llm_parser = LLMDictionaryParser()
-
-                        # Estimate tokens for browser console log
-                        import time
-                        estimated_tokens = llm_parser.count_tokens(file_content)
-                        start_time = time.time()
-                        start_timestamp = time.strftime('%H:%M:%S')
-
-                        # Log to browser console
-                        log_to_browser_console(
-                            f"🤖 LLM parsing started at {start_timestamp}",
-                            {
-                                "model": llm_parser.deployment,
-                                "tokens": estimated_tokens,
-                                "file": dict_file.name,
-                                "size_bytes": len(file_content)
-                            }
-                        )
-
-                        # Parse with LLM
-                        # Don't truncate - the LLM parser handles chunking internally
-                        # Process more fields for comprehensive extraction
-                        parsed_result = llm_parser.parse_dictionary(file_content, max_fields=500)
-
-                        # Calculate elapsed time
-                        elapsed_time = time.time() - start_time
-
-                        # Log completion to browser console
-                        log_to_browser_console(
-                            f"✅ LLM parsing completed in {elapsed_time:.1f}s",
-                            {
-                                "fields_extracted": len(parsed_result.get('fields', [])),
-                                "chunks_processed": parsed_result.get('metadata', {}).get('chunks_processed', 0),
-                                "mode": parsed_result.get('metadata', {}).get('mode', 'unknown')
-                            }
-                        )
-
-                        # Store the parsed dictionary
-                        st.session_state.dictionary = {
-                            "source": "LLM Parser",
-                            "filename": dict_file.name,
-                            "rules": parsed_result.get("schema", {}),
-                            "fields": parsed_result.get("fields", []),
-                            "metadata": parsed_result.get("metadata", {})
-                        }
-
-                        # Cache the result both in memory and to disk
-                        st.session_state.dict_cache[cache_key] = st.session_state.dictionary
-                        with open(cache_file, 'w', encoding='utf-8') as f:
-                            json.dump(st.session_state.dictionary, f)
-                        st.info(f"💾 Dictionary cached - future loads will be instant (no API calls)")
-
-                        # Add processing time to success message
-                        processing_time = parsed_result.get('metadata', {}).get('processing_time_seconds', 0)
-                        chunks_processed = parsed_result.get('metadata', {}).get('chunks_processed', 0)
-                        st.success(f"✅ AI extracted {len(parsed_result.get('fields', []))} field definitions from {chunks_processed} chunks in {processing_time:.1f} seconds")
-
-                        # Show extracted fields
-                        if parsed_result.get('fields'):
-                            # Expand by default if we got results, especially for large dictionaries
-                            expand_fields = len(parsed_result['fields']) <= 20
-                            with st.expander(f"📋 Extracted Fields ({len(parsed_result['fields'])})", expanded=expand_fields):
-                                for field in parsed_result['fields'][:10]:
-                                    field_info = f"**{field['field_name']}** ({field['data_type']})"
-                                    if field.get('required'):
-                                        field_info += " *[Required]*"
-                                    if field.get('description'):
-                                        field_info += f"\n   {field['description']}"
-                                    if field.get('min_value') or field.get('max_value'):
-                                        field_info += f"\n   Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
-                                    if field.get('allowed_values'):
-                                        field_info += f"\n   Values: {', '.join(field['allowed_values'][:5])}"
-                                    st.markdown(field_info)
-                                if len(parsed_result['fields']) > 10:
-                                    st.info(f"📊 Showing first 10 of {len(parsed_result['fields'])} extracted fields. Use 'View All Fields' below to see more.")
-
-                elif dict_file.name.endswith('.pdf'):
-                    # PDF without LLM - already have hash from above
+            if dict_file:
+                try:
+                    # Calculate file hash for caching (works for all file types)
+                    dict_file.seek(0)
+                    raw_content = dict_file.read()
+                    file_hash = hashlib.md5(raw_content).hexdigest()
                     dict_file.seek(0)  # Reset for reading
 
-                    # Check persistent file cache first
-                    cache_file = st.session_state.cache_dir / f"{file_hash}.json"
+                    # Create cache key with LLM flag
+                    cache_key = f"{file_hash}_llm" if use_llm else file_hash
+                    cache_file = st.session_state.cache_dir / f"{cache_key}.json"
 
-                    if cache_file.exists():
-                        # Load from persistent cache file (JSON, not pickle)
-                        with open(cache_file, 'r', encoding='utf-8') as f:
-                            st.session_state.dictionary = json.load(f)
-                            st.session_state.dict_cache[file_hash] = st.session_state.dictionary
-                        st.success(f"⚡ Loaded dictionary from cache (instant)")
-                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
-                    elif file_hash in st.session_state.dict_cache:
+                    # Check if already cached
+                    if cache_key in st.session_state.dict_cache:
                         # Use in-memory cache
-                        st.session_state.dictionary = st.session_state.dict_cache[file_hash]
-                        st.success(f"⚡ Using cached dictionary '{dict_file.name}' (instant load)")
-                        st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
-                    else:
-                        # Manual PDF parsing (NO LLM)
-                        st.info("📄 **MANUAL PARSING**: Using basic regex patterns (limited extraction). Enable AI parsing for better results.")
+                        st.session_state.dictionary = st.session_state.dict_cache[cache_key]
+
+                        # CLEAR CACHE LOGGING
                         print("\n" + "="*80)
-                        print("📄 MANUAL PDF PARSER (NO LLM)")
+                        print("💾 LOADING FROM MEMORY CACHE (NO LLM CALL)")
+                        print(f"   Cache key: {cache_key}")
                         print(f"   File: {dict_file.name}")
-                        print("   ⚠️ WARNING: Basic regex patterns only - may miss complex field definitions")
                         print("="*80 + "\n")
 
-                        # Parse PDF dictionary with container to prevent UI blocking
-                        with st.container():
-                            progress_bar = st.progress(0, text="Parsing PDF dictionary...")
+                        st.success(f"⚡ Using cached dictionary (instant load)")
+                        st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
 
-                            # Read PDF content
-                            pdf_reader = pypdf.PdfReader(dict_file)
-                            num_pages = len(pdf_reader.pages)
+                        if use_llm:
+                            fields_count = len(st.session_state.dictionary.get('fields', []))
+                            st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
+                        else:
+                            st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                    elif cache_file.exists():
+                        # Load from persistent cache file (JSON, not pickle - avoids
+                        # insecure deserialization if the cache dir is ever shared/writable)
+                        with open(cache_file, 'r', encoding='utf-8') as f:
+                            st.session_state.dictionary = json.load(f)
+                            st.session_state.dict_cache[cache_key] = st.session_state.dictionary
 
-                            extracted_text = ""
-                            extracted_rules = {}
+                        # CLEAR CACHE LOGGING
+                        print("\n" + "="*80)
+                        print("💾 LOADING FROM DISK CACHE (NO LLM CALL)")
+                        print(f"   Cache file: {cache_file.name}")
+                        print(f"   File: {dict_file.name}")
+                        print("="*80 + "\n")
 
-                            # Process pages with continuous progress updates
-                            for i, page in enumerate(pdf_reader.pages):
-                                # Update progress for every page
-                                progress_bar.progress((i + 1) / num_pages, text=f"Processing page {i+1} of {num_pages}...")
+                        st.success(f"⚡ Loaded dictionary from disk cache (no API calls)")
+                        st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
 
-                                page_text = page.extract_text()
-                                extracted_text += page_text
+                        if use_llm:
+                            fields_count = len(st.session_state.dictionary.get('fields', []))
+                            st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
+                        else:
+                            st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                    # Use LLM parsing if enabled and not cached
+                    elif use_llm and LLM_AVAILABLE:
+                        # CLEAR LLM MARKER
+                        st.warning("🤖 **LLM ACTIVE**: Sending data to Azure OpenAI GPT-4 for intelligent dictionary parsing...")
+                        print("\n" + "="*80)
+                        print("🤖 LLM DICTIONARY PARSER INVOKED")
+                        print(f"   File: {dict_file.name}")
+                        print(f"   Size: {len(raw_content)} bytes")
+                        print("="*80 + "\n")
 
-                                # Look for validation rules in the PDF (example patterns)
-                                # Look for date fields
-                                date_fields = re.findall(r'([\w_]+).*?(?:date|Date|DATE)', page_text)
-                                for field in date_fields:
-                                    if field not in extracted_rules:
-                                        extracted_rules[field] = {"type": "date"}
+                        # More informative spinner with warning about processing time
+                        with st.spinner("🤖 Using AI to extract field definitions... This may take 30-60 seconds for large PDFs."):
+                            # Read file content
+                            file_content = ""
+                            if dict_file.name.endswith('.pdf'):
+                                pdf_reader = pypdf.PdfReader(dict_file)
+                                for page in pdf_reader.pages:
+                                    file_content += page.extract_text() + "\n"
+                            elif dict_file.name.endswith('.csv'):
+                                file_content = dict_file.read().decode('utf-8')
+                            elif dict_file.name.endswith('.txt'):
+                                file_content = dict_file.read().decode('utf-8')
+                            elif dict_file.name.endswith('.json'):
+                                # For JSON, convert to readable text
+                                json_data = json.load(dict_file)
+                                file_content = json.dumps(json_data, indent=2)
+                            elif dict_file.name.endswith(('.xlsx', '.xls')):
+                                # For Excel, convert the sheet to readable text (same
+                                # approach as the JSON branch above - binary content
+                                # can't be decoded as utf-8 like the CSV/TXT branches)
+                                excel_df = DataLoader.load_excel(dict_file.read())
+                                file_content = excel_df.to_csv(index=False)
+                            else:
+                                file_content = dict_file.read().decode('utf-8')
 
-                                # Look for numeric ranges
-                                range_patterns = re.findall(r'([\w_]+).*?(?:range|Range|between).*?(\d+).*?(?:to|and|-|–).*?(\d+)', page_text)
-                                for field, min_val, max_val in range_patterns:
-                                    if field not in extracted_rules:
-                                        extracted_rules[field] = {"min": int(min_val), "max": int(max_val)}
+                            # Initialize LLM parser
+                            llm_parser = LLMDictionaryParser()
 
-                            # Clear progress bar
-                            progress_bar.empty()
+                            # Estimate tokens for browser console log
+                            import time
+                            estimated_tokens = llm_parser.count_tokens(file_content)
+                            start_time = time.time()
+                            start_timestamp = time.strftime('%H:%M:%S')
 
-                        # Store extracted dictionary
-                        st.session_state.dictionary = {
-                            "source": "PDF",
-                            "filename": dict_file.name,
-                            "rules": extracted_rules,
-                            "pages": num_pages,
-                            "text_length": len(extracted_text),
-                            "hash": file_hash
-                        }
+                            # Log to browser console
+                            log_to_browser_console(
+                                f"🤖 LLM parsing started at {start_timestamp}",
+                                {
+                                    "model": llm_parser.deployment,
+                                    "tokens": estimated_tokens,
+                                    "file": dict_file.name,
+                                    "size_bytes": len(file_content)
+                                }
+                            )
 
-                        # Cache the parsed dictionary both in memory and to file
-                        st.session_state.dict_cache[file_hash] = st.session_state.dictionary
+                            # Parse with LLM
+                            # Don't truncate - the LLM parser handles chunking internally
+                            # Process more fields for comprehensive extraction
+                            parsed_result = llm_parser.parse_dictionary(
+                                file_content,
+                                max_fields=500,
+                                deployment=st.session_state.get("llm_deployment"),
+                            )
 
-                        # Save to persistent cache file (JSON, not pickle)
+                            # Calculate elapsed time
+                            elapsed_time = time.time() - start_time
+
+                            # Log completion to browser console
+                            log_to_browser_console(
+                                f"✅ LLM parsing completed in {elapsed_time:.1f}s",
+                                {
+                                    "fields_extracted": len(parsed_result.get('fields', [])),
+                                    "chunks_processed": parsed_result.get('metadata', {}).get('chunks_processed', 0),
+                                    "mode": parsed_result.get('metadata', {}).get('mode', 'unknown')
+                                }
+                            )
+
+                            # Store the parsed dictionary
+                            st.session_state.dictionary = {
+                                "source": "LLM Parser",
+                                "filename": dict_file.name,
+                                "rules": parsed_result.get("schema", {}),
+                                "fields": parsed_result.get("fields", []),
+                                "metadata": parsed_result.get("metadata", {})
+                            }
+
+                            # Cache the result both in memory and to disk
+                            st.session_state.dict_cache[cache_key] = st.session_state.dictionary
+                            with open(cache_file, 'w', encoding='utf-8') as f:
+                                json.dump(st.session_state.dictionary, f)
+                            st.info(f"💾 Dictionary cached - future loads will be instant (no API calls)")
+
+                            # Add processing time to success message
+                            processing_time = parsed_result.get('metadata', {}).get('processing_time_seconds', 0)
+                            chunks_processed = parsed_result.get('metadata', {}).get('chunks_processed', 0)
+                            st.success(f"✅ AI extracted {len(parsed_result.get('fields', []))} field definitions from {chunks_processed} chunks in {processing_time:.1f} seconds")
+
+                            # Show extracted fields
+                            if parsed_result.get('fields'):
+                                # Expand by default if we got results, especially for large dictionaries
+                                expand_fields = len(parsed_result['fields']) <= 20
+                                with st.expander(f"📋 Extracted Fields ({len(parsed_result['fields'])})", expanded=expand_fields):
+                                    for field in parsed_result['fields'][:10]:
+                                        field_info = f"**{field['field_name']}** ({field['data_type']})"
+                                        if field.get('required'):
+                                            field_info += " *[Required]*"
+                                        if field.get('description'):
+                                            field_info += f"\n   {field['description']}"
+                                        if field.get('min_value') or field.get('max_value'):
+                                            field_info += f"\n   Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
+                                        if field.get('allowed_values'):
+                                            field_info += f"\n   Values: {', '.join(field['allowed_values'][:5])}"
+                                        st.markdown(field_info)
+                                    if len(parsed_result['fields']) > 10:
+                                        st.info(f"📊 Showing first 10 of {len(parsed_result['fields'])} extracted fields. Use 'View All Fields' below to see more.")
+
+                    elif dict_file.name.endswith('.pdf'):
+                        # PDF without LLM - already have hash from above
+                        dict_file.seek(0)  # Reset for reading
+
+                        # Check persistent file cache first
                         cache_file = st.session_state.cache_dir / f"{file_hash}.json"
-                        with open(cache_file, 'w', encoding='utf-8') as f:
-                            json.dump(st.session_state.dictionary, f)
 
-                        st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
-                        st.info(f"💾 Dictionary cached to disk for permanent reuse")
-                        st.caption(f"📁 Cache location: {cache_file}")
+                        if cache_file.exists():
+                            # Load from persistent cache file (JSON, not pickle)
+                            with open(cache_file, 'r', encoding='utf-8') as f:
+                                st.session_state.dictionary = json.load(f)
+                                st.session_state.dict_cache[file_hash] = st.session_state.dictionary
+                            st.success(f"⚡ Loaded dictionary from cache (instant)")
+                            st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                        elif file_hash in st.session_state.dict_cache:
+                            # Use in-memory cache
+                            st.session_state.dictionary = st.session_state.dict_cache[file_hash]
+                            st.success(f"⚡ Using cached dictionary '{dict_file.name}' (instant load)")
+                            st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
+                        else:
+                            # Manual PDF parsing (NO LLM)
+                            st.info("📄 **MANUAL PARSING**: Using basic regex patterns (limited extraction). Enable AI parsing for better results.")
+                            print("\n" + "="*80)
+                            print("📄 MANUAL PDF PARSER (NO LLM)")
+                            print(f"   File: {dict_file.name}")
+                            print("   ⚠️ WARNING: Basic regex patterns only - may miss complex field definitions")
+                            print("="*80 + "\n")
 
-                        if extracted_rules:
-                            with st.expander(f"Found {len(extracted_rules)} validation rules", expanded=False):
-                                for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
-                                    st.text(f"{field}: {rule}")
-                                if len(extracted_rules) > 10:
-                                    st.text(f"... and {len(extracted_rules) - 10} more")
-                elif dict_file.name.endswith('.json'):
-                    st.session_state.dictionary = json.load(dict_file)
-                    st.success("✅ JSON dictionary loaded")
-                elif dict_file.name.endswith('.csv') and not use_llm:
-                    # Parse CSV dictionary (NO LLM) - only if LLM mode not active
-                    st.info("📊 **CSV PARSING**: Reading structured CSV data dictionary...")
-                    print(f"\n📊 CSV DICTIONARY PARSER: {dict_file.name}")
+                            # Parse PDF dictionary with container to prevent UI blocking
+                            with st.container():
+                                progress_bar = st.progress(0, text="Parsing PDF dictionary...")
 
-                    import pandas as pd
-                    dict_file.seek(0)
-                    df = pd.read_csv(dict_file)
-                    rules = {}
-                    for _, row in df.iterrows():
-                        if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
-                            field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
-                            if field_name:
-                                rule = {}
-                                if 'Type' in row or 'type' in row:
-                                    rule['type'] = str(row.get('Type') or row.get('type'))
-                                if 'Min' in row or 'min' in row:
-                                    rule['min'] = row.get('Min') or row.get('min')
-                                if 'Max' in row or 'max' in row:
-                                    rule['max'] = row.get('Max') or row.get('max')
-                                if 'Required' in row or 'required' in row:
-                                    rule['required'] = row.get('Required') or row.get('required')
-                                if 'Allowed_Values' in row or 'allowed_values' in row:
-                                    allowed = row.get('Allowed_Values') or row.get('allowed_values')
-                                    if allowed and not pd.isna(allowed):
-                                        rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
-                                rules[field_name] = rule
-                    st.session_state.dictionary = {
-                        "source": "CSV",
-                        "filename": dict_file.name,
-                        "rules": rules
-                    }
-                    st.success(f"✅ Parsed {len(rules)} field definitions from CSV")
-                elif dict_file.name.endswith(('.xlsx', '.xls')) and not use_llm:
-                    # Parse Excel dictionary (NO LLM) - structured field definitions,
-                    # same column-name conventions as the CSV dictionary branch above.
-                    st.info("📊 **EXCEL PARSING**: Reading structured Excel data dictionary...")
-                    print(f"\n📊 EXCEL DICTIONARY PARSER: {dict_file.name}")
+                                # Read PDF content
+                                pdf_reader = pypdf.PdfReader(dict_file)
+                                num_pages = len(pdf_reader.pages)
 
-                    dict_file.seek(0)
-                    df = DataLoader.load_excel(dict_file.read())
-                    rules = {}
-                    for _, row in df.iterrows():
-                        if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
-                            field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
-                            if field_name:
-                                rule = {}
-                                if 'Type' in row or 'type' in row:
-                                    rule['type'] = str(row.get('Type') or row.get('type'))
-                                if 'Min' in row or 'min' in row:
-                                    rule['min'] = row.get('Min') or row.get('min')
-                                if 'Max' in row or 'max' in row:
-                                    rule['max'] = row.get('Max') or row.get('max')
-                                if 'Required' in row or 'required' in row:
-                                    rule['required'] = row.get('Required') or row.get('required')
-                                if 'Allowed_Values' in row or 'allowed_values' in row:
-                                    allowed = row.get('Allowed_Values') or row.get('allowed_values')
-                                    if allowed and not pd.isna(allowed):
-                                        rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
-                                rules[field_name] = rule
-                    st.session_state.dictionary = {
-                        "source": "Excel",
-                        "filename": dict_file.name,
-                        "rules": rules
-                    }
-                    st.success(f"✅ Parsed {len(rules)} field definitions from Excel")
-                else:
-                    st.error(f"⚠️ Unsupported dictionary format: **{dict_file.name}**")
-                    st.info(f"Debug: use_llm={use_llm}, LLM_AVAILABLE={LLM_AVAILABLE}, file ends with .csv={dict_file.name.endswith('.csv')}")
-                    print(f"\n⚠️ UNSUPPORTED FORMAT: {dict_file.name}")
-                    print(f"   use_llm: {use_llm}")
-                    print(f"   LLM_AVAILABLE: {LLM_AVAILABLE}")
-                    print(f"   File extension checks: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}, .json={dict_file.name.endswith('.json')}")
-            except Exception as e:
-                st.error(f"Error loading dictionary: {str(e)}")
+                                extracted_text = ""
+                                extracted_rules = {}
 
-        # View All Fields button - accessible location near dictionary upload
-        if st.session_state.dictionary and st.session_state.dictionary.get('fields'):
-            fields_list = st.session_state.dictionary['fields']
-            num_fields = len(fields_list)
+                                # Process pages with continuous progress updates
+                                for i, page in enumerate(pdf_reader.pages):
+                                    # Update progress for every page
+                                    progress_bar.progress((i + 1) / num_pages, text=f"Processing page {i+1} of {num_pages}...")
 
-            if num_fields > 0:
-                st.markdown("---")
-                with st.expander(f"📋 View All {num_fields} Extracted Fields", expanded=False):
-                    for field in fields_list:
-                        field_info = f"**{field['field_name']}** ({field.get('data_type', 'unknown')})"
-                        if field.get('required'):
-                            field_info += " *[Required]*"
-                        if field.get('description'):
-                            # Truncate very long descriptions
-                            desc = field['description'][:150] + "..." if len(field['description']) > 150 else field['description']
-                            field_info += f"\n   📝 {desc}"
-                        if field.get('min_value') is not None or field.get('max_value') is not None:
-                            field_info += f"\n   📊 Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
-                        if field.get('allowed_values'):
-                            vals = field['allowed_values'][:8]  # Show first 8
-                            vals_str = ', '.join(vals)
-                            if len(field['allowed_values']) > 8:
-                                vals_str += f" ... +{len(field['allowed_values']) - 8} more"
-                            field_info += f"\n   ✓ Allowed: {vals_str}"
-                        st.markdown(field_info)
+                                    page_text = page.extract_text()
+                                    extracted_text += page_text
 
-        # Demo dictionary selector below file uploader
-        demo_dict = st.selectbox(
-            "Or load demo dictionary:",
-            ["None"] + list(DEMO_DICTIONARIES.keys()),
-            key="demo_dict_selector"
-        )
+                                    # Look for validation rules in the PDF (example patterns)
+                                    # Look for date fields
+                                    date_fields = re.findall(r'([\w_]+).*?(?:date|Date|DATE)', page_text)
+                                    for field in date_fields:
+                                        if field not in extracted_rules:
+                                            extracted_rules[field] = {"type": "date"}
 
-        demo_dictionary_built = None
-        if demo_dict != "None":
-            # Get demo dictionary CSV string and parse it
-            demo_csv_string = get_demo_dictionary(demo_dict)
+                                    # Look for numeric ranges
+                                    range_patterns = re.findall(r'([\w_]+).*?(?:range|Range|between).*?(\d+).*?(?:to|and|-|–).*?(\d+)', page_text)
+                                    for field, min_val, max_val in range_patterns:
+                                        if field not in extracted_rules:
+                                            extracted_rules[field] = {"min": int(min_val), "max": int(max_val)}
 
-            # Parse CSV string into rules dictionary (same logic as CSV upload)
-            import io
-            df = pd.read_csv(io.StringIO(demo_csv_string))
-            rules = {}
-            for _, row in df.iterrows():
-                if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
-                    field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
-                    if field_name:
-                        rule = {}
-                        if 'Type' in row or 'type' in row:
-                            rule['type'] = str(row.get('Type') or row.get('type'))
-                        if 'Min' in row or 'min' in row:
-                            rule['min'] = row.get('Min') or row.get('min')
-                        if 'Max' in row or 'max' in row:
-                            rule['max'] = row.get('Max') or row.get('max')
-                        if 'Required' in row or 'required' in row:
-                            rule['required'] = row.get('Required') or row.get('required')
-                        if 'Allowed_Values' in row or 'allowed_values' in row:
-                            allowed = row.get('Allowed_Values') or row.get('allowed_values')
-                            if allowed and not pd.isna(allowed):
-                                rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
-                        rules[field_name] = rule
+                                # Clear progress bar
+                                progress_bar.empty()
 
-            demo_dictionary_built = {
-                "source": "Demo Dictionary",
-                "filename": demo_dict,
-                "rules": rules
-            }
-            st.success(f"✅ Loaded {demo_dict} ({len(rules)} field definitions)")
+                            # Store extracted dictionary
+                            st.session_state.dictionary = {
+                                "source": "PDF",
+                                "filename": dict_file.name,
+                                "rules": extracted_rules,
+                                "pages": num_pages,
+                                "text_length": len(extracted_text),
+                                "hash": file_hash
+                            }
 
-        # Centralized decision for what st.session_state.dictionary should be
-        # this render pass (fixes stale-dictionary bug: resetting the demo
-        # selector to "None" used to leave a previously-loaded demo
-        # dictionary's rules active forever, since there was no `else` to
-        # clear them). See resolve_effective_dictionary() docstring for the
-        # full precedence rules (upload > demo selection > None).
-        st.session_state.dictionary = resolve_effective_dictionary(
-            demo_dict_selection=demo_dict,
-            demo_dictionary_built=demo_dictionary_built,
-            dict_file_uploaded=dict_file is not None,
-            previous_session_dictionary=st.session_state.dictionary,
-        )
+                            # Cache the parsed dictionary both in memory and to file
+                            st.session_state.dict_cache[file_hash] = st.session_state.dictionary
 
-        # Add cache management
-        st.markdown("---")
-        st.markdown("#### 🗑️ Cache Management")
+                            # Save to persistent cache file (JSON, not pickle)
+                            cache_file = st.session_state.cache_dir / f"{file_hash}.json"
+                            with open(cache_file, 'w', encoding='utf-8') as f:
+                                json.dump(st.session_state.dictionary, f)
 
-        # Include legacy .pkl files so old pickle-based caches get cleaned up too
-        cache_files = list(st.session_state.cache_dir.glob("*.json")) + list(st.session_state.cache_dir.glob("*.pkl"))
-        num_cached = len(cache_files)
+                            st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
+                            st.info(f"💾 Dictionary cached to disk for permanent reuse")
+                            st.caption(f"📁 Cache location: {cache_file}")
 
-        if num_cached > 0:
-            st.caption(f"📦 {num_cached} dictionaries cached")
+                            if extracted_rules:
+                                with st.expander(f"Found {len(extracted_rules)} validation rules", expanded=False):
+                                    for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
+                                        st.text(f"{field}: {rule}")
+                                    if len(extracted_rules) > 10:
+                                        st.text(f"... and {len(extracted_rules) - 10} more")
+                    elif dict_file.name.endswith('.json'):
+                        st.session_state.dictionary = json.load(dict_file)
+                        st.success("✅ JSON dictionary loaded")
+                    elif dict_file.name.endswith('.csv') and not use_llm:
+                        # Parse CSV dictionary (NO LLM) - only if LLM mode not active
+                        st.info("📊 **CSV PARSING**: Reading structured CSV data dictionary...")
+                        print(f"\n📊 CSV DICTIONARY PARSER: {dict_file.name}")
 
-            if st.button("🗑️ Clear All Cache", help="Delete all cached dictionaries to force re-parsing"):
-                try:
-                    for cache_file in cache_files:
-                        cache_file.unlink()
-                    st.session_state.dict_cache = {}
-                    st.session_state.dictionary = None
-                    st.success(f"✅ Cleared {num_cached} cached dictionaries")
-                    print(f"\n🗑️ CLEARED {num_cached} CACHE FILES\n")
-                    st.rerun()
+                        import pandas as pd
+                        dict_file.seek(0)
+                        df = pd.read_csv(dict_file)
+                        rules = {}
+                        for _, row in df.iterrows():
+                            if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                                field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                                if field_name:
+                                    rule = {}
+                                    if 'Type' in row or 'type' in row:
+                                        rule['type'] = str(row.get('Type') or row.get('type'))
+                                    if 'Min' in row or 'min' in row:
+                                        rule['min'] = row.get('Min') or row.get('min')
+                                    if 'Max' in row or 'max' in row:
+                                        rule['max'] = row.get('Max') or row.get('max')
+                                    if 'Required' in row or 'required' in row:
+                                        rule['required'] = row.get('Required') or row.get('required')
+                                    if 'Allowed_Values' in row or 'allowed_values' in row:
+                                        allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                                        if allowed and not pd.isna(allowed):
+                                            rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                                    rules[field_name] = rule
+                        st.session_state.dictionary = {
+                            "source": "CSV",
+                            "filename": dict_file.name,
+                            "rules": rules
+                        }
+                        st.success(f"✅ Parsed {len(rules)} field definitions from CSV")
+                    elif dict_file.name.endswith(('.xlsx', '.xls')) and not use_llm:
+                        # Parse Excel dictionary (NO LLM) - structured field definitions,
+                        # same column-name conventions as the CSV dictionary branch above.
+                        st.info("📊 **EXCEL PARSING**: Reading structured Excel data dictionary...")
+                        print(f"\n📊 EXCEL DICTIONARY PARSER: {dict_file.name}")
+
+                        dict_file.seek(0)
+                        df = DataLoader.load_excel(dict_file.read())
+                        rules = {}
+                        for _, row in df.iterrows():
+                            if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                                field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                                if field_name:
+                                    rule = {}
+                                    if 'Type' in row or 'type' in row:
+                                        rule['type'] = str(row.get('Type') or row.get('type'))
+                                    if 'Min' in row or 'min' in row:
+                                        rule['min'] = row.get('Min') or row.get('min')
+                                    if 'Max' in row or 'max' in row:
+                                        rule['max'] = row.get('Max') or row.get('max')
+                                    if 'Required' in row or 'required' in row:
+                                        rule['required'] = row.get('Required') or row.get('required')
+                                    if 'Allowed_Values' in row or 'allowed_values' in row:
+                                        allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                                        if allowed and not pd.isna(allowed):
+                                            rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                                    rules[field_name] = rule
+                        st.session_state.dictionary = {
+                            "source": "Excel",
+                            "filename": dict_file.name,
+                            "rules": rules
+                        }
+                        st.success(f"✅ Parsed {len(rules)} field definitions from Excel")
+                    else:
+                        st.error(f"⚠️ Unsupported dictionary format: **{dict_file.name}**")
+                        st.info(f"Debug: use_llm={use_llm}, LLM_AVAILABLE={LLM_AVAILABLE}, file ends with .csv={dict_file.name.endswith('.csv')}")
+                        print(f"\n⚠️ UNSUPPORTED FORMAT: {dict_file.name}")
+                        print(f"   use_llm: {use_llm}")
+                        print(f"   LLM_AVAILABLE: {LLM_AVAILABLE}")
+                        print(f"   File extension checks: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}, .json={dict_file.name.endswith('.json')}")
                 except Exception as e:
-                    st.error(f"❌ Error clearing cache: {e}")
-        else:
-            st.caption("No cached dictionaries")
+                    st.error(f"Error loading dictionary: {str(e)}")
+
+            # View All Fields button - accessible location near dictionary upload
+            if st.session_state.dictionary and st.session_state.dictionary.get('fields'):
+                fields_list = st.session_state.dictionary['fields']
+                num_fields = len(fields_list)
+
+                if num_fields > 0:
+                    st.markdown("---")
+                    with st.expander(f"📋 View All {num_fields} Extracted Fields", expanded=False):
+                        for field in fields_list:
+                            field_info = f"**{field['field_name']}** ({field.get('data_type', 'unknown')})"
+                            if field.get('required'):
+                                field_info += " *[Required]*"
+                            if field.get('description'):
+                                # Truncate very long descriptions
+                                desc = field['description'][:150] + "..." if len(field['description']) > 150 else field['description']
+                                field_info += f"\n   📝 {desc}"
+                            if field.get('min_value') is not None or field.get('max_value') is not None:
+                                field_info += f"\n   📊 Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
+                            if field.get('allowed_values'):
+                                vals = field['allowed_values'][:8]  # Show first 8
+                                vals_str = ', '.join(vals)
+                                if len(field['allowed_values']) > 8:
+                                    vals_str += f" ... +{len(field['allowed_values']) - 8} more"
+                                field_info += f"\n   ✓ Allowed: {vals_str}"
+                            st.markdown(field_info)
+
+            # Demo dictionary selector below file uploader
+            demo_dict = st.selectbox(
+                "Or load demo dictionary:",
+                ["None"] + list(DEMO_DICTIONARIES.keys()),
+                key="demo_dict_selector"
+            )
+
+            demo_dictionary_built = None
+            if demo_dict != "None":
+                # Get demo dictionary CSV string and parse it
+                demo_csv_string = get_demo_dictionary(demo_dict)
+
+                # Parse CSV string into rules dictionary (same logic as CSV upload)
+                import io
+                df = pd.read_csv(io.StringIO(demo_csv_string))
+                rules = {}
+                for _, row in df.iterrows():
+                    if 'Column' in row or 'column' in row or 'Field' in row or 'field' in row:
+                        field_name = row.get('Column') or row.get('column') or row.get('Field') or row.get('field')
+                        if field_name:
+                            rule = {}
+                            if 'Type' in row or 'type' in row:
+                                rule['type'] = str(row.get('Type') or row.get('type'))
+                            if 'Min' in row or 'min' in row:
+                                rule['min'] = row.get('Min') or row.get('min')
+                            if 'Max' in row or 'max' in row:
+                                rule['max'] = row.get('Max') or row.get('max')
+                            if 'Required' in row or 'required' in row:
+                                rule['required'] = row.get('Required') or row.get('required')
+                            if 'Allowed_Values' in row or 'allowed_values' in row:
+                                allowed = row.get('Allowed_Values') or row.get('allowed_values')
+                                if allowed and not pd.isna(allowed):
+                                    rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
+                            rules[field_name] = rule
+
+                demo_dictionary_built = {
+                    "source": "Demo Dictionary",
+                    "filename": demo_dict,
+                    "rules": rules
+                }
+                st.success(f"✅ Loaded {demo_dict} ({len(rules)} field definitions)")
+
+            # Centralized decision for what st.session_state.dictionary should be
+            # this render pass (fixes stale-dictionary bug: resetting the demo
+            # selector to "None" used to leave a previously-loaded demo
+            # dictionary's rules active forever, since there was no `else` to
+            # clear them). See resolve_effective_dictionary() docstring for the
+            # full precedence rules (upload > demo selection > None).
+            st.session_state.dictionary = resolve_effective_dictionary(
+                demo_dict_selection=demo_dict,
+                demo_dictionary_built=demo_dictionary_built,
+                dict_file_uploaded=dict_file is not None,
+                previous_session_dictionary=st.session_state.dictionary,
+            )
+
+            # Add cache management
+            st.markdown("---")
+            st.markdown("#### Cache Management")
+
+            # Include legacy .pkl files so old pickle-based caches get cleaned up too
+            cache_files = list(st.session_state.cache_dir.glob("*.json")) + list(st.session_state.cache_dir.glob("*.pkl"))
+            num_cached = len(cache_files)
+
+            if num_cached > 0:
+                st.caption(f"📦 {num_cached} dictionaries cached")
+
+                if st.button("🗑️ Clear All Cache", help="Delete all cached dictionaries to force re-parsing"):
+                    try:
+                        for cache_file in cache_files:
+                            cache_file.unlink()
+                        st.session_state.dict_cache = {}
+                        st.session_state.dictionary = None
+                        st.success(f"✅ Cleared {num_cached} cached dictionaries")
+                        print(f"\n🗑️ CLEARED {num_cached} CACHE FILES\n")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error clearing cache: {e}")
+            else:
+                st.caption("No cached dictionaries")
 
     with col3:
         # Export dropdown - moved from bottom
         if st.session_state.analysis_results:
-            st.markdown("### 📥 Export")
+            st.markdown('<div class="app-section-title">Export</div>', unsafe_allow_html=True)
             export_format = st.selectbox(
                 "Choose format:",
                 ["Select format to export", "Excel with highlighting", "JSON report"],
@@ -1678,16 +1752,15 @@ with tab1:
                     type="secondary"
                 )
 
-    # Prominent Run Analysis button - full width between uploads and results
-    st.markdown("---")
-    st.markdown("## 🚀 Run Analysis")
+    # Run Analysis - full width between uploads and results
+    st.markdown("<div style='margin: 1.75rem 0 1rem 0; border-top: 1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
 
     # Create centered column for button
     col_left, col_center, col_right = st.columns([1, 2, 1])
     with col_center:
         # Enable button only when data is loaded
         if st.button(
-            "🚀 Analyze Data Quality",
+            "Analyze Data Quality",
             disabled=(st.session_state.data is None),
             use_container_width=True,
             type="primary",
@@ -1731,13 +1804,13 @@ with tab1:
                         import traceback
                         st.code(traceback.format_exc())
 
-    st.markdown("---")
+    st.markdown("<div style='margin: 1.75rem 0 1rem 0; border-top: 1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
 
     # Display results if available
     if st.session_state.analysis_results:
 
         # Summary metrics
-        st.subheader("📊 Analysis Summary")
+        st.subheader("Analysis Summary")
         summary = st.session_state.analysis_results['summary']
 
         # Create columns with space for heatmap
@@ -1760,7 +1833,7 @@ with tab1:
 
         # Issues details
         if st.session_state.analysis_results['issues']:
-            st.subheader("🔍 Issues Found")
+            st.subheader("Issues Found")
 
             # Group issues by type
             issues_by_type = {}
@@ -1785,7 +1858,7 @@ with tab1:
 
         # Recommendations
         if st.session_state.analysis_results['recommendations']:
-            st.subheader("💡 Recommendations")
+            st.subheader("Recommendations")
             for rec in st.session_state.analysis_results['recommendations']:
                 if rec['priority'] == 'critical':
                     st.error(f"🔴 **{rec['priority'].upper()}**: {rec['message']}")
@@ -1794,15 +1867,15 @@ with tab1:
                 else:
                     st.info(f"🔵 **{rec['priority'].upper()}**: {rec['message']}")
 
-with tab2:
+elif nav_choice == "About":
     st.title("About Data Quality Analyzer")
 
     st.markdown("""
-    ### 🎯 Purpose
-    The Data Quality Analyzer is a powerful tool designed to help you identify and resolve data quality issues
+    ### Purpose
+    The Data Quality Analyzer is a tool designed to help you identify and resolve data quality issues
     in your datasets. It performs comprehensive checks to ensure your data meets quality standards.
 
-    ### ✨ Features
+    ### Features
     - **Multiple Format Support**: CSV, JSON, Excel (XLSX/XLS), and TXT files
     - **Automatic Issue Detection**: Missing values, invalid entries, range violations
     - **Custom Validation Rules**: Define your own business rules via data dictionaries (JSON or PDF)
@@ -1811,7 +1884,7 @@ with tab2:
     - **Demo Data**: Built-in datasets for testing various validation scenarios
     - **Dictionary Caching**: Fast PDF dictionary parsing with automatic caching
 
-    ### 🔍 What We Check
+    ### What We Check
     1. **Missing Values**: Identifies null or empty cells
     2. **Invalid Values**: Detects entries like "invalid", "error", "n/a"
     3. **Data Type Validation**: Ensures values match expected types
@@ -1819,14 +1892,14 @@ with tab2:
     5. **Suspicious Values**: Flags test data or anomalous entries
     6. **Completeness**: Overall data completeness percentage
 
-    ### 📚 How to Use
+    ### How to Use
     1. **Upload your data** using the file uploader or select demo data
     2. **Optionally add a dictionary** (JSON or PDF) to define custom validation rules
     3. **Click Analyze** to run the quality checks
     4. **Review the results** including issues, recommendations, and visual heatmap
     5. **Export findings** to Excel (with highlighting) or JSON for further analysis
 
-    ### 🛠 Technical Details
+    ### Technical Details
     Built with Streamlit and powered by the Model Context Protocol (MCP) for
     advanced data analysis capabilities. Features include:
     - Interactive Plotly visualizations
@@ -1834,7 +1907,7 @@ with tab2:
     - Excel generation with cell highlighting and comments
     - Efficient dictionary caching system
 
-    ### 🔄 Data Flow Architecture
+    ### Data Flow Architecture
     """)
 
     # Load and render the Mermaid diagrams with selector
@@ -1845,20 +1918,20 @@ with tab2:
         with open('assets/data_flow_diagram.mmd', 'r') as f:
             detailed_diagram = f.read()
 
-        st.info("📊 Interactive flowcharts showing the data analysis pipeline:")
+        st.info("Interactive flowcharts showing the data analysis pipeline:")
 
         # Add diagram selector within the content area
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             diagram_view = st.radio(
                 "Select diagram complexity:",
-                ["🎯 Simple View", "🔬 Detailed View"],
+                ["Simple View", "Detailed View"],
                 horizontal=True,
                 label_visibility="visible"
             )
 
         # Render the selected diagram
-        if diagram_view == "🎯 Simple View":
+        if diagram_view == "Simple View":
             render_mermaid(simple_diagram, height=400)
         else:
             render_mermaid(detailed_diagram, height=700)
@@ -1868,24 +1941,25 @@ with tab2:
     except Exception as e:
         st.error(f"Error rendering diagram: {str(e)}")
 
-    with st.expander("🔌 Programmatic access (API)", expanded=False):
+    with st.expander("Programmatic access (API)", expanded=False):
         st.markdown(
             "For pipelines and scripts, the REST API is the intended interface "
             "instead of this UI - it requires **(1)** the Duke VPN and **(2)** an "
-            "API key sent via the `X-API-Key` header (request one from the app "
-            "owner); requests are rate-limited."
+            "API key sent via the `X-API-Key` header. Request the API key from "
+            "the app owner, then `export DATA_ANALYZER_API_KEY=...` - the "
+            "examples below work unchanged. Requests are rate-limited."
         )
+        st.markdown("Key-less access via your Duke (Entra ID) sign-in is planned.")
 
-        # Fill the example with the RUNTIME base URL / key when available, so
-        # this is copy-paste-ready rather than a templated placeholder.
-        # Deliberate decision by the app owner: everyone who can reach this
-        # page is already on the Duke VPN and trusted, so showing the working
-        # key here is intentional (see caption below the examples).
+        # Fill the example with the RUNTIME base URL when available, so this is
+        # copy-paste-ready rather than a templated placeholder. The URL is not
+        # secret (VPN + API key are the actual access controls), but the key
+        # value itself is never read into a displayed string below - only a
+        # literal `$DATA_ANALYZER_API_KEY` / `os.environ[...]` placeholder is
+        # shown, so nothing here can leak the real key.
         _runtime_api_url = os.getenv("DATA_ANALYZER_API_URL", "")
-        _runtime_api_key = os.getenv("DATA_ANALYZER_API_KEY", "")
 
         _placeholder_url = "https://<data-analyzer-api-fqdn>"
-        _placeholder_key = "<your-api-key>"
 
         _example_url = _runtime_api_url or _placeholder_url
         _docker_hint_comment = ""
@@ -1899,19 +1973,16 @@ with tab2:
             _example_url = "http://localhost:8000"
             _docker_hint_comment = "\n# running via docker-compose.fullstack.yml - use localhost:8000 from your machine"
 
-        _example_key = _runtime_api_key or _placeholder_key
-        _key_is_real = bool(_runtime_api_key)
-
         st.markdown("**Python example**")
         st.code(
             f'''import os
 import requests
 
-# Base URL and API key are read from the environment - never hardcode them.
-# In production the API is only reachable over the Duke VPN (internal/VPN-only
-# Azure FQDN); DATA_ANALYZER_API_URL below is a placeholder for local/dev use.{_docker_hint_comment}
+# Base URL is a placeholder for local/dev use below; in production the API is
+# only reachable over the Duke VPN (internal/VPN-only Azure FQDN). The API key
+# is never hardcoded - it must be set in your shell environment.{_docker_hint_comment}
 API_URL = os.environ.get("DATA_ANALYZER_API_URL", "{_example_url}")
-API_KEY = os.environ.get("DATA_ANALYZER_API_KEY", "{_example_key}")
+API_KEY = os.environ["DATA_ANALYZER_API_KEY"]  # request this from the app owner
 
 headers = {{"X-API-Key": API_KEY}}
 
@@ -1943,21 +2014,20 @@ print(result["summary"])
         )
 
         st.markdown("**curl equivalent**")
+        st.markdown(
+            "Set `DATA_ANALYZER_API_KEY` in your shell first, then create a "
+            "small sample file and call the API - both commands are complete, "
+            "single-line commands (no `\\` line continuations, which is what "
+            "broke the earlier version of this example)."
+        )
         st.code(
-            f'curl -sS -X POST "{_example_url}/api/v1/analyze" \\\n'
-            f'  -H "X-API-Key: {_example_key}" \\\n'
-            '  -F "data_file=@my_data.csv;type=text/csv" \\\n'
-            '  -F \'schema={"age": "int"}\' \\\n'
-            '  -F \'rules={"age": {"min": 0, "max": 120}}\' \\\n'
-            '  -F "min_rows=1"',
+            'printf "age,name\\n30,Jane\\n" > demo.csv',
             language="bash",
         )
-
-        if _key_is_real:
-            st.caption(
-                "🔑 This key is shared for all VPN users of this tool; heavy use is "
-                "rate-limited. It may be rotated at any time."
-            )
+        st.code(
+            f'curl -sS -X POST "{_example_url}/api/v1/analyze" -H "X-API-Key: $DATA_ANALYZER_API_KEY" -F "data_file=@demo.csv;type=text/csv"',
+            language="bash",
+        )
 
         st.markdown("**Test the API**")
         st.markdown(

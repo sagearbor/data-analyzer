@@ -13,3 +13,16 @@ enableWebsocketCompression = false
 
 # Base URL path will be set via --server.baseUrlPath CLI arg
 # This is configured dynamically in entrypoint.sh based on BASE_URL_PATH env var
+
+[theme]
+# Restrained, single-accent design system (matches the custom CSS in
+# web_app.py's fixed navbar/card styling). Navy anchor + one blue accent -
+# no competing hues. Light base; web_app.py's own dark-mode CSS override
+# (st.session_state.dark_mode) handles the dark variant at the app level
+# since Streamlit's native theme is static per session/config.
+base = "light"
+primaryColor = "#2563eb"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8fafc"
+textColor = "#1e293b"
+font = "sans serif"
