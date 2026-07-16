@@ -523,6 +523,10 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handle HTTP exceptions with standardized error format"""
+    # Preserve any headers set on the raised HTTPException (e.g. the
+    # WWW-Authenticate: ApiKey header verify_api_key attaches to 401
+    # responses). JSONResponse defaults to no headers, so without this the
+    # standardized-error-format wrapper silently drops them.
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
@@ -531,6 +535,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             timestamp=datetime.now().isoformat(),
             request_id=request.headers.get("X-Request-ID"),
         ).dict(),
+        headers=exc.headers,
     )
 
 @app.exception_handler(Exception)

@@ -81,6 +81,72 @@ def log_to_browser_console(message: str, data: dict = None):
     """
     components.html(html, height=0, width=0)
 
+
+def resolve_effective_dictionary(
+    demo_dict_selection: str,
+    demo_dictionary_built: Optional[dict],
+    dict_file_uploaded: bool,
+    previous_session_dictionary: Optional[dict],
+) -> Optional[dict]:
+    """Decide what `st.session_state.dictionary` should be for this render pass.
+
+    Pure function (no Streamlit calls, no CSV parsing) so it can be unit
+    tested without a running Streamlit runtime. Centralizes the "which
+    dictionary wins" decision that used to be implicit in the demo-dictionary
+    selectbox's `if demo_dict != "None":` branch having no `else`. That
+    missing `else` was the root cause of the reported bug: selecting a demo
+    dictionary, analyzing, then resetting the selector back to "None" left
+    the previously-loaded demo dictionary's rules sitting in
+    `st.session_state.dictionary` forever, silently driving subsequent
+    "Analyze Data Quality" runs.
+
+    Precedence, evaluated in order:
+    1. If a dictionary file is currently present in the file uploader
+       (`dict_file_uploaded`), the uploaded dictionary wins and is preserved
+       as-is (`previous_session_dictionary`) - the upload-handling code
+       earlier in the same render pass is the one that actually parses the
+       file and assigns `st.session_state.dictionary`, so by the time this
+       function runs, `previous_session_dictionary` already reflects that
+       upload. This prevents a leftover "None" demo-selector value (e.g.
+       from before a file was uploaded) from clobbering an active upload.
+    2. Else, if a demo dictionary is selected (`demo_dict_selection` is not
+       "None"/falsy), use the freshly-built dict for that selection
+       (`demo_dictionary_built`). Because this is the dict the caller just
+       built fresh from the CURRENTLY selected demo entry (not whatever was
+       previously in session state), switching from one demo dictionary to
+       another fully replaces the old one - there is no merge/append with
+       the prior selection's rules.
+    3. Else (no upload, demo selector is "None"): return `None`, clearing
+       any stale dictionary left over from a prior demo selection or a
+       dictionary file that has since been removed from the uploader.
+
+    Args:
+        demo_dict_selection: current value of the "Or load demo dictionary:"
+            selectbox, e.g. "None" or a key from DEMO_DICTIONARIES.
+        demo_dictionary_built: the `{"source", "filename", "rules"}` dict
+            freshly parsed this render pass for `demo_dict_selection`, or
+            None if `demo_dict_selection == "None"`.
+        dict_file_uploaded: True if a dictionary file is currently present
+            in the dictionary file uploader widget this render pass (i.e.
+            `dict_file is not None`).
+        previous_session_dictionary: `st.session_state.dictionary` as it was
+            before this render pass's decision. Only consulted when
+            `dict_file_uploaded` is True, to preserve what the upload
+            handling code already assigned.
+
+    Returns:
+        The dict that `st.session_state.dictionary` should be set to, or
+        None if no dictionary should be active.
+    """
+    if dict_file_uploaded:
+        return previous_session_dictionary
+
+    if demo_dict_selection and demo_dict_selection != "None":
+        return demo_dictionary_built
+
+    return None
+
+
 # Configure Streamlit page
 st.set_page_config(
     page_title="Data Quality Analyzer",
@@ -714,53 +780,106 @@ def load_demo_data(dataset_name: str):
     }
     return demo_data.get(dataset_name, demo_data['western'])
 
+# Severity vocabulary used across the codebase (verified against api_server.py's
+# _build_quality_report and src/logic_engine.py's LogicValidator/ConditionalRule):
+# only "error" and "warning" are ever emitted. logic_violation issues (merged in
+# by DataQualityAnalyzer.analyze_data_quality from `violation.severity`) also draw
+# from that same two-value vocabulary - src/logic_engine.py never emits "critical"
+# or any other string. We still map defensively: anything that isn't literally
+# "warning" is treated as the red/error tier, so an unexpected future severity
+# string degrades to "shown as an error" rather than silently vanishing.
+_HEATMAP_WARNING_SEVERITIES = {'warning'}
+
+
+def _build_issue_matrix(df: pd.DataFrame, issues: list, max_display_rows: int = 60, max_display_cols: int = 100):
+    """Pure helper: turn a DataFrame + issues list into heatmap inputs.
+
+    Separated from create_issue_heatmap() so the row/column mapping and
+    severity classification logic can be unit tested without a Streamlit
+    runtime (create_issue_heatmap has no return value since it renders
+    directly via st.plotly_chart/st.caption).
+
+    Returns a dict with:
+        issue_matrix: np.ndarray (display_rows x display_cols) of 0/1/2
+        hover_text: list of lists of hover strings, same shape
+        display_rows, display_cols, row_factor, col_factor: layout ints
+        unmapped_column_warnings: dict[column_name -> count] of column-level
+            issues (e.g. missing_values) that have no 'row' key and so
+            cannot be placed on the per-cell grid
+    """
+    rows, cols = len(df), len(df.columns)
+
+    row_factor = max(1, rows // max_display_rows)
+    col_factor = max(1, cols // max_display_cols)
+
+    display_rows = min(rows, max_display_rows)
+    display_cols = min(cols, max_display_cols)
+
+    issue_matrix = np.zeros((display_rows, display_cols))
+    hover_text = [['' for _ in range(display_cols)] for _ in range(display_rows)]
+    unmapped_column_warnings: Dict[str, int] = {}
+
+    for issue in issues:
+        if 'row' in issue and 'column' in issue:
+            try:
+                col_idx = df.columns.get_loc(issue['column'])
+                row_idx = issue['row']
+
+                # Map to display coordinates
+                display_row = min(row_idx // row_factor, display_rows - 1)
+                display_col = min(col_idx // col_factor, display_cols - 1)
+
+                # Set severity (2 for error/other, 1 for warning). Only the
+                # "warning" string maps to the yellow tier; everything else
+                # (currently just "error") maps to the red tier.
+                severity_value = 1 if issue.get('severity') in _HEATMAP_WARNING_SEVERITIES else 2
+                issue_matrix[display_row, display_col] = max(issue_matrix[display_row, display_col], severity_value)
+
+                # Build hover text
+                issue_info = f"<b>{issue['type'].replace('_', ' ').title()}</b><br>"
+                issue_info += f"Row: {row_idx}<br>"
+                issue_info += f"Column: {issue['column']}<br>"
+                issue_info += f"Value: {issue.get('value', 'N/A')}<br>"
+                issue_info += f"Severity: {issue.get('severity', 'unknown')}"
+
+                if hover_text[display_row][display_col]:
+                    hover_text[display_row][display_col] += "<br><br>" + issue_info
+                else:
+                    hover_text[display_row][display_col] = issue_info
+            except Exception:
+                pass
+        else:
+            # Column-level aggregate issue (e.g. missing_values warnings built
+            # in api_server.py's _build_quality_report) - no row coordinate
+            # exists to plot a cell, so track it separately for the caption.
+            col_name = issue.get('column')
+            if col_name is not None:
+                unmapped_column_warnings[col_name] = unmapped_column_warnings.get(col_name, 0) + 1
+
+    return {
+        'issue_matrix': issue_matrix,
+        'hover_text': hover_text,
+        'display_rows': display_rows,
+        'display_cols': display_cols,
+        'row_factor': row_factor,
+        'col_factor': col_factor,
+        'unmapped_column_warnings': unmapped_column_warnings,
+    }
+
+
 def create_issue_heatmap(df: pd.DataFrame, issues: list):
     """Create an interactive heatmap with hover tooltips using Plotly"""
     try:
         rows, cols = len(df), len(df.columns)
-
-        # Condense large datasets
         max_display_rows = 60
         max_display_cols = 100  # Increased for wide datasets
 
-        row_factor = max(1, rows // max_display_rows)
-        col_factor = max(1, cols // max_display_cols)
-
-        display_rows = min(rows, max_display_rows)
-        display_cols = min(cols, max_display_cols)
-
-        # Initialize matrix and hover text
-        issue_matrix = np.zeros((display_rows, display_cols))
-        hover_text = [['' for _ in range(display_cols)] for _ in range(display_rows)]
-
-        # Map issues to matrix
-        for issue in issues:
-            if 'row' in issue and 'column' in issue:
-                try:
-                    col_idx = df.columns.get_loc(issue['column'])
-                    row_idx = issue['row']
-
-                    # Map to display coordinates
-                    display_row = min(row_idx // row_factor, display_rows - 1)
-                    display_col = min(col_idx // col_factor, display_cols - 1)
-
-                    # Set severity (2 for error, 1 for warning)
-                    severity_value = 2 if issue['severity'] == 'error' else 1
-                    issue_matrix[display_row, display_col] = max(issue_matrix[display_row, display_col], severity_value)
-
-                    # Build hover text
-                    issue_info = f"<b>{issue['type'].replace('_', ' ').title()}</b><br>"
-                    issue_info += f"Row: {row_idx}<br>"
-                    issue_info += f"Column: {issue['column']}<br>"
-                    issue_info += f"Value: {issue.get('value', 'N/A')}<br>"
-                    issue_info += f"Severity: {issue['severity']}"
-
-                    if hover_text[display_row][display_col]:
-                        hover_text[display_row][display_col] += "<br><br>" + issue_info
-                    else:
-                        hover_text[display_row][display_col] = issue_info
-                except:
-                    pass
+        built = _build_issue_matrix(df, issues, max_display_rows, max_display_cols)
+        issue_matrix = built['issue_matrix']
+        hover_text = built['hover_text']
+        row_factor = built['row_factor']
+        col_factor = built['col_factor']
+        unmapped_column_warnings = built['unmapped_column_warnings']
 
         # Calculate aspect ratio for proper dimensions
         aspect_ratio = cols / rows
@@ -773,9 +892,15 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
             fig_height = 300
             fig_width = max(50, 300 * aspect_ratio)
 
-        # Create interactive Plotly heatmap
+        # Create interactive Plotly heatmap. zmin/zmax are pinned explicitly so
+        # the colorscale mapping (white/yellow/red at z=0/1/2) stays stable
+        # regardless of which severities are actually present - without this,
+        # a dataset with only warning cells (max z=1) would have Plotly
+        # normalize 1 -> the top of the scale (red) instead of the middle.
         fig = go.Figure(data=go.Heatmap(
             z=issue_matrix,
+            zmin=0,
+            zmax=2,
             text=hover_text,
             hovertemplate='%{text}<extra></extra>',
             colorscale=[
@@ -788,29 +913,53 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
             ygap=1
         ))
 
-        # Update layout
+        # Update layout. All color-related properties are set explicitly
+        # (template + paper/plot bgcolor + font/axis colors) so the figure
+        # renders identically regardless of Streamlit's active theme or the
+        # app's custom dark-mode CSS overrides - without an explicit
+        # template, dark-mode CSS was overriding the plot to solid orange
+        # with no visible cell boundaries.
         fig.update_layout(
+            template='plotly_white',
             title={
                 'text': f'{rows} rows × {cols} cols' + (f' (scale {row_factor}:{col_factor})' if rows > max_display_rows or cols > max_display_cols else ''),
-                'font': {'size': 10}
+                'font': {'size': 10, 'color': '#111111'}
             },
             width=fig_width,
             height=fig_height,
             margin=dict(l=20, r=20, t=30, b=20),
-            xaxis={'showticklabels': False, 'showgrid': False},
-            yaxis={'showticklabels': False, 'showgrid': False},
+            xaxis={'showticklabels': False, 'showgrid': False, 'color': '#111111'},
+            yaxis={'showticklabels': False, 'showgrid': False, 'color': '#111111'},
             paper_bgcolor='white',
-            plot_bgcolor='white'
+            plot_bgcolor='white',
+            font_color='#111111'
         )
 
         # Display with Streamlit
         st.plotly_chart(fig, use_container_width=False)
 
-        # Show summary
+        # Show summary. Cell-level counts come from the plotted matrix;
+        # column-level (unmappable) warnings - e.g. missing_values issues,
+        # which are column aggregates with no row coordinate - are called
+        # out separately so the caption never claims "0 warnings" when
+        # warnings exist but simply couldn't be drawn as cells.
         error_count = np.sum(issue_matrix == 2)
         warning_count = np.sum(issue_matrix == 1)
+        unmapped_count = sum(unmapped_column_warnings.values())
+
+        caption_parts = []
         if error_count > 0 or warning_count > 0:
-            st.caption(f"🔴 {int(error_count)} cells with errors, 🟡 {int(warning_count)} cells with warnings")
+            caption_parts.append(f"🔴 {int(error_count)} cells with errors, 🟡 {int(warning_count)} cells with warnings")
+        if unmapped_count > 0:
+            cols_str = ', '.join(list(unmapped_column_warnings.keys())[:5])
+            if len(unmapped_column_warnings) > 5:
+                cols_str += f", +{len(unmapped_column_warnings) - 5} more"
+            caption_parts.append(
+                f"⚠️ {unmapped_count} additional column-level warning(s) not shown as cells "
+                f"(e.g. missing-value summaries for: {cols_str}) — see Issues Found below"
+            )
+        if caption_parts:
+            st.caption(" · ".join(caption_parts))
 
     except Exception as e:
         st.caption(f"Issue map unavailable: {str(e)}")
@@ -1420,6 +1569,7 @@ with tab1:
             key="demo_dict_selector"
         )
 
+        demo_dictionary_built = None
         if demo_dict != "None":
             # Get demo dictionary CSV string and parse it
             demo_csv_string = get_demo_dictionary(demo_dict)
@@ -1447,12 +1597,25 @@ with tab1:
                                 rule['allowed_values'] = [v.strip() for v in str(allowed).split(',')]
                         rules[field_name] = rule
 
-            st.session_state.dictionary = {
+            demo_dictionary_built = {
                 "source": "Demo Dictionary",
                 "filename": demo_dict,
                 "rules": rules
             }
             st.success(f"✅ Loaded {demo_dict} ({len(rules)} field definitions)")
+
+        # Centralized decision for what st.session_state.dictionary should be
+        # this render pass (fixes stale-dictionary bug: resetting the demo
+        # selector to "None" used to leave a previously-loaded demo
+        # dictionary's rules active forever, since there was no `else` to
+        # clear them). See resolve_effective_dictionary() docstring for the
+        # full precedence rules (upload > demo selection > None).
+        st.session_state.dictionary = resolve_effective_dictionary(
+            demo_dict_selection=demo_dict,
+            demo_dictionary_built=demo_dictionary_built,
+            dict_file_uploaded=dict_file is not None,
+            previous_session_dictionary=st.session_state.dictionary,
+        )
 
         # Add cache management
         st.markdown("---")
