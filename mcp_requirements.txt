@@ -1,5 +1,10 @@
 # MCP Server Requirements
-mcp>=0.4.0
+# Pin below 2.0.0: mcp_server.py uses the low-level Server API
+# (`from mcp.server import Server`, `@app.list_tools()`, `@app.call_tool()`),
+# which mcp 2.0.0 removed/restructured. Unpinning (was `mcp>=0.4.0`) let a fresh
+# build resolve to 2.0.0, crashing the API on import (AttributeError:
+# 'Server' object has no attribute 'list_tools'). 1.x (currently 1.29.0) works.
+mcp>=1.0.0,<2.0.0
 pandas>=2.0.0
 numpy>=1.24.0
 python-multipart>=0.0.6
