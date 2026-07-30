@@ -416,6 +416,28 @@ class TestSecurityNoCodeExecution:
         assert "exec(" not in src
         assert "eval(" not in src
 
+    def test_malformed_field_does_not_abort_other_fields(self):
+        # A non-string (or otherwise malformed) branching_logic on one field must
+        # NOT abort rule extraction for the other, legitimate fields — otherwise
+        # one bad dictionary entry silently disables all logic validation.
+        fields = [
+            {"field_name": "legit_a", "branching_logic": "[gender]='2'"},
+            {"field_name": "evil", "branching_logic": 123},          # non-string
+            {"field_name": "legit_b", "branching_logic": "[age]>=18"},
+            {"field_name": "also_bad", "branching_logic": ["not", "a", "string"]},
+        ]
+        rules = RuleExtractor().extract_rules_from_fields(fields, format_type="REDCap")
+        rule_ids = [r.rule_id for r in rules]
+        assert any("legit_a" in rid for rid in rule_ids)
+        assert any("legit_b" in rid for rid in rule_ids)
+
+    def test_non_dict_field_is_skipped(self):
+        rules = RuleExtractor().extract_rules_from_fields(
+            ["not a dict", None, {"field_name": "ok", "branching_logic": "[g]='1'"}],
+            format_type="REDCap",
+        )
+        assert any("ok" in r.rule_id for r in rules)
+
     def test_malicious_condition_via_from_dict_is_inert(self):
         rule = ConditionalRule.from_dict({
             "rule_id": "x", "rule_type": "skip_if",

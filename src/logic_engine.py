@@ -696,23 +696,32 @@ class RuleExtractor:
         rules: List[ConditionalRule] = []
 
         for field_def in fields:
+            if not isinstance(field_def, dict):
+                continue
             field_name = field_def.get('field_name', '')
             if not field_name:
                 continue
 
-            # PRIORITY 1: LLM-extracted conditional_rules (any format)
-            llm_rules = self._extract_llm_rules(field_def)
-            if llm_rules:
-                rules.extend(llm_rules)
-                logger.debug(f"Field '{field_name}': Using {len(llm_rules)} LLM-extracted rule(s)")
+            # Isolate per-field failures: a single malformed field (e.g. a
+            # non-string branching_logic) must never abort extraction for the
+            # rest of the dictionary and silently disable logic validation.
+            try:
+                # PRIORITY 1: LLM-extracted conditional_rules (any format)
+                llm_rules = self._extract_llm_rules(field_def)
+                if llm_rules:
+                    rules.extend(llm_rules)
+                    logger.debug(f"Field '{field_name}': Using {len(llm_rules)} LLM-extracted rule(s)")
 
-            # PRIORITY 2: Format-specific parsers as fallback/complement
-            if format_type.lower() == "redcap":
-                rules.extend(self._extract_redcap_rules(field_def))
-            elif format_type.lower() == "fhir":
-                rules.extend(self._extract_fhir_rules(field_def))
-            else:
-                rules.extend(self._extract_custom_rules(field_def))
+                # PRIORITY 2: Format-specific parsers as fallback/complement
+                if format_type.lower() == "redcap":
+                    rules.extend(self._extract_redcap_rules(field_def))
+                elif format_type.lower() == "fhir":
+                    rules.extend(self._extract_fhir_rules(field_def))
+                else:
+                    rules.extend(self._extract_custom_rules(field_def))
+            except Exception as e:
+                logger.warning(f"Failed to extract rules for field '{field_name}': {e}")
+                continue
 
         logger.info(f"Extracted {len(rules)} rules from {len(fields)} fields")
         return rules
@@ -778,7 +787,7 @@ class RuleExtractor:
         the condition does NOT hold. We store ``Not(<parsed condition>)`` with a
         must_be_blank action.
         """
-        if not branching_logic or not branching_logic.strip():
+        if not branching_logic or not isinstance(branching_logic, str) or not branching_logic.strip():
             return None
 
         parsed = parse_redcap_expression(branching_logic.strip())
