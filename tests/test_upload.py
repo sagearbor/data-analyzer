@@ -1,20 +1,59 @@
 """
-Tests for the document/data upload and analysis flow via DataQualityAnalyzer
-(web_app.py), replacing the old test_upload.py.disabled script.
+Tests for DataQualityAnalyzer (web_app.py) - the HTTP client wrapper around
+the centralized data-analyzer REST API (POST /api/v1/analyze).
 
-DataQualityAnalyzer wraps the real QualityPipeline/QualityChecker logic
-(mcp_server.py) without needing a running MCP server or Streamlit runtime;
-web_app.py is importable in "bare mode" (no ScriptRunContext) since its
-module-level Streamlit calls (st.set_page_config, etc.) only log warnings
-outside of `streamlit run`.
+Option A (centralize the runtime): DataQualityAnalyzer no longer runs
+QualityPipeline in-process; it POSTs the DataFrame to the API and maps the
+JSON response back into the exact shape the Streamlit dashboard renders. All
+`requests.post` calls are mocked here so these tests are deterministic,
+offline, and don't require a running API server.
+
+For end-to-end coverage of the actual engine (QualityPipeline/QualityChecker)
+behind the endpoint, see tests/test_api.py's TestAnalyzeEndpoint (uses
+FastAPI TestClient against the real engine, no live server needed either).
 """
 
 import io
+import json
+from unittest.mock import patch, MagicMock
 
 import pandas as pd
 import pytest
 
 from web_app import DataQualityAnalyzer
+
+
+def _mock_response(status_code=200, json_body=None, text=""):
+    """Build a MagicMock standing in for a `requests.Response`."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_body if json_body is not None else {}
+    resp.text = text
+    return resp
+
+
+def _api_report(total_rows=0, total_columns=0, issues=None, recommendations=None,
+                 quality_checks=None, summary_stats=None, data_types=None,
+                 completeness=100.0):
+    """Build a canned POST /api/v1/analyze response body (the exact shape
+    api_server.py's QualityAnalysisResponse returns)."""
+    issues = issues or []
+    summary = {
+        "total_rows": total_rows,
+        "total_columns": total_columns,
+        "issues_found": len(issues),
+        "critical_issues": sum(1 for i in issues if i.get("severity") == "error"),
+        "warnings": sum(1 for i in issues if i.get("severity") == "warning"),
+        "data_types": data_types or {},
+        "completeness": completeness,
+    }
+    return {
+        "summary": summary,
+        "issues": issues,
+        "recommendations": recommendations or [],
+        "quality_checks": quality_checks or {},
+        "summary_stats": summary_stats or {},
+    }
 
 
 @pytest.fixture
@@ -28,108 +67,234 @@ def sample_df(sample_csv_data):
     return pd.read_csv(io.StringIO(sample_csv_data))
 
 
-class TestAnalyzeWithoutDictionary:
-    """analyze_data_quality() with no dictionary should still surface basic issues"""
+# ============================================================================
+# HTTP call construction
+# ============================================================================
+
+
+class TestApiRequestConstruction:
+    """analyze_data_quality() should call the API with the right URL, headers,
+    and multipart payload."""
 
     @pytest.mark.asyncio
-    async def test_returns_expected_top_level_keys(self, analyzer, sample_df):
-        results = await analyzer.analyze_data_quality(sample_df, None)
+    @patch("web_app.requests.post")
+    async def test_posts_to_configured_base_url(self, mock_post, sample_df, monkeypatch):
+        monkeypatch.setenv("DATA_ANALYZER_API_URL", "http://data-analyzer-api.internal:8000")
+        monkeypatch.setenv("DATA_ANALYZER_API_KEY", "secret-key")
+        analyzer = DataQualityAnalyzer()  # re-read env after monkeypatch
 
-        assert set(results.keys()) >= {"summary", "issues", "recommendations", "quality_checks", "summary_stats"}
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
 
-    @pytest.mark.asyncio
-    async def test_summary_row_and_column_counts(self, analyzer, sample_df):
-        results = await analyzer.analyze_data_quality(sample_df, None)
+        await analyzer.analyze_data_quality(sample_df, None)
 
-        summary = results["summary"]
-        assert summary["total_rows"] == len(sample_df)
-        assert summary["total_columns"] == len(sample_df.columns)
-
-    @pytest.mark.asyncio
-    async def test_detects_missing_values(self, analyzer, sample_df):
-        """sample_csv_data has a blank name (row 6) and blank salary (row 7)"""
-        results = await analyzer.analyze_data_quality(sample_df, None)
-
-        missing_issues = [i for i in results["issues"] if i["type"] == "missing_values"]
-        columns_with_missing = {i["column"] for i in missing_issues}
-
-        assert "name" in columns_with_missing
-        assert "salary" in columns_with_missing
-        assert results["summary"]["warnings"] >= len(missing_issues)
+        assert mock_post.called
+        args, kwargs = mock_post.call_args
+        assert args[0] == "http://data-analyzer-api.internal:8000/api/v1/analyze"
+        assert kwargs["headers"] == {"X-API-Key": "secret-key"}
 
     @pytest.mark.asyncio
-    async def test_recommendations_include_data_cleaning_for_missing_values(self, analyzer, sample_df):
-        results = await analyzer.analyze_data_quality(sample_df, None)
+    @patch("web_app.requests.post")
+    async def test_defaults_to_localhost_when_env_unset(self, mock_post, sample_df, monkeypatch):
+        monkeypatch.delenv("DATA_ANALYZER_API_URL", raising=False)
+        monkeypatch.delenv("DATA_ANALYZER_API_KEY", raising=False)
+        analyzer = DataQualityAnalyzer()
 
-        recommendation_types = {r["type"] for r in results["recommendations"]}
-        assert "data_cleaning" in recommendation_types
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
 
+        await analyzer.analyze_data_quality(sample_df, None)
 
-class TestAnalyzeWithDictionary:
-    """analyze_data_quality() with a schema + validation rules dictionary"""
+        args, kwargs = mock_post.call_args
+        assert args[0] == "http://localhost:8000/api/v1/analyze"
+        # No API key configured -> no X-API-Key header sent
+        assert kwargs["headers"] == {}
 
     @pytest.mark.asyncio
-    async def test_schema_and_rules_accepted(self, analyzer, sample_df, mock_schema, mock_rules):
+    @patch("web_app.requests.post")
+    async def test_sends_dataframe_as_csv_upload(self, mock_post, analyzer, sample_df):
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None)
+
+        _, kwargs = mock_post.call_args
+        filename, content, content_type = kwargs["files"]["data_file"]
+        assert filename == "data.csv"
+        assert content_type == "text/csv"
+        # Round-trips back to an equivalent DataFrame
+        roundtrip = pd.read_csv(io.BytesIO(content))
+        assert list(roundtrip.columns) == list(sample_df.columns)
+        assert len(roundtrip) == len(sample_df)
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_sends_schema_and_rules_as_json_form_fields(self, mock_post, analyzer, mock_schema, mock_rules):
+        df = pd.DataFrame({"age": [30], "salary": [50000.0], "department": ["Engineering"]})
         dictionary = {"schema": mock_schema, "validation_rules": mock_rules}
 
-        results = await analyzer.analyze_data_quality(sample_df, dictionary)
+        mock_post.return_value = _mock_response(200, _api_report(total_rows=1, total_columns=3))
+
+        await analyzer.analyze_data_quality(df, dictionary)
+
+        _, kwargs = mock_post.call_args
+        sent_schema = json.loads(kwargs["data"]["schema"])
+        sent_rules = json.loads(kwargs["data"]["rules"])
+        assert sent_schema == mock_schema
+        assert sent_rules == mock_rules
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_omits_schema_and_rules_when_no_dictionary(self, mock_post, analyzer, sample_df):
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None)
+
+        _, kwargs = mock_post.call_args
+        assert "schema" not in kwargs["data"]
+        assert "rules" not in kwargs["data"]
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_sends_xlsx_upload_with_excel_content_type(self, mock_post, analyzer, sample_df):
+        """When source_format='xlsx' (set after an .xlsx upload in the UI),
+        the DataFrame should be re-encoded as a real Excel workbook and
+        uploaded with the openxmlformats content-type, not CSV - so
+        api_server.py's extension-based dispatch routes it to
+        DataLoader.load_excel instead of pandas.read_csv."""
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None, source_format="xlsx")
+
+        _, kwargs = mock_post.call_args
+        filename, content, content_type = kwargs["files"]["data_file"]
+        assert filename == "data.xlsx"
+        assert content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        # Round-trips back to an equivalent DataFrame via a real Excel parse
+        roundtrip = pd.read_excel(io.BytesIO(content))
+        assert list(roundtrip.columns) == list(sample_df.columns)
+        assert len(roundtrip) == len(sample_df)
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_sends_xls_upload_with_legacy_excel_content_type(self, mock_post, analyzer, sample_df):
+        """source_format='xls' should use the legacy application/vnd.ms-excel
+        content-type (still encoded as an .xlsx workbook under the hood,
+        since openpyxl can only write .xlsx - api_server.py dispatches by
+        filename extension, not by parsing the binary format)."""
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None, source_format="xls")
+
+        _, kwargs = mock_post.call_args
+        filename, content, content_type = kwargs["files"]["data_file"]
+        assert filename == "data.xls"
+        assert content_type == "application/vnd.ms-excel"
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_source_format_none_defaults_to_csv(self, mock_post, analyzer, sample_df):
+        """No source_format (e.g. demo data, CSV/JSON/TSV uploads) should
+        preserve the original CSV upload behavior."""
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        await analyzer.analyze_data_quality(sample_df, None, source_format=None)
+
+        _, kwargs = mock_post.call_args
+        filename, content, content_type = kwargs["files"]["data_file"]
+        assert filename == "data.csv"
+        assert content_type == "text/csv"
+
+
+# ============================================================================
+# Response mapping
+# ============================================================================
+
+
+class TestResponseMapping:
+    """The JSON body from /api/v1/analyze should map 1:1 onto the dict shape
+    the rest of web_app.py (dashboard rendering code) consumes."""
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_returns_expected_top_level_keys(self, mock_post, analyzer, sample_df):
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        results = await analyzer.analyze_data_quality(sample_df, None)
+
+        assert set(results.keys()) == {
+            "summary", "issues", "recommendations", "quality_checks", "summary_stats"
+        }
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_summary_row_and_column_counts_pass_through(self, mock_post, analyzer, sample_df):
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        results = await analyzer.analyze_data_quality(sample_df, None)
 
         assert results["summary"]["total_rows"] == len(sample_df)
-        # data_types should reflect the dtypes pandas actually inferred
-        assert set(results["summary"]["data_types"].keys()) == set(sample_df.columns)
+        assert results["summary"]["total_columns"] == len(sample_df.columns)
 
     @pytest.mark.asyncio
-    async def test_out_of_range_value_flagged(self, analyzer, mock_schema):
-        """A salary far outside mock_rules' [30000, 200000] range should be flagged"""
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-            "age": [30, 31],
-            "department": ["Engineering", "Engineering"],
-            "salary": [50000.0, 999999.0],  # second row violates max
-            "hire_date": ["2022-01-01", "2022-01-02"],
-            "is_active": [True, True],
-        })
-        rules = {"salary": {"min": 30000, "max": 200000}}
-        dictionary = {"schema": mock_schema, "validation_rules": rules}
+    @patch("web_app.requests.post")
+    async def test_issues_pass_through_unchanged(self, mock_post, analyzer, sample_df):
+        api_issues = [
+            {
+                "type": "range_violation", "severity": "error", "column": "salary",
+                "row": 6, "value": 999999, "message": "Value 999999 in column 'salary' violates rule: max <= 200000"
+            },
+            {
+                "type": "missing_values", "severity": "warning", "column": "name",
+                "count": 1, "percentage": 10.0, "message": "Column 'name' has 1 missing values (10.0%)"
+            },
+        ]
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns), issues=api_issues
+        ))
 
-        results = await analyzer.analyze_data_quality(df, dictionary)
+        results = await analyzer.analyze_data_quality(sample_df, None)
 
-        range_issues = [i for i in results["issues"] if i["type"] == "range_violation"]
-        assert any(i["column"] == "salary" for i in range_issues)
-        assert results["summary"]["critical_issues"] >= 1
-
-    @pytest.mark.asyncio
-    async def test_disallowed_categorical_value_flagged(self, analyzer, mock_schema):
-        """A department value outside mock_rules' allowed list should be flagged"""
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-            "age": [30, 31],
-            "department": ["Engineering", "NotARealDept"],
-            "salary": [50000.0, 60000.0],
-            "hire_date": ["2022-01-01", "2022-01-02"],
-            "is_active": [True, True],
-        })
-        rules = {"department": {"allowed": ["Engineering", "Marketing", "HR", "Sales"]}}
-        dictionary = {"schema": mock_schema, "validation_rules": rules}
-
-        results = await analyzer.analyze_data_quality(df, dictionary)
-
-        categorical_issues = [i for i in results["issues"] if i["type"] == "invalid_categorical_value"]
-        assert any(i["column"] == "department" for i in categorical_issues)
-
-
-class TestAnalyzeCleanData:
-    """A dataset with no missing values or violations should produce no issues"""
+        assert results["issues"] == api_issues
+        assert results["summary"]["issues_found"] == 2
+        assert results["summary"]["critical_issues"] == 1
+        assert results["summary"]["warnings"] == 1
 
     @pytest.mark.asyncio
-    async def test_clean_data_has_no_issues(self, analyzer):
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Carol"],
-            "age": [30, 31, 32],
-        })
+    @patch("web_app.requests.post")
+    async def test_quality_checks_and_summary_stats_pass_through(self, mock_post, analyzer, sample_df):
+        qc = {"row_count": {"check": "row_count", "passed": True}}
+        stats = {"shape": {"rows": len(sample_df), "columns": len(sample_df.columns)}}
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns),
+            quality_checks=qc, summary_stats=stats
+        ))
+
+        results = await analyzer.analyze_data_quality(sample_df, None)
+
+        assert results["quality_checks"] == qc
+        assert results["summary_stats"] == stats
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_clean_data_has_no_issues(self, mock_post, analyzer):
+        df = pd.DataFrame({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"], "age": [30, 31, 32]})
+        mock_post.return_value = _mock_response(200, _api_report(total_rows=3, total_columns=3))
 
         results = await analyzer.analyze_data_quality(df, None)
 
@@ -138,12 +303,91 @@ class TestAnalyzeCleanData:
         assert results["summary"]["completeness"] == 100.0
 
 
-class TestAnalyzeFromFile:
-    """End-to-end: read an uploaded CSV file from disk, then analyze it"""
+# ============================================================================
+# Local conditional-logic validation (not part of the REST engine)
+# ============================================================================
+
+
+class TestLogicValidationMerge:
+    """Conditional logic validation (RuleExtractor/LogicValidator) is not part
+    of /api/v1/analyze - it stays local and its violations get merged into
+    the API's issues/summary after the HTTP call returns."""
 
     @pytest.mark.asyncio
-    async def test_analyze_csv_loaded_from_disk(self, analyzer, create_test_csv):
+    @patch("web_app.requests.post")
+    async def test_logic_violations_count_present_without_fields(self, mock_post, analyzer, sample_df):
+        """No dictionary['fields'] -> logic validation is skipped, count is 0"""
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(sample_df), total_columns=len(sample_df.columns)
+        ))
+
+        results = await analyzer.analyze_data_quality(sample_df, {"rules": {}})
+
+        assert results["summary"]["logic_violations_count"] == 0
+
+
+# ============================================================================
+# Error handling
+# ============================================================================
+
+
+class TestApiErrorHandling:
+    """analyze_data_quality() should raise RuntimeError (not crash) on any
+    API failure, so callers can render it via st.error(...)."""
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_non_200_response_raises_runtime_error(self, mock_post, analyzer, sample_df):
+        mock_post.return_value = _mock_response(
+            400, {"error": "Invalid input", "detail": "Invalid 'schema' JSON: bad"}
+        )
+
+        with pytest.raises(RuntimeError, match="400"):
+            await analyzer.analyze_data_quality(sample_df, None)
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_connection_error_raises_runtime_error(self, mock_post, analyzer, sample_df):
+        import requests as requests_module
+        mock_post.side_effect = requests_module.exceptions.ConnectionError("refused")
+
+        with pytest.raises(RuntimeError, match="Could not connect"):
+            await analyzer.analyze_data_quality(sample_df, None)
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_timeout_raises_runtime_error(self, mock_post, analyzer, sample_df):
+        import requests as requests_module
+        mock_post.side_effect = requests_module.exceptions.Timeout("timed out")
+
+        with pytest.raises(RuntimeError, match="timed out"):
+            await analyzer.analyze_data_quality(sample_df, None)
+
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_non_json_response_raises_runtime_error(self, mock_post, analyzer, sample_df):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.side_effect = ValueError("not json")
+        mock_post.return_value = resp
+
+        with pytest.raises(RuntimeError, match="non-JSON"):
+            await analyzer.analyze_data_quality(sample_df, None)
+
+
+# ============================================================================
+# End-to-end: file loaded from disk, then analyzed via the mocked API
+# ============================================================================
+
+
+class TestAnalyzeFromFile:
+    @pytest.mark.asyncio
+    @patch("web_app.requests.post")
+    async def test_analyze_csv_loaded_from_disk(self, mock_post, analyzer, create_test_csv):
         df = pd.read_csv(create_test_csv)
+        mock_post.return_value = _mock_response(200, _api_report(
+            total_rows=len(df), total_columns=len(df.columns)
+        ))
 
         results = await analyzer.analyze_data_quality(df, None)
 

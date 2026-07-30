@@ -39,7 +39,11 @@ def client(test_env_vars):
 @pytest.fixture
 def client_no_auth():
     """Create a test client with no authentication configured"""
-    with patch.dict(os.environ, {}, clear=True):
+    # Clearing os.environ alone is not enough: api_server calls load_dotenv()
+    # on import, which re-reads the developer's local .env file. Patch it to a
+    # no-op so "not configured" really means not configured.
+    with patch.dict(os.environ, {}, clear=True), \
+         patch("dotenv.load_dotenv", lambda *a, **k: None):
         # Need to reload the module to pick up new environment
         import importlib
         import api_server

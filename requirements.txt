@@ -1,5 +1,9 @@
 # Web Application Requirements
-streamlit>=1.28.0
+# Pinned exact (not >=): the custom navbar CSS in web_app.py targets
+# Streamlit's internal DOM structure, which has changed across minor
+# versions (e.g. .stTabs [data-baseweb="tab-list"] no longer matches the
+# pre-1.30 layout). Bump deliberately and re-verify the navbar when upgrading.
+streamlit==1.59.2
 pandas>=2.0.0
 numpy>=1.24.0
 plotly>=5.15.0
@@ -10,6 +14,7 @@ pyarrow>=14.0.0
 chardet>=5.2.0
 matplotlib>=3.7.0
 pypdf>=4.0.0
+requests>=2.31.0  # HTTP client for calling the data-analyzer REST API (see DataQualityAnalyzer in web_app.py)
 
 # LLM Integration Requirements
 openai>=1.0.0

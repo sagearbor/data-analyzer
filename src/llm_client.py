@@ -31,6 +31,38 @@ MODEL_OUTPUT_LIMITS = {
 }
 
 
+def get_available_deployments() -> List[str]:
+    """
+    Parse the list of Azure OpenAI deployments offered to users (e.g. for a
+    model-selection dropdown in the UI).
+
+    Reads AZURE_OPENAI_DEPLOYMENTS as a comma-separated list. If unset (or
+    empty after stripping), falls back to the single AZURE_OPENAI_DEPLOYMENT
+    value so existing single-deployment setups keep working unchanged.
+
+    Returns:
+        Ordered list of deployment names with duplicates removed and
+        whitespace stripped. Always contains at least one entry.
+    """
+    default_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5-nano")
+    raw = os.getenv("AZURE_OPENAI_DEPLOYMENTS", "")
+
+    names = [d.strip() for d in raw.split(",") if d.strip()]
+
+    if not names:
+        return [default_deployment]
+
+    # De-duplicate while preserving order
+    seen = set()
+    deduped = []
+    for name in names:
+        if name not in seen:
+            seen.add(name)
+            deduped.append(name)
+
+    return deduped
+
+
 @dataclass
 class FieldDefinition:
     """Represents a field/column definition extracted from dictionary"""
@@ -325,23 +357,40 @@ Return JSON object with "fields" array:"""
         logger.warning("No output_text found in Responses API output")
         return ''
 
-    def extract_fields_using_responses_api(self, text_chunk: str, is_continuation: bool = False) -> List[FieldDefinition]:
-        """Extract field definitions using Responses API (GPT-5 models)"""
+    def extract_fields_using_responses_api(
+        self,
+        text_chunk: str,
+        is_continuation: bool = False,
+        deployment: Optional[str] = None,
+    ) -> List[FieldDefinition]:
+        """
+        Extract field definitions using Responses API (GPT-5 models)
+
+        Args:
+            text_chunk: Dictionary text to extract fields from
+            is_continuation: Whether this is a continuation chunk
+            deployment: Optional per-call deployment override. Falls back to
+                self.deployment (the configured default) when not provided,
+                so the client can be constructed once at startup while still
+                allowing callers (e.g. a UI model-selection dropdown) to pick
+                a different deployment per request.
+        """
         try:
             prompt = self.create_extraction_prompt(text_chunk, is_continuation)
+            active_deployment = deployment or self.deployment
 
             # Responses API endpoint (no API version in path, no deployment in path)
             url = f"{self.endpoint.rstrip('/')}/openai/v1/responses"
 
             # Get max output tokens for this model
-            deployment_lower = self.deployment.lower()
+            deployment_lower = active_deployment.lower()
             max_output = MODEL_OUTPUT_LIMITS.get(deployment_lower, 128000)
 
-            print(f"[LLM] Sending to Responses API ({len(text_chunk)} chars, max_output={max_output})...")
+            print(f"[LLM] Sending to Responses API ({len(text_chunk)} chars, model={active_deployment}, max_output={max_output})...")
 
             # Build request for Responses API
             request_body = {
-                "model": self.deployment,
+                "model": active_deployment,
                 "input": prompt,  # String, not messages array!
                 "max_output_tokens": max_output  # Not max_tokens!
             }
@@ -377,21 +426,44 @@ Return JSON object with "fields" array:"""
             logger.error(f"Error calling Responses API: {e}")
             return []
 
-    def extract_fields_from_chunk(self, text_chunk: str, is_continuation: bool = False) -> List[FieldDefinition]:
+    def extract_fields_from_chunk(
+        self,
+        text_chunk: str,
+        is_continuation: bool = False,
+        deployment: Optional[str] = None,
+    ) -> List[FieldDefinition]:
         """
         Extract field definitions using Responses API.
 
         All Azure OpenAI models now support Responses API.
-        """
-        return self.extract_fields_using_responses_api(text_chunk, is_continuation)
 
-    def parse_dictionary(self, dictionary_text: str, max_fields: int = 1000) -> Dict[str, Any]:
+        Args:
+            text_chunk: Dictionary text to extract fields from
+            is_continuation: Whether this is a continuation chunk
+            deployment: Optional per-call deployment override (see
+                extract_fields_using_responses_api for details).
+        """
+        return self.extract_fields_using_responses_api(text_chunk, is_continuation, deployment=deployment)
+
+    def parse_dictionary(
+        self,
+        dictionary_text: str,
+        max_fields: int = 1000,
+        deployment: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Parse entire data dictionary text into structured format
 
         Args:
             dictionary_text: Raw text from data dictionary
             max_fields: Maximum number of fields to extract (for safety)
+            deployment: Optional Azure OpenAI deployment name to use for this
+                call only (e.g. selected from a UI dropdown). When omitted,
+                falls back to the client's configured default deployment
+                (self.deployment / AZURE_OPENAI_DEPLOYMENT). Passing this
+                does not mutate the client instance, so it's safe to reuse
+                one LLMDictionaryParser across requests with different
+                deployment choices.
 
         Returns:
             Dictionary with extracted schema and metadata
@@ -413,7 +485,7 @@ Return JSON object with "fields" array:"""
             print(f"[LLM] ⚡ Using SINGLE-CALL mode (no chunking) - more reliable!")
             logger.info(f"Using single-call mode for {token_count} tokens")
 
-            fields = self.extract_fields_from_chunk(dictionary_text, is_continuation=False)
+            fields = self.extract_fields_from_chunk(dictionary_text, is_continuation=False, deployment=deployment)
             all_fields = fields
 
             elapsed_time = time.time() - start_time
@@ -449,7 +521,7 @@ Return JSON object with "fields" array:"""
                 break
 
             # Extract fields from chunk
-            fields = self.extract_fields_from_chunk(chunk, is_continuation=(i > 0))
+            fields = self.extract_fields_from_chunk(chunk, is_continuation=(i > 0), deployment=deployment)
 
             # Deduplicate by field name
             for field in fields:

@@ -80,6 +80,10 @@ ENV PATH=/home/apiuser/.local/bin:$PATH
 
 # Copy application files (as non-root user)
 COPY --chown=apiuser:apiuser api_server.py .
+# mcp_server.py provides DataLoader/QualityPipeline for POST /api/v1/analyze
+# (without it api_server degrades that route to 503; its mcp deps are already
+# installed via mcp_requirements.txt in the builder stage)
+COPY --chown=apiuser:apiuser mcp_server.py .
 COPY --chown=apiuser:apiuser src/ ./src/
 
 # Create volume mount point for program cache persistence

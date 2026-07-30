@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2026-06-15T00:00:00Z
+  last_updated: 2026-07-30T00:00:00Z
 
 # =========================================================
 # CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
@@ -570,6 +570,16 @@ phase_core_remaining:
       priority: CRITICAL
       effort: "10-15 days"
       notes: |
+        SECURITY HARDENING (2026-07-30): Replaced the original design that
+        generated Python source from dictionary text and ran it via exec()
+        (guarded by a bypassable regex denylist + AST gate — confirmed critical
+        RCE via `pd.read_pickle` gadget in branching_logic). New "Option B"
+        design: conditions are a STRUCTURED data tree (Compare/And/Or/Not/Const)
+        evaluated with vectorized pandas ops. NO code generation, NO exec/eval
+        anywhere; unparseable input fails closed to Const(False). Exploit is now
+        a permanent regression test in tests/test_logic_engine.py
+        (TestSecurityNoCodeExecution). See src/logic_engine.py.
+
         MAJOR FEATURE: This is one of the hardest problems in data quality
         # The Problem:
         # - Data dictionaries contain conditional logic (skip patterns, branching)

@@ -1,0 +1,57 @@
+# ============================================================================
+# Full-stack local test rig — API + UI wired together (Option A topology).
+# Mirrors the Azure Container Apps deployment on your laptop:
+#   ui (Streamlit, :3002)  --HTTP-->  api (FastAPI, :8000)
+#
+# Usage:
+#   docker compose -f docker-compose.fullstack.yml up --build -d
+#   open http://localhost:3002          # UI
+#   open http://localhost:8000/api/v1/docs   # API Swagger
+#   docker compose -f docker-compose.fullstack.yml down
+#
+# Secrets: DATA_ANALYZER_API_KEY is read from the gitignored .env in this
+# directory (compose interpolates ${VARS} from .env automatically). The same
+# value is given to both services: the API validates it, the UI sends it.
+# AZURE_OPENAI_* vars (also from .env) are only needed for LLM-backed
+# dictionary parsing; plain quality analysis works without them.
+# ============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: data-analyzer-api:local
+    environment:
+      - APP_ENV=dev
+      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: data-analyzer-ui:local
+    environment:
+      - APP_ENV=dev
+      - STREAMLIT_SECURE=1
+      - DATA_ANALYZER_API_URL=http://api:8000   # service-name DNS on the compose network
+      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-}
+    ports:
+      - "3002:8002"
+    depends_on:
+      api:
+        condition: service_healthy
