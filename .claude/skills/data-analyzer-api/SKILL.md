@@ -9,7 +9,11 @@ Call the deployed data-analyzer REST API to parse data dictionaries into
 validation programs (schema + rules extraction via LLM) and retrieve
 previously-saved programs.
 
-**Base URL:** `https://data-analyzer-api.wonderfulground-6988c2db.eastus2.azurecontainerapps.io`
+**Base URL:** `<DATA_ANALYZER_API_URL>`
+
+`<DATA_ANALYZER_API_URL>` is the app's internal FQDN (`https://` + the output of
+`az containerapp show -n data-analyzer-api -g "$RG" --query properties.configuration.ingress.fqdn -o tsv`,
+or see `~/dcri/azure-environment.md`). Real hostnames are kept out of this public repo.
 
 **Network requirement:** The API is VPN-only (Duke network). It is NOT
 reachable from the open internet.
@@ -30,7 +34,7 @@ routes in `api_server.py`). Only four routes actually exist today:
 | GET | `/api/v1/dictionary/{dict_id}` | `X-API-Key` | 30/min |
 
 Interactive Swagger UI (only useful when on VPN, in a browser):
-`https://data-analyzer-api.wonderfulground-6988c2db.eastus2.azurecontainerapps.io/api/v1/docs`
+`<DATA_ANALYZER_API_URL>/api/v1/docs`
 
 ## Step 0: Prerequisites (always check first)
 
@@ -38,7 +42,7 @@ Interactive Swagger UI (only useful when on VPN, in a browser):
 
    ```bash
    curl -s -m 10 -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" \
-     https://data-analyzer-api.wonderfulground-6988c2db.eastus2.azurecontainerapps.io/api/v1/health
+     <DATA_ANALYZER_API_URL>/api/v1/health
    ```
 
    - If this **times out** or returns curl error code `000` / `28` (connection
@@ -74,7 +78,7 @@ Interactive Swagger UI (only useful when on VPN, in a browser):
 No auth. 60 requests/minute.
 
 ```bash
-curl -s https://data-analyzer-api.wonderfulground-6988c2db.eastus2.azurecontainerapps.io/api/v1/health
+curl -s <DATA_ANALYZER_API_URL>/api/v1/health
 ```
 
 Response shape (`HealthResponse` in `api_server.py`):
@@ -114,7 +118,7 @@ Multipart form fields:
 
 ```bash
 curl -s -X POST \
-  https://data-analyzer-api.wonderfulground-6988c2db.eastus2.azurecontainerapps.io/api/v1/dictionary/parse \
+  <DATA_ANALYZER_API_URL>/api/v1/dictionary/parse \
   -H "X-API-Key: $KEY" \
   -F "dictionary_file=@/path/to/dictionary.csv;type=text/csv" \
   -F "save_program=true" \
@@ -155,7 +159,7 @@ Requires `X-API-Key`. 30 requests/minute. `{dict_id}` may be a program UUID,
 its auto-generated name, or a user-assigned alias.
 
 ```bash
-curl -s https://data-analyzer-api.wonderfulground-6988c2db.eastus2.azurecontainerapps.io/api/v1/dictionary/<dict_id> \
+curl -s <DATA_ANALYZER_API_URL>/api/v1/dictionary/<dict_id> \
   -H "X-API-Key: $KEY"
 ```
 
@@ -184,7 +188,7 @@ program has been soft-deleted.
 
    ```bash
    curl -s -X POST \
-     https://data-analyzer-api.wonderfulground-6988c2db.eastus2.azurecontainerapps.io/api/v1/dictionary/parse \
+     <DATA_ANALYZER_API_URL>/api/v1/dictionary/parse \
      -H "X-API-Key: $KEY" \
      -F "dictionary_file=@/tmp/mini_dictionary.csv;type=text/csv" \
      -F "save_program=false" \

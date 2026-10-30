@@ -710,7 +710,7 @@ class RuleExtractor:
                 llm_rules = self._extract_llm_rules(field_def)
                 if llm_rules:
                     rules.extend(llm_rules)
-                    logger.debug(f"Field '{field_name}': Using {len(llm_rules)} LLM-extracted rule(s)")
+                    logger.debug(f"Using {len(llm_rules)} LLM-extracted rule(s) for one field")
 
                 # PRIORITY 2: Format-specific parsers as fallback/complement
                 if format_type.lower() == "redcap":
@@ -720,7 +720,7 @@ class RuleExtractor:
                 else:
                     rules.extend(self._extract_custom_rules(field_def))
             except Exception as e:
-                logger.warning(f"Failed to extract rules for field '{field_name}': {e}")
+                logger.warning(f"Failed to extract rules for one field: {type(e).__name__}")
                 continue
 
         logger.info(f"Extracted {len(rules)} rules from {len(fields)} fields")
@@ -965,7 +965,7 @@ class RuleExtractor:
                 return Compare(fld, "in", ["no", "n", "0", "false"])
             return Compare(fld, "eq", value)
 
-        logger.warning(f"Could not parse natural language condition: {condition_text}")
+        logger.warning(f"Could not parse natural language condition ({len(condition_text)} chars)")
         return Const(False)
 
     def _extract_llm_rules(self, field_def: Dict) -> List[ConditionalRule]:
@@ -1015,10 +1015,10 @@ class RuleExtractor:
                 )
 
                 rules.append(rule)
-                logger.debug(f"Extracted LLM rule: {rule.description}")
+                logger.debug("Extracted one LLM rule")
 
             except Exception as e:
-                logger.warning(f"Failed to process LLM rule for {field_name}: {e}")
+                logger.warning(f"Failed to process one LLM rule: {type(e).__name__}")
                 continue
 
         return rules

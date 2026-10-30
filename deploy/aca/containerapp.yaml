@@ -18,7 +18,11 @@
 # Secrets are set separately (never in this file):
 #   az containerapp secret set --name data-analyzer-api \
 #     --resource-group <RESOURCE_GROUP> \
-#     --secrets data-analyzer-api-key=<VALUE> azure-openai-api-key=<VALUE>
+#     --secrets data-analyzer-api-key=<VALUE>
+#
+# Azure OpenAI is KEYLESS: the app gets a bearer token from the user-assigned
+# managed identity via src/dcri_llm.py (LLM_AUTH=identity). That identity needs
+# the "Azure AI Developer" role on the Foundry resource. No OpenAI key secret.
 # ============================================================================
 
 # User-assigned managed identity — used both to pull from ACR and, at runtime,
@@ -53,8 +57,6 @@ properties:
     secrets:
       - name: data-analyzer-api-key
         value: "<set-via-az-containerapp-secret-set>"
-      - name: azure-openai-api-key
-        value: "<set-via-az-containerapp-secret-set>"
     registries:
       - server: "<ACR_LOGIN_SERVER>"
         identity: "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>"  # pull images with the UAMI
@@ -72,12 +74,17 @@ properties:
             value: prod
           - name: DATA_ANALYZER_API_KEY
             secretRef: data-analyzer-api-key
-          - name: AZURE_OPENAI_API_KEY
-            secretRef: azure-openai-api-key
           - name: AZURE_OPENAI_ENDPOINT
             value: "<AZURE_OPENAI_ENDPOINT>"
+          # dcri_llm: identity auth (no key) + telemetry solution tag.
+          - name: LLM_AUTH
+            value: identity
+          - name: SOLUTION_NAME
+            value: data-analyzer-api
+          - name: TELEMETRY_BLOB_ACCOUNT_URL
+            value: "<STORAGE_BLOB_ENDPOINT>"  # Storage endpoint from azure-environment.md; enables portal telemetry
           # Client id of the user-assigned MI, so azure-identity picks the right
-          # identity for Key Vault / Storage / Postgres-AAD token calls.
+          # identity for Azure OpenAI / Key Vault / Storage / Postgres-AAD tokens.
           - name: AZURE_CLIENT_ID
             value: "<USER_ASSIGNED_IDENTITY_CLIENT_ID>"
           # Ingress is internal-only; no browser cross-origin expected. Set to

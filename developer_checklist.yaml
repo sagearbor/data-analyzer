@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2026-07-30T00:00:00Z
+  last_updated: 2026-10-30T00:00:00Z
 
 # =========================================================
 # CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
@@ -873,3 +873,14 @@ phase_multi_transport:
     - id: transport_6
       name: "docs/INTEGRATION.md and README.md update"
       status: DONE
+# Keyless Azure OpenAI + LLM telemetry (dcri_llm) - 2026-10-30
+phase_dcri_llm:
+  name: "Route LLM calls through vendored dcri_llm (managed identity + telemetry)"
+  status: INPROGRESS
+  notes: |
+    DONE (branch feature/dcri-llm): src/dcri_llm.py vendored v1.0.0; both
+    Responses API call sites in src/llm_client.py use get_bearer_token() and emit
+    one llm_call event each; API key auth removed; truncation/empty/HTTP errors
+    raise LLMCallError; PHI log lines removed; ACA templates keyless.
+    REMAINING: Sage deploys with "shipaz" and removes the azure-openai-api-key
+    secret from both live apps after verifying.

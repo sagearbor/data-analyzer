@@ -74,9 +74,8 @@ class TestGetAvailableDeployments:
 
 @pytest.fixture
 def parser(monkeypatch):
-    """LLMDictionaryParser constructed with fake credentials (no network)."""
+    """LLMDictionaryParser with a fake endpoint (no network; token faked in conftest)."""
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://fake-endpoint.openai.azure.com/")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "fake-key")
     monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5-nano")
     return LLMDictionaryParser()
 
