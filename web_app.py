@@ -1382,12 +1382,18 @@ if nav_choice == "Analyze":
                             # Parse with LLM
                             # Don't truncate - the LLM parser handles chunking internally
                             # Process more fields for comprehensive extraction
-                            # One telemetry action per upload; user from the Easy
-                            # Auth header when present (telemetry only, not authz).
-                            try:
-                                set_user(st.context.headers.get("X-Ms-Client-Principal-Name"))
-                            except Exception:
-                                pass
+                            # One telemetry action per upload. The Easy Auth user
+                            # header is trusted only with the same opt-in dcri_llm's
+                            # middleware uses (TRUST_EASY_AUTH_HEADER=1, set only once
+                            # Easy Auth strips client-sent copies); else anonymous.
+                            # Telemetry only, not authorization.
+                            _principal = None
+                            if (os.environ.get("TRUST_EASY_AUTH_HEADER") or "").strip().lower() in ("1", "true", "yes"):
+                                try:
+                                    _principal = st.context.headers.get("X-Ms-Client-Principal-Name")
+                                except Exception:
+                                    _principal = None
+                            set_user(_principal)
                             with llm_action("ui_parse_dictionary", new_action=True):
                                 parsed_result = llm_parser.parse_dictionary(
                                     file_content,
