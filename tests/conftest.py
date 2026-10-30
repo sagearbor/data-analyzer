@@ -295,7 +295,8 @@ def fake_llm_bearer_token(monkeypatch):
     identity) for a real token. LLM calls are mocked at requests.post anyway;
     this stops the token fetch that precedes them."""
     try:
-        import src.llm_client as llm_client
+        from src import dcri_llm
     except Exception:  # module unavailable in a minimal env
         return
-    monkeypatch.setattr(llm_client, "get_bearer_token", lambda: "fake-token")
+    monkeypatch.setenv("LLM_AUTH", "identity")  # a dev .env must not flip auth mode
+    monkeypatch.setattr(dcri_llm, "get_bearer_token", lambda: "fake-token")

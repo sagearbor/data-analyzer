@@ -81,6 +81,8 @@ properties:
             value: identity
           - name: SOLUTION_NAME
             value: data-analyzer-api
+          - name: TELEMETRY_BLOB_ACCOUNT_URL
+            value: "<STORAGE_BLOB_ENDPOINT>"  # Storage endpoint from azure-environment.md; enables portal telemetry
           # Client id of the user-assigned MI, so azure-identity picks the right
           # identity for Azure OpenAI / Key Vault / Storage / Postgres-AAD tokens.
           - name: AZURE_CLIENT_ID

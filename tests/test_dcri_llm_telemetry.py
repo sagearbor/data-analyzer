@@ -105,6 +105,18 @@ def test_one_call_emits_one_schema_v1_event_without_text(parser, events, monkeyp
     assert "api-key" not in {k.lower() for k in headers}
 
 
+def test_llm_auth_key_sends_api_key_header(parser, events, monkeypatch):
+    """LLM_AUTH=key (local docker-compose) goes through dcri_llm.auth_headers()."""
+    monkeypatch.setenv("LLM_AUTH", "key")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "fake-key-value")
+    post = _mock_post(monkeypatch, _responses_payload(json.dumps({"fields": []})))
+    parser.extract_fields_using_responses_api("text")
+    headers = post.call_args.kwargs["headers"]
+    assert headers["api-key"] == "fake-key-value"
+    assert "Authorization" not in headers
+    assert "fake-key-value" not in json.dumps(events[0])
+
+
 def test_finish_length_raises_and_is_recorded(parser, events, monkeypatch):
     _mock_post(monkeypatch, _responses_payload("{\"fields\": [", status="incomplete",
                                                incomplete_reason="max_output_tokens"))

@@ -17,7 +17,7 @@ import tiktoken
 # and one schema-v1 `llm_call` telemetry event per call.
 from src.dcri_llm import (
     DEFAULT_MAX_COMPLETION_TOKENS,
-    get_bearer_token,
+    auth_headers,
     record_llm_call,
     usage_from_responses_json,
 )
@@ -135,7 +135,8 @@ class LLMDictionaryParser:
             raise ValueError("AZURE_OPENAI_ENDPOINT is not set")
 
         # Note: Using Responses API via requests library (not OpenAI SDK).
-        # Auth is a managed-identity bearer token from dcri_llm (no API key).
+        # Auth headers come from dcri_llm.auth_headers(): managed-identity bearer
+        # token by default, api-key only when LLM_AUTH=key (local docker-compose).
 
         # Token counting for gpt-4o-mini
         try:
@@ -173,10 +174,7 @@ class LLMDictionaryParser:
         try:
             response = requests.post(
                 url,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer " + get_bearer_token(),
-                },
+                headers={**auth_headers(), "Content-Type": "application/json"},
                 json=request_body,
                 timeout=120,
             )
