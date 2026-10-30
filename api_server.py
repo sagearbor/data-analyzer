@@ -60,6 +60,9 @@ from src.api_models import (
     QualityAnalysisResponse,
 )
 
+# Shared DCRI LLM telemetry (vendored; stdlib-only at import time).
+from src.dcri_llm import asgi_middleware, llm_action
+
 # Optional service modules - each is independently best-effort. A missing/broken
 # module here degrades the corresponding feature (endpoints return 503) instead
 # of taking down the whole server.
@@ -156,6 +159,9 @@ elif os.getenv("APP_ENV", "dev") == "prod":
     )
 else:
     ALLOWED_ORIGINS = ["http://localhost:3002", "http://localhost:8501", "http://127.0.0.1:3002"]
+
+# Per-request telemetry context (action_id + Easy Auth user) for LLM call events.
+app.add_middleware(asgi_middleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -858,11 +864,12 @@ async def parse_dictionary(
         dictionary_path = Path(filename)
 
         try:
-            program = program_manager.create_program_from_dictionary(
-                dictionary_content=dictionary_content,
-                dictionary_path=dictionary_path,
-                save=save_program
-            )
+            with llm_action("api_parse_dictionary"):
+                program = program_manager.create_program_from_dictionary(
+                    dictionary_content=dictionary_content,
+                    dictionary_path=dictionary_path,
+                    save=save_program
+                )
         except RuntimeError as e:
             logger.error(f"Dictionary parsing failed: {e}")
             raise HTTPException(

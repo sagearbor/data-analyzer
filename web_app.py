@@ -46,6 +46,7 @@ from mermaid_renderer import render_mermaid
 # Import LLM parser
 try:
     from src.llm_client import LLMDictionaryParser, get_available_deployments
+    from src.dcri_llm import llm_action, set_user
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
@@ -1330,7 +1331,6 @@ if nav_choice == "Analyze":
                         st.warning("🤖 **LLM ACTIVE**: Sending data to Azure OpenAI GPT-4 for intelligent dictionary parsing...")
                         print("\n" + "="*80)
                         print("🤖 LLM DICTIONARY PARSER INVOKED")
-                        print(f"   File: {dict_file.name}")
                         print(f"   Size: {len(raw_content)} bytes")
                         print("="*80 + "\n")
 
@@ -1382,11 +1382,18 @@ if nav_choice == "Analyze":
                             # Parse with LLM
                             # Don't truncate - the LLM parser handles chunking internally
                             # Process more fields for comprehensive extraction
-                            parsed_result = llm_parser.parse_dictionary(
-                                file_content,
-                                max_fields=500,
-                                deployment=st.session_state.get("llm_deployment"),
-                            )
+                            # One telemetry action per upload; user from the Easy
+                            # Auth header when present (telemetry only, not authz).
+                            try:
+                                set_user(st.context.headers.get("X-Ms-Client-Principal-Name"))
+                            except Exception:
+                                pass
+                            with llm_action("ui_parse_dictionary", new_action=True):
+                                parsed_result = llm_parser.parse_dictionary(
+                                    file_content,
+                                    max_fields=500,
+                                    deployment=st.session_state.get("llm_deployment"),
+                                )
 
                             # Calculate elapsed time
                             elapsed_time = time.time() - start_time

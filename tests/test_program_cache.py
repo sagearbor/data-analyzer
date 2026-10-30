@@ -123,7 +123,6 @@ def db_instance(temp_db_dir):
 def mock_azure_openai_env(monkeypatch):
     """Mock Azure OpenAI environment variables"""
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com")
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key-12345")
     monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4")
 
 

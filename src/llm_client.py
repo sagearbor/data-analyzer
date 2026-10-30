@@ -8,9 +8,19 @@ import logging
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import re
+import time
 import requests  # For Responses API calls
 from dotenv import load_dotenv
 import tiktoken
+
+# Shared DCRI LLM module (vendored, do not edit): managed-identity bearer tokens
+# and one schema-v1 `llm_call` telemetry event per call.
+from src.dcri_llm import (
+    DEFAULT_MAX_COMPLETION_TOKENS,
+    get_bearer_token,
+    record_llm_call,
+    usage_from_responses_json,
+)
 
 # Load environment variables
 load_dotenv()
@@ -29,6 +39,27 @@ MODEL_OUTPUT_LIMITS = {
     'gpt-5-mini': 128000,
     'gpt-5-codex': 128000,
 }
+
+
+class LLMCallError(RuntimeError):
+    """An LLM call failed, was truncated (finish_reason=length) or returned no text.
+
+    Raised instead of returning an empty result so callers surface the failure
+    to the user rather than reporting "0 fields extracted" as success.
+    """
+
+
+def max_output_tokens_for(deployment: str) -> int:
+    """Output-token budget for a deployment.
+
+    Known models use their documented ceiling; unknown ones (e.g. gpt-5.4-*)
+    get 128000. Reasoning models are never capped below 32000 (HARD RULE:
+    thinking tokens come out of this budget).
+    """
+    limit = MODEL_OUTPUT_LIMITS.get((deployment or "").lower(), 128000)
+    if re.match(r"^(gpt-5|o\d)", (deployment or "").lower()):
+        limit = max(limit, DEFAULT_MAX_COMPLETION_TOKENS)
+    return limit
 
 
 def get_available_deployments() -> List[str]:
@@ -98,14 +129,13 @@ class LLMDictionaryParser:
     def __init__(self):
         """Initialize Azure OpenAI Responses API client"""
         self.endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        self.api_key = os.getenv("AZURE_OPENAI_API_KEY")
         self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5-nano")
 
-        if not all([self.endpoint, self.api_key]):
-            raise ValueError("Azure OpenAI credentials not found in environment variables")
+        if not self.endpoint:
+            raise ValueError("AZURE_OPENAI_ENDPOINT is not set")
 
-        # Note: Using Responses API via requests library (not OpenAI SDK)
-        # All Azure models now support /openai/v1/responses endpoint
+        # Note: Using Responses API via requests library (not OpenAI SDK).
+        # Auth is a managed-identity bearer token from dcri_llm (no API key).
 
         # Token counting for gpt-4o-mini
         try:
@@ -114,6 +144,74 @@ class LLMDictionaryParser:
             self.encoding = tiktoken.get_encoding("cl100k_base")
 
         logger.info(f"LLM client initialized with endpoint: {self.endpoint}")
+
+    def _call_responses_api(self, prompt: str, deployment: str, max_output: int) -> str:
+        """POST one request to the Responses API and return the output text.
+
+        Emits exactly one dcri_llm telemetry event (token counts and lengths
+        only, never prompt or completion text). Raises LLMCallError on HTTP
+        errors, truncation (finish_reason=length) or empty output.
+        """
+        url = f"{self.endpoint.rstrip('/')}/openai/v1/responses"
+        request_body = {
+            "model": deployment,
+            "input": prompt,  # String, not messages array!
+            "max_output_tokens": max_output,  # Not max_tokens!
+            "reasoning": {"effort": "low"},  # GPT-5: low/medium/high
+            "text": {"verbosity": "medium"},  # minimal/medium/verbose
+        }
+        base = {
+            "api": "responses",
+            "endpoint_host": url,
+            "model_requested": deployment,
+            "max_completion_tokens": max_output,
+            "reasoning_effort": "low",
+            "input_chars": len(prompt),
+            "streamed": False,
+        }
+        t0 = time.monotonic()
+        try:
+            response = requests.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + get_bearer_token(),
+                },
+                json=request_body,
+                timeout=120,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            record_llm_call(
+                **base,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+                outcome="timeout" if isinstance(e, requests.Timeout) else "error",
+                error_type=type(e).__name__,
+                http_status=status,
+            )
+            logger.error(f"Responses API call failed ({type(e).__name__}, http_status={status})")
+            raise LLMCallError(f"LLM call failed: {type(e).__name__} (HTTP {status})") from e
+
+        usage = usage_from_responses_json(data)
+        finish = usage.get("finish_reason")
+        failed = finish == "length" or usage.get("empty_output")
+        record_llm_call(
+            **base,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            outcome="error" if failed else "ok",
+            error_type=("finish_length" if finish == "length" else "empty_output") if failed else None,
+            **usage,
+        )
+        if finish == "length":
+            raise LLMCallError(
+                f"LLM output was truncated (finish_reason=length, budget {max_output} tokens, "
+                f"{usage.get('reasoning_tokens')} reasoning tokens)"
+            )
+        if usage.get("empty_output"):
+            raise LLMCallError(f"LLM returned no text (status={usage.get('status')})")
+        return self.parse_responses_api_output(data)
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
@@ -277,9 +375,8 @@ Return JSON object with "fields" array:"""
                     parsed = json.loads(repaired_text)
                     logger.info("✅ Successfully repaired and parsed JSON")
                 except Exception as repair_error:
-                    logger.error(f"Failed to repair JSON: {repair_error}")
-                    logger.debug(f"Original text: {json_text[:500]}")
-                    return fields
+                    logger.error(f"Failed to repair JSON ({len(json_text)} chars): {type(repair_error).__name__}")
+                    raise LLMCallError("LLM returned output that is not valid JSON") from repair_error
 
             # Handle both formats: {"fields": [...]} or [...]
             if isinstance(parsed, dict) and 'fields' in parsed:
@@ -328,9 +425,11 @@ Return JSON object with "fields" array:"""
                         )
                         fields.append(field)
 
+        except LLMCallError:
+            raise
         except Exception as e:
-            logger.error(f"Error parsing LLM response: {e}")
-            logger.debug(f"Response text: {response_text[:500]}")
+            logger.error(f"Error parsing LLM response ({len(response_text)} chars): {type(e).__name__}")
+            raise LLMCallError(f"Could not parse LLM response: {type(e).__name__}") from e
 
         return fields
 
@@ -375,56 +474,19 @@ Return JSON object with "fields" array:"""
                 allowing callers (e.g. a UI model-selection dropdown) to pick
                 a different deployment per request.
         """
-        try:
-            prompt = self.create_extraction_prompt(text_chunk, is_continuation)
-            active_deployment = deployment or self.deployment
+        prompt = self.create_extraction_prompt(text_chunk, is_continuation)
+        active_deployment = deployment or self.deployment
+        max_output = max_output_tokens_for(active_deployment)
 
-            # Responses API endpoint (no API version in path, no deployment in path)
-            url = f"{self.endpoint.rstrip('/')}/openai/v1/responses"
+        print(f"[LLM] Sending to Responses API ({len(text_chunk)} chars, model={active_deployment}, max_output={max_output})...")
+        response_text = self._call_responses_api(prompt, active_deployment, max_output)
+        print(f"[LLM] Received response from Responses API")
 
-            # Get max output tokens for this model
-            deployment_lower = active_deployment.lower()
-            max_output = MODEL_OUTPUT_LIMITS.get(deployment_lower, 128000)
+        fields = self.parse_llm_response(response_text)
 
-            print(f"[LLM] Sending to Responses API ({len(text_chunk)} chars, model={active_deployment}, max_output={max_output})...")
-
-            # Build request for Responses API
-            request_body = {
-                "model": active_deployment,
-                "input": prompt,  # String, not messages array!
-                "max_output_tokens": max_output  # Not max_tokens!
-            }
-
-            # Add GPT-5 specific parameters
-            request_body["reasoning"] = {"effort": "low"}  # low/medium/high
-            request_body["text"] = {"verbosity": "medium"}  # minimal/medium/verbose
-
-            response = requests.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "api-key": self.api_key
-                },
-                json=request_body,
-                timeout=120
-            )
-
-            response.raise_for_status()
-            data = response.json()
-
-            print(f"[LLM] Received response from Responses API")
-
-            # Parse output using Responses API format
-            response_text = self.parse_responses_api_output(data)
-            fields = self.parse_llm_response(response_text)
-
-            print(f"[LLM] Extracted {len(fields)} fields from this chunk")
-            logger.info(f"Extracted {len(fields)} fields from chunk")
-            return fields
-
-        except Exception as e:
-            logger.error(f"Error calling Responses API: {e}")
-            return []
+        print(f"[LLM] Extracted {len(fields)} fields from this chunk")
+        logger.info(f"Extracted {len(fields)} fields from chunk")
+        return fields
 
     def extract_fields_from_chunk(
         self,
@@ -614,32 +676,9 @@ Return a JSON object with:
 """
 
         try:
-            # Use Responses API (same as other methods)
-            url = f"{self.endpoint.rstrip('/')}/openai/v1/responses"
-
-            request_body = {
-                "model": self.deployment,
-                "input": prompt,
-                "max_output_tokens": 4000
-            }
-
-            # Add GPT-5 reasoning parameters (no temperature for GPT-5)
-            request_body["reasoning"] = {"effort": "low"}
-            request_body["text"] = {"verbosity": "medium"}
-
-            response = requests.post(
-                url,
-                headers={
-                    "Content-Type": "application/json",
-                    "api-key": self.api_key
-                },
-                json=request_body,
-                timeout=120
+            response_text = self._call_responses_api(
+                prompt, self.deployment, max_output_tokens_for(self.deployment)
             )
-
-            response.raise_for_status()
-            data = response.json()
-            response_text = self.parse_responses_api_output(data)
 
             # Parse response
             try:
@@ -655,13 +694,11 @@ Return a JSON object with:
                     "recommendations": []
                 }
 
+        except LLMCallError:
+            raise
         except Exception as e:
-            logger.error(f"Error in LLM validation: {e}")
-            return {
-                "issues": [],
-                "summary": f"Validation error: {str(e)}",
-                "recommendations": []
-            }
+            logger.error(f"Error in LLM validation: {type(e).__name__}")
+            raise LLMCallError(f"LLM validation failed: {type(e).__name__}") from e
 
 
 # Utility function for testing

@@ -288,3 +288,14 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "api: mark test as API test"
     )
+
+@pytest.fixture(autouse=True)
+def fake_llm_bearer_token(monkeypatch):
+    """Keep the suite offline: never ask azure-identity (az login / managed
+    identity) for a real token. LLM calls are mocked at requests.post anyway;
+    this stops the token fetch that precedes them."""
+    try:
+        import src.llm_client as llm_client
+    except Exception:  # module unavailable in a minimal env
+        return
+    monkeypatch.setattr(llm_client, "get_bearer_token", lambda: "fake-token")

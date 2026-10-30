@@ -19,6 +19,8 @@ requests>=2.31.0  # HTTP client for calling the data-analyzer REST API (see Data
 # LLM Integration Requirements
 openai>=1.0.0
 tiktoken>=0.5.0
+azure-identity>=1.17.0  # dcri_llm: managed-identity / az-login bearer tokens (no API key)
+azure-storage-blob>=12.19.0  # dcri_llm: optional telemetry Blob sink
 python-dotenv>=1.0.0
 
 # Environment Banner (will auto-update when new versions published to PyPI)
