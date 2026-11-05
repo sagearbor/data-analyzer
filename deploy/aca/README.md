@@ -8,6 +8,7 @@ Streamlit app behind an NGINX helper sidecar) and are **not** used by ACA.
 | Artifact | Used for |
 |---|---|
 | `deploy/aca/containerapp.yaml` | Azure Container Apps (this doc) |
+| `deploy/aca/containerapp-ui.yaml` | Streamlit UI on ACA (template; needs `DATA_ANALYZER_API_URL` + secret `data-analyzer-api-key`, same value as the API's — the UI container refuses to start without them) |
 | `Dockerfile.api` | The image ACA runs (FastAPI + uvicorn, non-root, port 8000) |
 | `docker-compose.api.yml` / `docker-compose.dev.yml` | Local dev / VM only |
 | `Dockerfile` + `entrypoint.sh` | Streamlit web app (separate deployment) |

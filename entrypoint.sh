@@ -23,6 +23,16 @@ else
     SEC_FLAGS="--server.enableXsrfProtection=false --server.enableCORS=false"
 fi
 
+# ---------------------------------------------------------------------------
+# Fail fast on a broken deployment config. In a non-local environment (ACA, or
+# APP_ENV other than dev/local/test) the UI needs DATA_ANALYZER_API_URL and
+# DATA_ANALYZER_API_KEY to reach the API. Without them the container exits
+# non-zero, so the new revision never becomes ready (ACA keeps serving the
+# previous healthy revision) and the reason is in the container log - instead
+# of a "healthy" UI whose Analyze button cannot work. No-op locally.
+# ---------------------------------------------------------------------------
+python -m src.runtime_env --check-ui || exit 1
+
 # Build streamlit command with additional reverse-proxy-friendly settings
 if [ -z "$BASE_URL_PATH" ]; then
     # No base path - serve at root

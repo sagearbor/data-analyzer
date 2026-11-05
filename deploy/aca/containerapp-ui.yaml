@@ -1,0 +1,115 @@
+# ============================================================================
+# Azure Container Apps — deployment definition for the Data Analyzer UI
+# (Streamlit, web_app.py). COMMITTED TEMPLATE: no real infra IDs or secrets.
+# ============================================================================
+# Second container app in the SAME ACA environment as the API
+# (deploy/aca/containerapp.yaml). Image is built from the repo-root `Dockerfile`
+# (NOT Dockerfile.api).
+#
+# Every <PLACEHOLDER> is filled from the gitignored `azure-environment.md`.
+# Copy this file to `containerapp-ui.local.yaml` (gitignored), fill it in there,
+# and deploy from the local copy:
+#   az containerapp create --name data-analyzer-ui \
+#     --resource-group <RESOURCE_GROUP> --yaml deploy/aca/containerapp-ui.local.yaml
+#
+# UI -> API CONNECTION (both REQUIRED; the container refuses to start without
+# them — see entrypoint.sh / src/runtime_env.py):
+#   DATA_ANALYZER_API_URL  https URL of the data-analyzer-api app
+#                          (`az containerapp show -n data-analyzer-api -g <RG>
+#                          --query properties.configuration.ingress.fqdn -o tsv`)
+#   DATA_ANALYZER_API_KEY  from secret `data-analyzer-api-key`, which must hold
+#                          the SAME value as the API app's secret of that name.
+#                          Set it separately (never in this file):
+#     az containerapp secret set --name data-analyzer-ui \
+#       --resource-group <RESOURCE_GROUP> \
+#       --secrets data-analyzer-api-key=<SAME_VALUE_AS_API_APP>
+#
+# Azure OpenAI is KEYLESS (managed identity via src/dcri_llm.py, LLM_AUTH=identity).
+# ============================================================================
+
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>": {}
+
+properties:
+  managedEnvironmentId: "<MANAGED_ENVIRONMENT_RESOURCE_ID>"
+  workloadProfileName: "<WORKLOAD_PROFILE_NAME>"
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true          # VPN-only in practice: the ACE env disables public access
+      targetPort: 8002        # Streamlit's port (see entrypoint.sh / Dockerfile EXPOSE)
+      transport: http         # ACA http transport handles the Streamlit websocket upgrade
+      allowInsecure: false
+      # Streamlit keeps per-user state in the server process over a websocket;
+      # sticky sessions pin a client to one replica.
+      stickySessions:
+        affinity: sticky
+      traffic:
+        - latestRevision: true
+          weight: 100
+    secrets:
+      # Same value as the API app's `data-analyzer-api-key`. Placeholder only.
+      - name: data-analyzer-api-key
+        value: "<set-via-az-containerapp-secret-set>"
+    registries:
+      - server: "<ACR_LOGIN_SERVER>"
+        identity: "<USER_ASSIGNED_IDENTITY_RESOURCE_ID>"
+  template:
+    containers:
+      - name: data-analyzer-ui
+        image: "<ACR_LOGIN_SERVER>/data-analyzer-ui:latest"
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
+        env:
+          - name: APP_ENV
+            value: prod
+          # Turns Streamlit's XSRF + CORS guards ON (entrypoint.sh reads this).
+          - name: STREAMLIT_SECURE
+            value: "1"
+          # --- UI -> API connection (required) -----------------------------
+          - name: DATA_ANALYZER_API_URL
+            value: "https://<DATA_ANALYZER_API_FQDN>"
+          - name: DATA_ANALYZER_API_KEY
+            secretRef: data-analyzer-api-key
+          # --- LLM (dictionary parsing in the UI) -----------------------------
+          - name: AZURE_OPENAI_ENDPOINT
+            value: "<AZURE_OPENAI_ENDPOINT>"
+          - name: AZURE_OPENAI_DEPLOYMENT
+            value: "<AZURE_OPENAI_DEPLOYMENT>"   # shown in the UI's "LLM ACTIVE" label
+          - name: LLM_AUTH
+            value: identity
+          - name: SOLUTION_NAME
+            value: data-analyzer-ui
+          - name: TELEMETRY_BLOB_ACCOUNT_URL
+            value: "<STORAGE_BLOB_ENDPOINT>"
+          - name: AZURE_CLIENT_ID
+            value: "<USER_ASSIGNED_IDENTITY_CLIENT_ID>"
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /_stcore/health
+              port: 8002
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          - type: Readiness
+            httpGet:
+              path: /_stcore/health
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 15
+    # One replica: replicas don't share Streamlit session memory. minReplicas 1
+    # keeps the UI warm; the API behind it still scales to zero (the UI waits
+    # up to 90 s and retries once on API cold start).
+    scale:
+      minReplicas: 1
+      maxReplicas: 1
+      cooldownPeriod: 600
+      pollingInterval: 30
+      rules:
+        - name: http-scaling
+          http:
+            metadata:
+              concurrentRequests: "50"

@@ -155,7 +155,7 @@ class TestDeploymentOverridePlumbing:
         assert len(result["fields"]) == 1
 
     def test_parse_dictionary_without_override_uses_default(self, parser, monkeypatch):
-        mock_post = _mock_responses_api(monkeypatch)
+        mock_post = _mock_responses_api(monkeypatch, fields=[{"field_name": "age", "data_type": "int"}])
 
         parser.parse_dictionary("short dictionary text")
 
@@ -165,7 +165,7 @@ class TestDeploymentOverridePlumbing:
     def test_parse_dictionary_chunked_mode_forwards_override(self, parser, monkeypatch):
         """Large dictionaries fall into the chunked branch - the override
         must be threaded through each chunk's call too."""
-        mock_post = _mock_responses_api(monkeypatch)
+        mock_post = _mock_responses_api(monkeypatch, fields=[{"field_name": "age", "data_type": "int"}])
 
         # Force chunked mode regardless of actual token count of the input.
         monkeypatch.setattr(parser, "count_tokens", lambda text: 90000)

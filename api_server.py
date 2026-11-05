@@ -62,6 +62,7 @@ from src.api_models import (
 
 # Shared DCRI LLM telemetry (vendored; stdlib-only at import time).
 from src.dcri_llm import asgi_middleware, llm_action
+from src.runtime_env import is_deployed_env
 
 # Optional service modules - each is independently best-effort. A missing/broken
 # module here degrades the corresponding feature (endpoints return 503) instead
@@ -229,11 +230,16 @@ except Exception as e:
 API_KEY = os.getenv("DATA_ANALYZER_API_KEY")
 ADMIN_PASSWORD = os.getenv("DATA_ANALYZER_ADMIN_PASSWORD")
 
-# Fail closed in production: missing credentials must abort startup, not
-# silently disable authentication (see verify_api_key dev-mode fallback).
-if os.getenv("APP_ENV", "dev") == "prod" and not API_KEY:
+# Fail closed in EVERY non-local environment: missing credentials must abort
+# startup, not silently disable authentication (see verify_api_key dev-mode
+# fallback). "Non-local" = APP_ENV not in {dev, development, local, test} OR
+# running on Azure Container Apps (CONTAINER_APP_NAME is injected by ACA), so
+# an ACA manifest that forgets APP_ENV still fails closed.
+if is_deployed_env() and not API_KEY:
     raise RuntimeError(
-        "APP_ENV=prod but DATA_ANALYZER_API_KEY is not set. "
+        f"Non-local environment (APP_ENV={os.getenv('APP_ENV', 'dev')!r}, "
+        f"CONTAINER_APP_NAME={'set' if os.getenv('CONTAINER_APP_NAME') else 'unset'}) "
+        "but DATA_ANALYZER_API_KEY is not set. "
         "Refusing to start with authentication disabled. "
         "Set DATA_ANALYZER_API_KEY (and DATA_ANALYZER_ADMIN_PASSWORD for "
         "admin endpoints) in the container environment."
@@ -812,14 +818,8 @@ async def parse_dictionary(
     """
     start_time = datetime.now()
 
-    # Validate service availability
-    if not program_manager:
-        logger.error("Program manager not initialized")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dictionary parsing service not available. LLM client may not be configured."
-        )
-
+    # Validate the request before checking backend availability, so a bad
+    # upload gets a 400 whether or not the LLM service is configured.
     # Validate file format
     filename = dictionary_file.filename or "uploaded"
     file_extension = Path(filename).suffix.lower()
@@ -829,6 +829,14 @@ async def parse_dictionary(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported file format: {file_extension}. Supported: {', '.join(supported_extensions)}"
+        )
+
+    # Validate service availability
+    if not program_manager:
+        logger.error("Program manager not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dictionary parsing service not available. LLM client may not be configured."
         )
 
     logger.info(f"Parsing dictionary file: {filename} (save_program={save_program})")

@@ -56,6 +56,12 @@ def _api_report(total_rows=0, total_columns=0, issues=None, recommendations=None
     }
 
 
+@pytest.fixture(autouse=True)
+def _no_retry_sleep(monkeypatch):
+    """The client waits a few seconds before its one cold-start retry; skip it."""
+    monkeypatch.setattr("web_app.time.sleep", lambda s: None)
+
+
 @pytest.fixture
 def analyzer():
     return DataQualityAnalyzer()
@@ -236,7 +242,8 @@ class TestResponseMapping:
         results = await analyzer.analyze_data_quality(sample_df, None)
 
         assert set(results.keys()) == {
-            "summary", "issues", "recommendations", "quality_checks", "summary_stats"
+            "summary", "issues", "recommendations", "quality_checks", "summary_stats",
+            "logic_validation_error",
         }
 
     @pytest.mark.asyncio
