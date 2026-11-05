@@ -23,11 +23,17 @@ import plotly.express as px
 import hashlib
 import os
 import tempfile
+import time
+import logging
+import traceback
 from pathlib import Path
 
 # Import custom modules
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
 from src.__version__ import __version__
+from src.runtime_env import ApiConfigError, resolve_api_base_url
+
+logger = logging.getLogger("data_analyzer.ui")
 # NOTE: QualityPipeline/QualityChecker (mcp_server.py) are no longer imported
 # here. Rule-based quality analysis now runs centrally behind the REST API
 # (POST /api/v1/analyze) so the UI, the API, and the MCP server all share one
@@ -51,6 +57,17 @@ try:
 except ImportError:
     LLM_AVAILABLE = False
     print("LLM client not available. Install openai package to enable.")
+
+
+def llm_model_label() -> str:
+    """Name of the Azure OpenAI deployment the UI will use by default, read
+    from config (AZURE_OPENAI_DEPLOYMENTS / AZURE_OPENAI_DEPLOYMENT) - never a
+    hard-coded model name, so the label can't drift from what is deployed."""
+    if LLM_AVAILABLE:
+        deployments = get_available_deployments()
+        if deployments:
+            return deployments[0]
+    return os.getenv("AZURE_OPENAI_DEPLOYMENT") or "deployment not configured"
 
 # Import Named Program Cache and Logic Validation Engine
 try:
@@ -495,18 +512,38 @@ class DataQualityAnalyzer:
 
     Configuration (environment variables):
         DATA_ANALYZER_API_URL: Base URL of the data-analyzer REST API.
-            Defaults to "http://localhost:8000" for local dev (matches
-            api_server.py's default API_PORT). For deployment, set this to
-            the API Container App's internal DNS FQDN so UI -> API traffic
-            stays inside the Azure Container Apps environment's VNET rather
-            than round-tripping over the public internet.
+            Defaults to "http://localhost:8000" ONLY for local dev (APP_ENV
+            dev/local/test and not on Azure Container Apps). In a deployed
+            environment there is no fallback: an unset value is a config
+            error (self.config_error), shown to the user as one line, and
+            entrypoint.sh refuses to start the container at all.
         DATA_ANALYZER_API_KEY: Value sent as the X-API-Key header. Must match
             the API app's own DATA_ANALYZER_API_KEY.
+
+    Cold start: the API scales to zero, and its first request after idle can
+    take ~45 s. Each attempt waits ANALYZE_TIMEOUT_SECONDS, and a connection
+    error / timeout / gateway 502-504 is retried ONCE after notifying the
+    caller via `on_status` ("starting the analysis service...").
     """
 
+    ANALYZE_TIMEOUT_SECONDS = 90
+    COLD_START_RETRY_DELAY_SECONDS = 5
+    _RETRYABLE_STATUS = frozenset({502, 503, 504})
+    STARTING_MESSAGE = (
+        "Starting the analysis service (it sleeps when idle; this can take up to a minute)... retrying."
+    )
+
     def __init__(self):
-        self.api_base_url = os.getenv("DATA_ANALYZER_API_URL", "http://localhost:8000").rstrip("/")
+        self.config_error: Optional[str] = None
+        try:
+            self.api_base_url: Optional[str] = resolve_api_base_url()
+        except ApiConfigError as e:
+            self.api_base_url = None
+            self.config_error = str(e)
+            logger.error("ui_config_error setting=DATA_ANALYZER_API_URL message=%r", self.config_error)
         self.api_key = os.getenv("DATA_ANALYZER_API_KEY", "")
+        # Optional callable(str) for user-visible progress (e.g. st.info).
+        self.on_status = None
 
     async def analyze_data_quality(self, data: pd.DataFrame, dictionary: Optional[Dict] = None, source_format: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -585,6 +622,10 @@ class DataQualityAnalyzer:
         recommendations = result["recommendations"]
 
         # LOGIC VALIDATION - Run conditional logic checks if available.
+        # A failure here is NOT silent: it is logged and returned as
+        # `logic_validation_error`, which the dashboard shows as a warning
+        # (the rule-based results are still valid and shown).
+        logic_validation_error = None
         # This is separate from the rule-based REST engine (it's driven by
         # dictionary 'fields' extracted via RuleExtractor, not schema/rules),
         # so it stays local and its results are merged in after the API call.
@@ -616,8 +657,11 @@ class DataQualityAnalyzer:
 
                     logic_violations_count = len(logic_violations)
             except Exception as e:
-                # Log error but don't fail the entire analysis
-                print(f"Logic validation error: {e}")
+                logic_validation_error = (
+                    f"Conditional-logic checks could not run ({type(e).__name__}: {e}). "
+                    "The results below cover the rule-based checks only."
+                )
+                logger.error("logic_validation_failed error_class=%s", type(e).__name__, exc_info=True)
 
         if logic_violations_count:
             # Logic issues were appended after the API computed its counts -
@@ -637,8 +681,16 @@ class DataQualityAnalyzer:
             "issues": issues,
             "recommendations": recommendations,
             "quality_checks": result["quality_checks"],
-            "summary_stats": result["summary_stats"]
+            "summary_stats": result["summary_stats"],
+            "logic_validation_error": logic_validation_error,
         }
+
+    def _notify(self, message: str) -> None:
+        if self.on_status:
+            try:
+                self.on_status(message)
+            except Exception:  # a UI callback must never break the request
+                logger.warning("on_status callback failed", exc_info=True)
 
     # Content-types matching api_server.py's /api/v1/analyze extension
     # dispatch (and the standard IANA media types for each Excel format).
@@ -690,27 +742,41 @@ class DataQualityAnalyzer:
         if rules:
             form_data["rules"] = json.dumps(rules, default=str)
 
-        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+        if self.config_error or not self.api_base_url:
+            raise ApiConfigError(self.config_error or "Configuration error: no data-analyzer API URL.")
 
-        try:
-            response = requests.post(
-                f"{self.api_base_url}/api/v1/analyze",
-                files=files,
-                data=form_data,
-                headers=headers,
-                timeout=60,
-            )
-        except requests.exceptions.ConnectionError as e:
-            raise RuntimeError(
-                f"Could not connect to the data-analyzer API at {self.api_base_url}. "
-                f"Is it running and reachable? ({e})"
-            )
-        except requests.exceptions.Timeout:
-            raise RuntimeError(
-                f"Data-analyzer API request timed out after 60s ({self.api_base_url}/api/v1/analyze)."
-            )
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(f"Data-analyzer API request failed: {e}")
+        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+        url = f"{self.api_base_url}/api/v1/analyze"
+        timeout = self.ANALYZE_TIMEOUT_SECONDS
+
+        response = None
+        for attempt in (1, 2):
+            failure = None
+            try:
+                response = requests.post(url, files=files, data=form_data, headers=headers, timeout=timeout)
+            except requests.exceptions.ConnectionError as e:
+                failure = (f"Could not connect to the analysis service at {self.api_base_url} "
+                           f"({type(e).__name__}).", type(e).__name__, None)
+            except requests.exceptions.Timeout as e:
+                failure = (f"The analysis service timed out (no response within {timeout}s).", type(e).__name__, None)
+            except requests.exceptions.RequestException as e:
+                logger.error("api_call_failed url=%s error_class=%s", url, type(e).__name__)
+                raise RuntimeError(f"Data-analyzer API request failed: {type(e).__name__}: {e}")
+            else:
+                if response.status_code in self._RETRYABLE_STATUS:
+                    failure = (f"The analysis service is unavailable (HTTP {response.status_code}).",
+                               "http_error", response.status_code)
+
+            if failure is None:
+                break
+            message, error_class, http_status = failure
+            logger.error("api_call_failed url=%s attempt=%d error_class=%s http_status=%s",
+                         url, attempt, error_class, http_status)
+            if attempt == 1:
+                self._notify(self.STARTING_MESSAGE)
+                time.sleep(self.COLD_START_RETRY_DELAY_SECONDS)
+                continue
+            raise RuntimeError(f"{message} Retried once; please try again in a minute or contact the app owner.")
 
         if response.status_code != 200:
             try:
@@ -718,6 +784,7 @@ class DataQualityAnalyzer:
                 detail = error_body.get("detail") or error_body.get("error") or response.text
             except ValueError:
                 detail = response.text
+            logger.error("api_call_failed url=%s error_class=http_error http_status=%s", url, response.status_code)
             raise RuntimeError(f"Data-analyzer API returned HTTP {response.status_code}: {detail}")
 
         try:
@@ -1087,6 +1154,11 @@ if 'analysis_results' not in st.session_state:
     st.session_state.analysis_results = None
 if 'mcp_client' not in st.session_state:
     st.session_state.mcp_client = DataQualityAnalyzer()
+if st.session_state.mcp_client.config_error:
+    # Deployed without DATA_ANALYZER_API_URL: say so up front, one line, rather
+    # than letting "Analyze" fail later. (entrypoint.sh normally stops such a
+    # container from starting at all; this covers other launch paths.)
+    st.error(f"⚠️ {st.session_state.mcp_client.config_error}")
 if 'dict_cache' not in st.session_state:
     st.session_state.dict_cache = {}  # Cache for parsed dictionaries
 if 'last_dict_file' not in st.session_state:
@@ -1328,7 +1400,8 @@ if nav_choice == "Analyze":
                     # Use LLM parsing if enabled and not cached
                     elif use_llm and LLM_AVAILABLE:
                         # CLEAR LLM MARKER
-                        st.warning("🤖 **LLM ACTIVE**: Sending data to Azure OpenAI GPT-4 for intelligent dictionary parsing...")
+                        _model_label = st.session_state.get("llm_deployment") or llm_model_label()
+                        st.warning(f"🤖 **LLM ACTIVE**: Sending data to Azure OpenAI ({_model_label}) for intelligent dictionary parsing...")
                         print("\n" + "="*80)
                         print("🤖 LLM DICTIONARY PARSER INVOKED")
                         print(f"   Size: {len(raw_content)} bytes")
@@ -1800,7 +1873,9 @@ if nav_choice == "Analyze":
                     print("\n⚠️ RUNNING ANALYSIS WITHOUT DICTIONARY (auto-detection only)\n")
                     st.info("⚠️ No dictionary loaded - using auto-detection only")
 
-                with st.spinner("🔍 Analyzing data quality... Please wait."):
+                _status_box = st.empty()
+                st.session_state.mcp_client.on_status = lambda msg: _status_box.info(f"⏳ {msg}")
+                with st.spinner("🔍 Analyzing data quality... (the first run after a quiet period can take up to a minute)"):
                     try:
                         # Run analysis
                         results = asyncio.run(
@@ -1811,11 +1886,20 @@ if nav_choice == "Analyze":
                             )
                         )
                         st.session_state.analysis_results = results
+                        _status_box.empty()
                         st.success("✅ Analysis complete!")
+                    except (ApiConfigError, RuntimeError) as e:
+                        # Expected, already-explained failures: one clear line,
+                        # no traceback for the user. Logged for diagnosis.
+                        _status_box.empty()
+                        logger.error("analysis_failed error_class=%s message=%r", type(e).__name__, str(e))
+                        st.error(f"❌ Analysis failed: {e}")
                     except Exception as e:
-                        st.error(f"❌ Analysis failed: {str(e)}")
-                        import traceback
-                        st.code(traceback.format_exc())
+                        _status_box.empty()
+                        logger.error("analysis_failed_unexpected error_class=%s\n%s",
+                                     type(e).__name__, traceback.format_exc())
+                        st.error(f"❌ Analysis failed unexpectedly ({type(e).__name__}). "
+                                 "The error was logged; please contact the app owner.")
 
     st.markdown("<div style='margin: 1.75rem 0 1rem 0; border-top: 1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
 
@@ -1825,6 +1909,9 @@ if nav_choice == "Analyze":
         # Summary metrics
         st.subheader("Analysis Summary")
         summary = st.session_state.analysis_results['summary']
+
+        if st.session_state.analysis_results.get('logic_validation_error'):
+            st.warning(f"⚠️ {st.session_state.analysis_results['logic_validation_error']}")
 
         # Create columns with space for heatmap
         col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1.2, 1, 1, 1.5])

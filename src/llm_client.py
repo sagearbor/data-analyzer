@@ -46,7 +46,33 @@ class LLMCallError(RuntimeError):
 
     Raised instead of returning an empty result so callers surface the failure
     to the user rather than reporting "0 fields extracted" as success.
+
+    Carries structured context (operation, model, error_class, finish_reason)
+    for diagnosis; never any prompt/completion/data text.
     """
+
+    def __init__(self, message: str, *, operation: str = "llm_call", model: Optional[str] = None,
+                 error_class: Optional[str] = None, finish_reason: Optional[str] = None):
+        super().__init__(message)
+        self.operation = operation
+        self.model = model
+        self.error_class = error_class
+        self.finish_reason = finish_reason
+
+
+def llm_failure(message: str, *, operation: str, model: Optional[str], error_class: str,
+                finish_reason: Optional[str] = None) -> LLMCallError:
+    """Log ONE structured ERROR line for an LLM failure and return the error to raise.
+
+    The log line holds only metadata (no prompt, completion or data text) so it
+    is safe to ship to central logging and greppable as `llm_failure`.
+    """
+    logger.error(
+        "llm_failure operation=%s model=%s error_class=%s finish_reason=%s",
+        operation, model, error_class, finish_reason,
+    )
+    return LLMCallError(message, operation=operation, model=model,
+                        error_class=error_class, finish_reason=finish_reason)
 
 
 def max_output_tokens_for(deployment: str) -> int:
@@ -146,7 +172,8 @@ class LLMDictionaryParser:
 
         logger.info(f"LLM client initialized with endpoint: {self.endpoint}")
 
-    def _call_responses_api(self, prompt: str, deployment: str, max_output: int) -> str:
+    def _call_responses_api(self, prompt: str, deployment: str, max_output: int,
+                            operation: str = "llm_call") -> str:
         """POST one request to the Responses API and return the output text.
 
         Emits exactly one dcri_llm telemetry event (token counts and lengths
@@ -189,8 +216,10 @@ class LLMDictionaryParser:
                 error_type=type(e).__name__,
                 http_status=status,
             )
-            logger.error(f"Responses API call failed ({type(e).__name__}, http_status={status})")
-            raise LLMCallError(f"LLM call failed: {type(e).__name__} (HTTP {status})") from e
+            raise llm_failure(
+                f"LLM call failed: {type(e).__name__} (HTTP {status})",
+                operation=operation, model=deployment, error_class=type(e).__name__,
+            ) from e
 
         usage = usage_from_responses_json(data)
         finish = usage.get("finish_reason")
@@ -203,13 +232,23 @@ class LLMDictionaryParser:
             **usage,
         )
         if finish == "length":
-            raise LLMCallError(
+            raise llm_failure(
                 f"LLM output was truncated (finish_reason=length, budget {max_output} tokens, "
-                f"{usage.get('reasoning_tokens')} reasoning tokens)"
+                f"{usage.get('reasoning_tokens')} reasoning tokens)",
+                operation=operation, model=deployment, error_class="finish_length", finish_reason=finish,
             )
         if usage.get("empty_output"):
-            raise LLMCallError(f"LLM returned no text (status={usage.get('status')})")
-        return self.parse_responses_api_output(data)
+            raise llm_failure(
+                f"LLM returned no text (status={usage.get('status')})",
+                operation=operation, model=deployment, error_class="empty_output", finish_reason=finish,
+            )
+        text = self.parse_responses_api_output(data)
+        if not text.strip():
+            raise llm_failure(
+                "LLM returned no text (no output_text in response)",
+                operation=operation, model=deployment, error_class="empty_output", finish_reason=finish,
+            )
+        return text
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
@@ -350,7 +389,7 @@ Return JSON object with "fields" array:"""
 
         return repaired
 
-    def parse_llm_response(self, response_text: str) -> List[FieldDefinition]:
+    def parse_llm_response(self, response_text: str, model: Optional[str] = None) -> List[FieldDefinition]:
         """Parse LLM response into FieldDefinition objects"""
         fields = []
 
@@ -374,7 +413,11 @@ Return JSON object with "fields" array:"""
                     logger.info("✅ Successfully repaired and parsed JSON")
                 except Exception as repair_error:
                     logger.error(f"Failed to repair JSON ({len(json_text)} chars): {type(repair_error).__name__}")
-                    raise LLMCallError("LLM returned output that is not valid JSON") from repair_error
+                    raise llm_failure(
+                        "LLM returned output that is not valid JSON",
+                        operation="parse_dictionary", model=model or self.deployment,
+                        error_class=type(repair_error).__name__,
+                    ) from repair_error
 
             # Handle both formats: {"fields": [...]} or [...]
             if isinstance(parsed, dict) and 'fields' in parsed:
@@ -382,8 +425,11 @@ Return JSON object with "fields" array:"""
             elif isinstance(parsed, list):
                 field_data = parsed
             else:
-                logger.error(f"Unexpected JSON format: {type(parsed)}")
-                return fields
+                raise llm_failure(
+                    f"LLM returned JSON of an unexpected shape ({type(parsed).__name__}, no 'fields' list)",
+                    operation="parse_dictionary", model=model or self.deployment,
+                    error_class="unexpected_json_shape",
+                )
 
             # Convert to FieldDefinition objects
             if isinstance(field_data, list):
@@ -427,7 +473,10 @@ Return JSON object with "fields" array:"""
             raise
         except Exception as e:
             logger.error(f"Error parsing LLM response ({len(response_text)} chars): {type(e).__name__}")
-            raise LLMCallError(f"Could not parse LLM response: {type(e).__name__}") from e
+            raise llm_failure(
+                f"Could not parse LLM response: {type(e).__name__}",
+                operation="parse_dictionary", model=model or self.deployment, error_class=type(e).__name__,
+            ) from e
 
         return fields
 
@@ -477,10 +526,11 @@ Return JSON object with "fields" array:"""
         max_output = max_output_tokens_for(active_deployment)
 
         print(f"[LLM] Sending to Responses API ({len(text_chunk)} chars, model={active_deployment}, max_output={max_output})...")
-        response_text = self._call_responses_api(prompt, active_deployment, max_output)
+        response_text = self._call_responses_api(prompt, active_deployment, max_output,
+                                                 operation="parse_dictionary")
         print(f"[LLM] Received response from Responses API")
 
-        fields = self.parse_llm_response(response_text)
+        fields = self.parse_llm_response(response_text, model=active_deployment)
 
         print(f"[LLM] Extracted {len(fields)} fields from this chunk")
         logger.info(f"Extracted {len(fields)} fields from chunk")
@@ -504,6 +554,15 @@ Return JSON object with "fields" array:"""
                 extract_fields_using_responses_api for details).
         """
         return self.extract_fields_using_responses_api(text_chunk, is_continuation, deployment=deployment)
+
+    def _require_fields(self, fields: List[FieldDefinition], deployment: Optional[str]) -> None:
+        """Zero extracted fields is a failure, not an empty-but-successful parse."""
+        if not fields:
+            raise llm_failure(
+                "The AI parser extracted no field definitions from this dictionary",
+                operation="parse_dictionary", model=deployment or self.deployment,
+                error_class="no_fields_extracted",
+            )
 
     def parse_dictionary(
         self,
@@ -547,6 +606,7 @@ Return JSON object with "fields" array:"""
 
             fields = self.extract_fields_from_chunk(dictionary_text, is_continuation=False, deployment=deployment)
             all_fields = fields
+            self._require_fields(all_fields, deployment)
 
             elapsed_time = time.time() - start_time
             print(f"[LLM] Single-call parsing complete - extracted {len(all_fields)} fields in {elapsed_time:.2f} seconds")
@@ -591,6 +651,8 @@ Return JSON object with "fields" array:"""
 
             print(f"[LLM] Processed chunk {i+1}/{len(chunks)}, extracted {len(fields)} fields, total: {len(all_fields)}")
             logger.info(f"Processed chunk {i+1}/{len(chunks)}, total fields: {len(all_fields)}")
+
+        self._require_fields(all_fields, deployment)
 
         # Convert to schema format
         schema = self.fields_to_schema(all_fields)
@@ -675,28 +737,34 @@ Return a JSON object with:
 
         try:
             response_text = self._call_responses_api(
-                prompt, self.deployment, max_output_tokens_for(self.deployment)
+                prompt, self.deployment, max_output_tokens_for(self.deployment),
+                operation="validate_data",
             )
 
-            # Parse response
+            # Parse response. An unparseable answer is a FAILURE, never an
+            # empty "no issues found" result (that would read as clean data).
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
             try:
-                json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group(1))
-                else:
-                    return json.loads(response_text)
-            except:
-                return {
-                    "issues": [],
-                    "summary": "Could not parse validation results",
-                    "recommendations": []
-                }
+                result = json.loads(json_match.group(1) if json_match else response_text)
+            except (json.JSONDecodeError, TypeError) as e:
+                raise llm_failure(
+                    "Could not parse LLM validation results (output was not valid JSON)",
+                    operation="validate_data", model=self.deployment, error_class=type(e).__name__,
+                ) from e
+            if not isinstance(result, dict) or "issues" not in result:
+                raise llm_failure(
+                    "LLM validation results had an unexpected shape (no 'issues' key)",
+                    operation="validate_data", model=self.deployment, error_class="unexpected_json_shape",
+                )
+            return result
 
         except LLMCallError:
             raise
         except Exception as e:
-            logger.error(f"Error in LLM validation: {type(e).__name__}")
-            raise LLMCallError(f"LLM validation failed: {type(e).__name__}") from e
+            raise llm_failure(
+                f"LLM validation failed: {type(e).__name__}",
+                operation="validate_data", model=self.deployment, error_class=type(e).__name__,
+            ) from e
 
 
 # Utility function for testing

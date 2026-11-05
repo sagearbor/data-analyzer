@@ -12,3 +12,4 @@ pyarrow>=14.0.0  # Parquet support
 fastapi>=0.104.0  # API support
 uvicorn[standard]>=0.24.0  # ASGI server
 httpx>=0.25.0  # Testing HTTP client
+pyyaml>=6.0  # tests/test_deploy_config.py parses deploy/aca templates

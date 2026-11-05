@@ -161,3 +161,70 @@ def test_validate_data_with_llm_uses_full_budget(parser, events, monkeypatch):
     assert result["summary"] == "ok"
     assert post.call_args.kwargs["json"]["max_output_tokens"] >= 32000
     assert len(events) == 1
+
+
+# ---------------------------------------------------------------------------
+# No silent degraded output: every AI failure raises AND logs one structured
+# `llm_failure` ERROR line (operation, model, error_class, finish_reason) with
+# no prompt/completion/data text.
+# ---------------------------------------------------------------------------
+
+def _failure_lines(caplog):
+    return [r.getMessage() for r in caplog.records
+            if r.levelname == "ERROR" and r.getMessage().startswith("llm_failure ")]
+
+
+def test_unparseable_validation_result_raises_not_empty(parser, events, monkeypatch, caplog):
+    """Was: returned {"issues": [], "summary": "Could not parse validation results"},
+    which reads as 'no issues found'."""
+    _mock_post(monkeypatch, _responses_payload("not json " + SECRET_COMPLETION_FIELD))
+    with caplog.at_level("ERROR", logger="src.llm_client"):
+        with pytest.raises(LLMCallError, match="Could not parse LLM validation results") as exc:
+            parser.validate_data_with_llm("a,b\n1,2 " + SECRET_PROMPT, {"a": {"type": "int"}})
+    assert exc.value.operation == "validate_data" and exc.value.model == "gpt-5-nano"
+    lines = _failure_lines(caplog)
+    assert lines == ["llm_failure operation=validate_data model=gpt-5-nano "
+                     "error_class=JSONDecodeError finish_reason=None"]
+    assert "SECRET" not in caplog.text and SECRET_COMPLETION_FIELD not in caplog.text
+
+
+def test_validation_result_without_issues_key_raises(parser, events, monkeypatch):
+    _mock_post(monkeypatch, _responses_payload(json.dumps({"summary": "fine"})))
+    with pytest.raises(LLMCallError, match="unexpected shape"):
+        parser.validate_data_with_llm("a\n1", {"a": {"type": "int"}})
+
+
+def test_unexpected_json_shape_raises_instead_of_zero_fields(parser, events, monkeypatch, caplog):
+    _mock_post(monkeypatch, _responses_payload(json.dumps({"columns": ["a"]})))
+    with caplog.at_level("ERROR", logger="src.llm_client"):
+        with pytest.raises(LLMCallError, match="unexpected shape"):
+            parser.extract_fields_using_responses_api("text")
+    assert any("error_class=unexpected_json_shape" in l for l in _failure_lines(caplog))
+
+
+def test_zero_fields_extracted_is_a_failure(parser, events, monkeypatch, caplog):
+    _mock_post(monkeypatch, _responses_payload(json.dumps({"fields": []})))
+    with caplog.at_level("ERROR", logger="src.llm_client"):
+        with pytest.raises(LLMCallError, match="extracted no field definitions"):
+            parser.parse_dictionary("short dictionary")
+    assert any("operation=parse_dictionary" in l and "error_class=no_fields_extracted" in l
+               for l in _failure_lines(caplog))
+
+
+def test_truncation_log_line_carries_finish_reason(parser, events, monkeypatch, caplog):
+    _mock_post(monkeypatch, _responses_payload("{\"fields\": [", status="incomplete",
+                                               incomplete_reason="max_output_tokens"))
+    with caplog.at_level("ERROR", logger="src.llm_client"):
+        with pytest.raises(LLMCallError) as exc:
+            parser.extract_fields_using_responses_api("text")
+    assert exc.value.finish_reason == "length"
+    assert any("finish_reason=length" in l and "error_class=finish_length" in l
+               for l in _failure_lines(caplog))
+
+
+def test_no_output_text_in_response_raises(parser, events, monkeypatch):
+    payload = _responses_payload("x")
+    payload["output"] = [{"type": "reasoning", "summary": []}]
+    _mock_post(monkeypatch, payload)
+    with pytest.raises(LLMCallError, match="no text"):
+        parser.extract_fields_using_responses_api("text")
