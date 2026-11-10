@@ -128,8 +128,9 @@ def test_ui_template_wires_api_url_and_key():
     assert env["DATA_ANALYZER_API_URL"]["value"].startswith("https://")
     assert env["DATA_ANALYZER_API_KEY"] == {"name": "DATA_ANALYZER_API_KEY",
                                             "secretRef": "data-analyzer-api-key"}
-    secrets = {s["name"] for s in m["properties"]["configuration"]["secrets"]}
-    assert "data-analyzer-api-key" in secrets
+    # Secrets are set out of band (aca-guard.sh put-secret), never listed in the
+    # manifest: a listed `secrets:` would overwrite/wipe live values on update --yaml.
+    assert "secrets" not in m["properties"]["configuration"]
     assert env["APP_ENV"]["value"] == "prod"
 
 
@@ -153,5 +154,57 @@ def test_committed_templates_hold_no_real_infra_ids_or_secrets(name):
     text = (ACA / name).read_text()
     for pat in _REAL_LOOKING:
         assert not pat.search(text), f"{name} contains a real-looking value matching {pat.pattern}"
-    for s in yaml.safe_load(text)["properties"]["configuration"]["secrets"]:
-        assert s.get("value", "").startswith("<"), f"secret {s['name']} has a non-placeholder value"
+    # No secret values of any kind (not even placeholders) may appear in a manifest.
+    for s in yaml.safe_load(text)["properties"]["configuration"].get("secrets") or []:
+        assert "value" not in s, f"secret {s['name']} carries a value; use aca-guard.sh put-secret or a Key Vault ref"
+
+
+# ---------------------------------------------------------------------------
+# Never silently localhost on ACA (the live 2026-11 bug: UI revision with no
+# DATA_ANALYZER_API_URL called http://localhost:8000 and got Connection refused)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("marker", ["CONTAINER_APP_NAME", "CONTAINER_APP_REVISION",
+                                    "CONTAINER_APP_HOSTNAME", "CONTAINER_APP_ENV_DNS_SUFFIX"])
+@pytest.mark.parametrize("app_env", [None, "dev", "local", "test", ""])
+def test_any_aca_marker_means_deployed_whatever_app_env_says(marker, app_env):
+    env = {marker: "x"}
+    if app_env is not None:
+        env["APP_ENV"] = app_env
+    assert is_deployed_env(env) is True
+    with pytest.raises(ApiConfigError):
+        resolve_api_base_url(env)
+    assert any("DATA_ANALYZER_API_URL" in p for p in ui_config_problems(env))
+
+
+@pytest.mark.parametrize("url", ["http://localhost:8000", "http://127.0.0.1:8000/",
+                                 "localhost:8000", "http://[::1]:8000", "http://0.0.0.0:8000"])
+def test_explicit_localhost_url_is_refused_when_deployed(url):
+    env = {"CONTAINER_APP_NAME": "data-analyzer-ui", "DATA_ANALYZER_API_URL": url,
+           "DATA_ANALYZER_API_KEY": "k"}
+    with pytest.raises(ApiConfigError, match="localhost"):
+        resolve_api_base_url(env)
+    assert ui_config_problems(env) == ["DATA_ANALYZER_API_URL points at localhost (UI cannot reach the API)"]
+    # ...but stays allowed for local dev
+    assert resolve_api_base_url({"DATA_ANALYZER_API_URL": url}) == url.rstrip("/")
+
+
+def test_compose_service_url_is_not_mistaken_for_localhost():
+    env = {"APP_ENV": "prod", "DATA_ANALYZER_API_URL": "http://api:8000", "DATA_ANALYZER_API_KEY": "k"}
+    assert resolve_api_base_url(env) == "http://api:8000"
+    assert ui_config_problems(env) == []
+
+
+_UI_LOCAL = ACA / "containerapp-ui.local.yaml"
+
+
+@pytest.mark.skipif(not _UI_LOCAL.exists(), reason="gitignored local manifest not present (CI)")
+def test_local_ui_manifest_wires_api_url_and_key_without_inline_secret():
+    m = yaml.safe_load(_UI_LOCAL.read_text())
+    env = _container_env(m)
+    url = env["DATA_ANALYZER_API_URL"]["value"]
+    assert url.startswith("https://") and "localhost" not in url
+    assert env["DATA_ANALYZER_API_KEY"].get("secretRef") == "data-analyzer-api-key"
+    # The key is set with `az containerapp secret set`, never inline here.
+    for s in m["properties"]["configuration"].get("secrets") or []:
+        assert str(s.get("value", "")).startswith("<"), "inline secret value in local UI manifest"
