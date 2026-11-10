@@ -32,13 +32,17 @@ docker push "$ACR/data-analyzer-api:latest"
 
 ## 2. Set secrets (never commit these)
 
+Values live in the gitignored `.env`, never in a manifest or on a command line.
+The shared guard reads `.env` and passes the value to `az` on stdin:
+
 ```bash
-RG=<resource-group>
-APP=data-analyzer-api
-az containerapp secret set --name "$APP" --resource-group "$RG" --secrets \
-  data-analyzer-api-key="$(openssl rand -hex 32)" \
-  azure-openai-api-key="<your-azure-openai-key>"
+~/dcri/aca-guard.sh put-secret data-analyzer-api data-analyzer-api-key DATA_ANALYZER_API_KEY
+~/dcri/aca-guard.sh put-secret data-analyzer-ui  data-analyzer-api-key DATA_ANALYZER_API_KEY
 ```
+
+Azure OpenAI is keyless (managed identity), so no OpenAI key secret is needed.
+Manifests must not contain a `secrets:` key; `pytest` (tests/test_aca_manifests.py)
+fails if one carries a value, a placeholder or an empty list.
 
 The generated `data-analyzer-api-key` is what API clients must send in the
 `X-API-Key` header. Store it in your secret manager and share only with
