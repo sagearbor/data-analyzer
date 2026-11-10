@@ -9,6 +9,18 @@ import os
 from pathlib import Path
 import shutil
 
+# Tests must never read the developer's local .env. api_server.py calls
+# load_dotenv() and reads DATA_ANALYZER_API_KEY once at import time, so if the
+# real key is in .env and any test imports api_server outside a patched env,
+# the module captures the real key and every later request with the test key
+# gets 403. Neutralise .env loading and pin the test key before any test
+# module is imported. Individual fixtures may still patch os.environ further.
+import dotenv as _dotenv
+
+_dotenv.load_dotenv = lambda *a, **k: False
+os.environ["DATA_ANALYZER_API_KEY"] = "test-api-key-12345"
+os.environ.setdefault("DATA_ANALYZER_ADMIN_PASSWORD", "test-admin-pass-67890")
+
 # Get the tests directory
 TESTS_DIR = Path(__file__).parent
 DATA_DIR = TESTS_DIR / "test_data"

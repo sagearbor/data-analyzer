@@ -128,8 +128,9 @@ def test_ui_template_wires_api_url_and_key():
     assert env["DATA_ANALYZER_API_URL"]["value"].startswith("https://")
     assert env["DATA_ANALYZER_API_KEY"] == {"name": "DATA_ANALYZER_API_KEY",
                                             "secretRef": "data-analyzer-api-key"}
-    secrets = {s["name"] for s in m["properties"]["configuration"]["secrets"]}
-    assert "data-analyzer-api-key" in secrets
+    # Secrets are set out of band (aca-guard.sh put-secret), never listed in the
+    # manifest: a listed `secrets:` would overwrite/wipe live values on update --yaml.
+    assert "secrets" not in m["properties"]["configuration"]
     assert env["APP_ENV"]["value"] == "prod"
 
 
@@ -153,8 +154,9 @@ def test_committed_templates_hold_no_real_infra_ids_or_secrets(name):
     text = (ACA / name).read_text()
     for pat in _REAL_LOOKING:
         assert not pat.search(text), f"{name} contains a real-looking value matching {pat.pattern}"
-    for s in yaml.safe_load(text)["properties"]["configuration"]["secrets"]:
-        assert s.get("value", "").startswith("<"), f"secret {s['name']} has a non-placeholder value"
+    # No secret values of any kind (not even placeholders) may appear in a manifest.
+    for s in yaml.safe_load(text)["properties"]["configuration"].get("secrets") or []:
+        assert "value" not in s, f"secret {s['name']} carries a value; use aca-guard.sh put-secret or a Key Vault ref"
 
 
 # ---------------------------------------------------------------------------
