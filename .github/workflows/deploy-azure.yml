@@ -1,0 +1,217 @@
+# .github/workflows/deploy-azure.yml
+#
+# DEFAULT GitHub Actions workflow — builds and deploys the data-analyzer API
+# to Azure Container Apps (the primary/default deployment target for this project).
+#
+# The Google Cloud Run workflow (.github/workflows/deploy-cloudrun.yml) is
+# OPTIONAL / non-default and exists only for an alternative public demo.
+#
+# ============================================================
+# REQUIRED GITHUB SECRET
+# ============================================================
+# AZURE_CREDENTIALS
+#   Service-principal JSON credential produced by:
+#
+#     az ad sp create-for-rbac \
+#       --name "gh-deploy-data-analyzer" \
+#       --role Contributor \
+#       --scopes /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP> \
+#       --sdk-auth
+#
+#   Store the full JSON output as the AZURE_CREDENTIALS repository secret.
+#
+# SECURITY NOTE — OIDC Federated Credentials (recommended for production)
+#   The more secure alternative to a long-lived service-principal JSON key is
+#   OpenID Connect (OIDC) Workload Identity Federation. With OIDC, GitHub's
+#   short-lived token is exchanged for an Azure access token — no stored secret.
+#   To adopt it:
+#     1. Create an App Registration and Federated Credential in Entra ID.
+#     2. Replace the azure/login@v2 `creds:` input with:
+#          client-id: ${{ vars.AZURE_CLIENT_ID }}
+#          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+#          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+#     3. Add `id-token: write` permission to the job (already present below).
+#   See: https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure-openid-connect
+#
+# ============================================================
+
+name: Deploy to Azure Container Apps (DEFAULT)
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group:
+        description: 'Azure resource group name'
+        required: false
+        default: 'rg-data-analyzer'
+        type: string
+      location:
+        description: 'Azure region'
+        required: false
+        default: 'eastus'
+        type: string
+      acr_name:
+        description: 'Azure Container Registry name (globally unique, 5-50 alphanumeric chars)'
+        required: true
+        type: string
+      app_name:
+        description: 'Container App name'
+        required: false
+        default: 'data-analyzer-api'
+        type: string
+
+jobs:
+  deploy:
+    name: Build and Deploy to Azure Container Apps
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # Required for OIDC federated credential auth (see header)
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Checkout source
+      # ------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Authenticate to Azure using the service-principal JSON secret.
+      #    To switch to OIDC (recommended), replace `creds:` with
+      #    client-id / tenant-id / subscription-id (see header comment).
+      # ------------------------------------------------------------------
+      - name: Authenticate to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ------------------------------------------------------------------
+      # 3. Ensure the resource group exists (idempotent)
+      # ------------------------------------------------------------------
+      - name: Ensure resource group
+        run: |
+          az group create \
+            --name "${{ inputs.resource_group }}" \
+            --location "${{ inputs.location }}" \
+            --output none
+
+      # ------------------------------------------------------------------
+      # 4. Ensure ACR exists and enable admin credentials
+      # ------------------------------------------------------------------
+      - name: Ensure Azure Container Registry
+        run: |
+          az acr create \
+            --name "${{ inputs.acr_name }}" \
+            --resource-group "${{ inputs.resource_group }}" \
+            --sku Basic \
+            --output none \
+            2>&1 || true
+
+          az acr update \
+            --name "${{ inputs.acr_name }}" \
+            --admin-enabled true \
+            --output none
+
+      # ------------------------------------------------------------------
+      # 5. Build and push image via ACR Tasks (no local Docker required)
+      # ------------------------------------------------------------------
+      - name: Build image via az acr build
+        run: |
+          az acr build \
+            --registry "${{ inputs.acr_name }}" \
+            --image "${{ inputs.app_name }}:${{ github.sha }}" \
+            --file Dockerfile.api \
+            .
+
+      # ------------------------------------------------------------------
+      # 6. Ensure Container Apps extension and environment exist
+      # ------------------------------------------------------------------
+      - name: Ensure Container Apps extension and environment
+        run: |
+          az extension add --name containerapp --upgrade --output none 2>&1 || true
+
+          az containerapp env create \
+            --name "aca-env-data-analyzer" \
+            --resource-group "${{ inputs.resource_group }}" \
+            --location "${{ inputs.location }}" \
+            --output none \
+            2>&1 || true
+
+      # ------------------------------------------------------------------
+      # 7. Derive ACR login server and credentials, then create or update
+      #    the Container App with external ingress on port 8080
+      # ------------------------------------------------------------------
+      - name: Create or update Container App
+        id: deploy-app
+        run: |
+          LOGIN_SERVER=$(az acr show \
+            --name "${{ inputs.acr_name }}" \
+            --query loginServer --output tsv)
+          ACR_USERNAME=$(az acr credential show \
+            --name "${{ inputs.acr_name }}" \
+            --query username --output tsv)
+          ACR_PASSWORD=$(az acr credential show \
+            --name "${{ inputs.acr_name }}" \
+            --query 'passwords[0].value' --output tsv)
+
+          IMAGE="${LOGIN_SERVER}/${{ inputs.app_name }}:${{ github.sha }}"
+
+          # Attempt create; fall back to update if the app already exists.
+          if ! az containerapp create \
+              --name "${{ inputs.app_name }}" \
+              --resource-group "${{ inputs.resource_group }}" \
+              --environment "aca-env-data-analyzer" \
+              --image "${IMAGE}" \
+              --target-port 8080 \
+              --ingress external \
+              --registry-server "${LOGIN_SERVER}" \
+              --registry-username "${ACR_USERNAME}" \
+              --registry-password "${ACR_PASSWORD}" \
+              --output none \
+              2>/dev/null; then
+            az containerapp update \
+              --name "${{ inputs.app_name }}" \
+              --resource-group "${{ inputs.resource_group }}" \
+              --image "${IMAGE}" \
+              --output none
+          fi
+
+          FQDN=$(az containerapp show \
+            --name "${{ inputs.app_name }}" \
+            --resource-group "${{ inputs.resource_group }}" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+
+          echo "fqdn=${FQDN}" >> "$GITHUB_OUTPUT"
+          echo "public_url=https://${FQDN}" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # 8. Write URL and verification commands to job summary
+      # ------------------------------------------------------------------
+      - name: Write summary
+        run: |
+          {
+            echo "## Azure Container Apps Deployment (DEFAULT)"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| App | \`${{ inputs.app_name }}\` |"
+            echo "| Resource Group | \`${{ inputs.resource_group }}\` |"
+            echo "| Location | \`${{ inputs.location }}\` |"
+            echo "| ACR | \`${{ inputs.acr_name }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| **Public URL** | ${{ steps.deploy-app.outputs.public_url }} |"
+            echo ""
+            echo "### Quick smoke test"
+            echo "\`\`\`bash"
+            echo "curl ${{ steps.deploy-app.outputs.public_url }}/health"
+            echo "\`\`\`"
+            echo ""
+            echo "### End-to-end A2A check"
+            echo "\`\`\`bash"
+            echo "python3 scripts/e2e_a2a_check.py --url ${{ steps.deploy-app.outputs.public_url }}"
+            echo "\`\`\`"
+            echo ""
+            echo "> **Security reminder:** External ingress is public/unauthenticated."
+            echo "> Add Entra ID authentication or Azure API Management before processing real data."
+          } >> "$GITHUB_STEP_SUMMARY"

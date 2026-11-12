@@ -1,3 +1,11 @@
+# ============================================================
+# OPTIONAL / NON-DEFAULT — Google Cloud Run path.
+# The DEFAULT deploy target for this project is AZURE
+# (Azure Container Apps): see deploy/azure-containerapp.sh and
+# .github/workflows/deploy-azure.yml. These GCP files exist only
+# for an optional public demo; do not use unless you are
+# explicitly deploying to Google Cloud.
+# ============================================================
 # .github/workflows/deploy-cloudrun.yml
 #
 # Manual GitHub Actions workflow to build and deploy the data-analyzer API
@@ -42,7 +50,7 @@
 #   - Google Cloud Endpoints / API Gateway with an API key or JWT
 # ============================================================
 
-name: Deploy to Cloud Run
+name: "[OPTIONAL / non-default — Google Cloud Run] Deploy to Cloud Run"
 
 on:
   workflow_dispatch:

@@ -1,5 +1,7 @@
 # Integration Guide — Calling the Data Analyzer Service
 
+**Default deploy target: Azure Container Apps. Google Cloud Run is an optional alternative.**
+
 The Data Analyzer exposes the **same core analysis logic** through three independent interfaces. Choose the interface that fits your client:
 
 | Interface | When to use |
@@ -255,9 +257,101 @@ The API server does not implement authentication itself — that is a **deployme
 
 ---
 
-## Deploying to Google Cloud Run (public, unauthenticated)
+## Deploying (default: Azure Container Apps)
 
-The repository ships with a ready-to-use Cloud Run deployment path that builds a minimal API image (no Streamlit, no LLM packages) and deploys it as a fully public HTTPS endpoint.
+Azure Container Apps is the **primary and default deployment target** for this project. The same `Dockerfile.api` is used (listens on `${PORT:-8080}`).
+
+### One-command deploy
+
+```bash
+ACR_NAME=myregistry123 ./deploy/azure-containerapp.sh
+```
+
+`ACR_NAME` is the only required variable — it must be globally unique across Azure (5-50 alphanumeric characters, no hyphens). All other variables have sensible defaults:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ACR_NAME` | **(required)** | Azure Container Registry name — globally unique, 5-50 alphanumeric chars |
+| `RESOURCE_GROUP` | `rg-data-analyzer` | Azure resource group |
+| `LOCATION` | `eastus` | Azure region |
+| `ACA_ENV` | `aca-env-data-analyzer` | Container Apps environment name |
+| `APP_NAME` | `data-analyzer-api` | Container App name |
+| `IMAGE_TAG` | `latest` | Image tag |
+
+The script will (all steps are idempotent — safe to re-run):
+1. Create the resource group.
+2. Create the ACR with Basic SKU and enable admin credentials.
+3. Build `Dockerfile.api` in the cloud via `az acr build` (no local Docker required).
+4. Ensure the Container Apps extension and environment exist.
+5. Create or update the Container App with external HTTPS ingress on port 8080.
+6. Print the resulting public HTTPS URL.
+
+### GitHub Actions alternative
+
+A `workflow_dispatch` workflow is provided at `.github/workflows/deploy-azure.yml`. Trigger it from the GitHub Actions UI (Actions tab → "Deploy to Azure Container Apps (DEFAULT)" → Run workflow) and supply:
+- **acr_name** (required — globally unique registry name)
+- **resource_group** (default `rg-data-analyzer`)
+- **location** (default `eastus`)
+- **app_name** (default `data-analyzer-api`)
+
+The public FQDN URL is echoed into the job summary after a successful deploy.
+
+**Required GitHub secret — `AZURE_CREDENTIALS`:**
+Create a service principal and store its JSON output as the `AZURE_CREDENTIALS` repository secret:
+
+```bash
+az ad sp create-for-rbac \
+  --name "gh-deploy-data-analyzer" \
+  --role Contributor \
+  --scopes /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/rg-data-analyzer \
+  --sdk-auth
+```
+
+**OIDC Workload Identity Federation is the more secure alternative.** OIDC eliminates long-lived service-principal JSON keys by federating GitHub's short-lived token directly into Azure. See [azure/login — OIDC](https://learn.microsoft.com/en-us/azure/developer/github/connect-from-azure-openid-connect). Replace `creds: ${{ secrets.AZURE_CREDENTIALS }}` with `client-id`, `tenant-id`, and `subscription-id` variables to adopt it.
+
+### Getting the FQDN after deploy
+
+```bash
+az containerapp show \
+    --name data-analyzer-api \
+    --resource-group rg-data-analyzer \
+    --query properties.configuration.ingress.fqdn \
+    --output tsv
+```
+
+The public URL is `https://<fqdn>`.
+
+### End-to-end check
+
+After deploy, run the live proof script against the public URL:
+
+```bash
+python3 scripts/e2e_a2a_check.py --url https://<fqdn>
+```
+
+The script (stdlib-only, no pip installs) verifies:
+1. `GET /health` returns `status: ok` with `a2a_backend` present.
+2. `GET /.well-known/agent.json` card `url` equals `/a2a/data-analyzer`.
+3. A base64-encoded CSV is sent via `call_agent_http()` and the response contains quality-pipeline keys (`checks`, `summary_stats`, etc.).
+
+It prints a concise PASS/FAIL summary and exits non-zero on any failure.
+
+### Security WARNING
+
+External ingress makes the `/analyze`, `/data-info`, and `/a2a/data-analyzer` endpoints reachable by **anyone on the public internet**. This is acceptable for a temporary demo or internal proof-of-concept. Before processing real patient data or any sensitive information:
+
+- Enable Microsoft Entra ID (formerly Azure AD) authentication on the Container App:
+  `az containerapp auth update --name data-analyzer-api --resource-group rg-data-analyzer --enabled true`
+- Place Azure API Management in front with key/JWT enforcement.
+- Switch to private ingress with VNet integration for network-level isolation.
+
+---
+
+## Deploying (optional / non-default: Google Cloud Run)
+
+> **Not the default** — the default deployment target is Azure Container Apps (above).
+
+The repository also ships with a Google Cloud Run deployment path that builds the same minimal API image and deploys it as a fully public HTTPS endpoint. Use this only if you are explicitly targeting Google Cloud.
 
 ### One-command deploy
 

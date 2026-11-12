@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# ============================================================
+# OPTIONAL / NON-DEFAULT — Google Cloud Run path.
+# The DEFAULT deploy target for this project is AZURE
+# (Azure Container Apps): see deploy/azure-containerapp.sh and
+# .github/workflows/deploy-azure.yml. These GCP files exist only
+# for an optional public demo; do not use unless you are
+# explicitly deploying to Google Cloud.
+# ============================================================
 # deploy/cloudrun.sh — Manual deploy script for the data-analyzer API on Cloud Run.
 #
 # USAGE
