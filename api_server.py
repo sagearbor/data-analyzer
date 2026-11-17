@@ -68,6 +68,7 @@ from src.api_models import (
 # Shared DCRI LLM telemetry (vendored; stdlib-only at import time).
 from src.dcri_llm import asgi_middleware, llm_action
 from src.runtime_env import is_deployed_env
+from src.__version__ import __version__
 
 # Optional service modules - each is independently best-effort. A missing/broken
 # module here degrades the corresponding feature (endpoints return 503) instead
@@ -133,7 +134,7 @@ app = FastAPI(
     - Health endpoint: 60 requests/minute
     - Other endpoints: 10 requests/minute (configurable per endpoint)
     """,
-    version="1.0.0",
+    version=__version__,
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
     openapi_url="/api/v1/openapi.json",
@@ -180,6 +181,54 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Maximum request size for the analyze routes.
+#
+# Same setting and 100MB default as mcp_server.DataLoader.MAX_CONTENT_BYTES
+# (DATA_ANALYZER_MAX_UPLOAD_BYTES). Read per request rather than once at
+# import so the limit can be changed without re-importing this module.
+DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+
+
+def _max_request_bytes() -> int:
+    """Return the configured maximum request size in bytes."""
+    try:
+        limit = int(os.getenv("DATA_ANALYZER_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES))
+    except ValueError:
+        return DEFAULT_MAX_UPLOAD_BYTES
+    return limit if limit > 0 else DEFAULT_MAX_UPLOAD_BYTES
+
+
+def _too_large_detail(limit: int) -> str:
+    return (
+        f"Request too large: the limit is {limit} bytes "
+        "(DATA_ANALYZER_MAX_UPLOAD_BYTES)."
+    )
+
+
+# Reject an oversize analyze request from its Content-Length header, before
+# the body is read into memory. Registered ahead of add_security_headers so
+# that middleware still wraps the 413 response. A request without a usable
+# Content-Length is caught by the size check in _run_quality_analysis().
+@app.middleware("http")
+async def enforce_max_request_size(request: Request, call_next):
+    if request.method == "POST" and request.url.path in (ANALYZE_PATH, ANALYZE_JSON_PATH):
+        limit = _max_request_bytes()
+        try:
+            declared = int(request.headers.get("content-length", ""))
+        except ValueError:
+            declared = None
+        if declared is not None and declared > limit:
+            return JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content=ErrorResponse(
+                    error=_too_large_detail(limit),
+                    detail=f"Content-Length was {declared} bytes.",
+                    timestamp=datetime.now().isoformat(),
+                    request_id=request.headers.get("X-Request-ID"),
+                ).dict(),
+            )
+    return await call_next(request)
 
 # Baseline security response headers (defense-in-depth for browser-based clients
 # and for any reverse proxy that forwards these responses as-is).
@@ -343,6 +392,11 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: str
     services: Dict[str, bool]
+
+class VersionResponse(BaseModel):
+    """Version response"""
+    name: str
+    version: str
 
 class ErrorResponse(BaseModel):
     """Standard error response"""
@@ -566,8 +620,16 @@ def _run_quality_analysis(
         The report dict from _build_quality_report().
 
     Raises:
-        HTTPException: 400 for empty/unparseable content, 500 otherwise.
+        HTTPException: 413 for content over the size limit, 400 for
+            empty/unparseable content, 500 otherwise.
     """
+    limit = _max_request_bytes()
+    if len(content_bytes) > limit:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=_too_large_detail(limit)
+        )
+
     try:
         if not content_bytes:
             raise HTTPException(
@@ -702,10 +764,12 @@ async def root():
     """Root endpoint - redirect to API docs"""
     return {
         "message": "Data Analyzer REST API",
-        "version": "1.0.0",
+        "version": __version__,
         "docs": "/api/v1/docs",
         "health": "/api/v1/health",
-        "analyze": "/api/v1/analyze",
+        "version_info": "/api/v1/version",
+        "analyze": ANALYZE_PATH,
+        "analyze_json": ANALYZE_JSON_PATH,
     }
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -734,16 +798,33 @@ async def health_check(request: Request):
 
     return HealthResponse(
         status=overall_status,
-        version="1.0.0",
+        version=__version__,
         timestamp=datetime.now().isoformat(),
         services=services_status,
     )
+
+@app.get("/api/v1/version", response_model=VersionResponse)
+@limiter.limit("60/minute")
+async def get_version(request: Request):
+    """
+    Version endpoint (ST-360)
+
+    Returns the package version from `src/__version__.py` - the same value
+    `/api/v1/health` and the web UI report. No authentication required.
+
+    **Rate Limit**: 60 requests per minute
+    """
+    return VersionResponse(name="data-analyzer", version=__version__)
 
 # ============================================================================
 # Data Analysis Endpoints
 # ============================================================================
 
-@app.post(ANALYZE_PATH, response_model=QualityAnalysisResponse)
+@app.post(
+    ANALYZE_PATH,
+    response_model=QualityAnalysisResponse,
+    responses={413: {"model": ErrorResponse, "description": "Request larger than DATA_ANALYZER_MAX_UPLOAD_BYTES"}},
+)
 @limiter.limit("30/minute")
 async def analyze_data(
     request: Request,
@@ -857,6 +938,7 @@ _JSON_ROUTE_EXTENSIONS = {"csv": ".csv", "tsv": ".tsv", "json": ".json"}
     response_model=QualityAnalysisResponse,
     responses={
         400: {"model": ErrorResponse, "description": "Empty, undecodable or unparseable data_content"},
+        413: {"model": ErrorResponse, "description": "Request larger than DATA_ANALYZER_MAX_UPLOAD_BYTES"},
         422: {"model": ErrorResponse, "description": "Request body failed validation"},
     },
 )
@@ -885,8 +967,8 @@ async def analyze_data_json(
     - `rules`: Optional object mapping column names to validation rules
     - `min_rows`: Minimum required row count (default 1)
 
-    **Errors:** 400 (bad content) and 422 (bad body) use the standard
-    `ErrorResponse` JSON shape.
+    **Errors:** 400 (bad content), 413 (over the size limit) and 422 (bad
+    body) use the standard `ErrorResponse` JSON shape.
     """
     if mcp_server is None:
         raise HTTPException(
@@ -1159,7 +1241,7 @@ async def startup_event():
     """Log startup information"""
     logger.info("=" * 60)
     logger.info("Data Analyzer REST API starting up")
-    logger.info(f"Version: 1.0.0")
+    logger.info(f"Version: {__version__}")
     logger.info(f"Environment: {os.getenv('APP_ENV', 'development')}")
     logger.info(f"Services initialized:")
     logger.info(f"  - LLM Client: {'✓' if llm_client else '✗'}")

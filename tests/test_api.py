@@ -167,7 +167,9 @@ class TestHealthEndpoint:
         """Health check should return version number"""
         response = client.get("/api/v1/health")
         data = response.json()
-        assert data["version"] == "1.0.0"
+        # ST-360: health reports the package version, no longer a hard-coded "1.0.0"
+        from src.__version__ import __version__
+        assert data["version"] == __version__
 
 
 # ============================================================================
