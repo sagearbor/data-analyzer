@@ -206,29 +206,94 @@ def _too_large_detail(limit: int) -> str:
     )
 
 
-# Reject an oversize analyze request from its Content-Length header, before
-# the body is read into memory. Registered ahead of add_security_headers so
-# that middleware still wraps the 413 response. A request without a usable
-# Content-Length is caught by the size check in _run_quality_analysis().
-@app.middleware("http")
-async def enforce_max_request_size(request: Request, call_next):
-    if request.method == "POST" and request.url.path in (ANALYZE_PATH, ANALYZE_JSON_PATH):
+class MaxRequestSizeMiddleware:
+    """Enforce the request size limit on the analyze routes while the body
+    is being received.
+
+    Pure ASGI middleware (not @app.middleware("http"), which only sees the
+    request after the body has been handed over): it wraps `receive` and
+    counts the bytes of every `http.request` message, so an oversize body is
+    refused as soon as the running total passes the limit - whether the
+    Content-Length header is truthful, wrong, or absent (chunked upload).
+    A truthful oversize Content-Length is rejected up front, before any of
+    the body is read.
+
+    Registered ahead of add_security_headers so that middleware still wraps
+    the 413 response.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or scope["path"] not in (ANALYZE_PATH, ANALYZE_JSON_PATH)
+        ):
+            await self.app(scope, receive, send)
+            return
+
         limit = _max_request_bytes()
-        try:
-            declared = int(request.headers.get("content-length", ""))
-        except ValueError:
-            declared = None
-        if declared is not None and declared > limit:
-            return JSONResponse(
+        headers = dict(scope.get("headers") or [])
+        request_id = headers.get(b"x-request-id", b"").decode("latin-1") or None
+
+        async def send_too_large(detail: str):
+            response = JSONResponse(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 content=ErrorResponse(
                     error=_too_large_detail(limit),
-                    detail=f"Content-Length was {declared} bytes.",
+                    detail=detail,
                     timestamp=datetime.now().isoformat(),
-                    request_id=request.headers.get("X-Request-ID"),
+                    request_id=request_id,
                 ).dict(),
             )
-    return await call_next(request)
+            await response(scope, receive, send)
+
+        # Fast path: the client says up front that the body is too big.
+        try:
+            declared = int(headers.get(b"content-length", b"").decode("latin-1"))
+        except ValueError:
+            declared = None
+        if declared is not None and declared > limit:
+            await send_too_large(f"Content-Length was {declared} bytes.")
+            return
+
+        received = 0
+        rejected = False
+        response_started = False
+
+        async def counting_receive():
+            nonlocal received, rejected
+            if rejected:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # Answer now and stop feeding the body to the app: it
+                    # sees a disconnect, and anything it then tries to send
+                    # is dropped by guarded_send below.
+                    rejected = True
+                    if not response_started:
+                        await send_too_large(
+                            f"Stopped reading after {received} bytes."
+                        )
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            nonlocal response_started
+            if rejected:
+                return
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        await self.app(scope, counting_receive, guarded_send)
+
+
+app.add_middleware(MaxRequestSizeMiddleware)
 
 # Baseline security response headers (defense-in-depth for browser-based clients
 # and for any reverse proxy that forwards these responses as-is).

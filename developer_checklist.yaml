@@ -896,7 +896,9 @@ phase_api_programmatic:
     - GET /api/v1/version; health/root/OpenAPI report src.__version__.
     - Both analyze routes return 413 over DATA_ANALYZER_MAX_UPLOAD_BYTES.
     - examples/api_client.py and a README section with curl examples.
-    - tests/test_api_programmatic.py: 24 tests, offline, synthetic data.
+    - Size limit enforced while the body streams (MaxRequestSizeMiddleware,
+      pure ASGI), so a missing or wrong Content-Length cannot bypass it.
+    - tests/test_api_programmatic.py: 28 tests, offline, synthetic data.
     REMAINING: review + PR to main; README top section and docs/INTEGRATION.md
     still describe port 8003 and /analyze, /data-info, /health, which do not
     match api_server.py (port 8000, /api/v1/...).

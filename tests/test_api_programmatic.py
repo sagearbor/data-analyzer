@@ -60,8 +60,14 @@ def mock_env():
 @pytest.fixture(scope="module")
 def client(mock_env):
     """Create test client with authentication configured"""
-    from api_server import app
-    return TestClient(app)
+    import api_server
+
+    # Other test modules reload api_server with no key configured and leave
+    # authentication disabled; pin the test key for this module so the auth
+    # tests do not depend on which files ran before.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(api_server, "API_KEY", TEST_API_KEY)
+        yield TestClient(api_server.app)
 
 
 @pytest.fixture
@@ -347,6 +353,85 @@ class TestVersionAndLimits:
             "/api/v1/analyze/json", json={"data_content": SYNTHETIC_CSV}, headers=api_headers
         )
         assert_error_response(response, 413)
+
+    @pytest.mark.parametrize("route", ["json", "multipart"])
+    def test_ST_360_oversize_chunked_body_without_content_length_returns_413(
+        self, client, api_headers, monkeypatch, route
+    ):
+        """ST-360: an oversize body sent chunked, with no Content-Length, still gets 413"""
+        import json as _json
+
+        monkeypatch.setenv("DATA_ANALYZER_MAX_UPLOAD_BYTES", "200")
+        big = "widget_id,quantity\n" + "".join(f"{i},{i}\n" for i in range(200))
+        if route == "json":
+            path, content_type = "/api/v1/analyze/json", "application/json"
+            payload = _json.dumps({"data_content": big}).encode("utf-8")
+        else:
+            path, content_type = "/api/v1/analyze", "multipart/form-data; boundary=synthetic"
+            payload = (
+                "--synthetic\r\n"
+                'Content-Disposition: form-data; name="data_file"; filename="widgets.csv"\r\n'
+                "Content-Type: text/csv\r\n\r\n"
+                f"{big}\r\n--synthetic--\r\n"
+            ).encode("utf-8")
+
+        def chunks():
+            for start in range(0, len(payload), 64):
+                yield payload[start:start + 64]
+
+        request = client.build_request(
+            "POST", path, content=chunks(),
+            headers={**api_headers, "Content-Type": content_type},
+        )
+        assert "content-length" not in request.headers  # nothing to pre-check
+        response = client.send(request)
+        body = assert_error_response(response, 413)
+        assert "200" in body["error"]
+        assert response.headers.get("X-Content-Type-Options") == "nosniff"
+
+    @pytest.mark.parametrize("content_length", [None, b"10"])
+    def test_ST_360_size_limit_enforced_while_streaming(
+        self, client, monkeypatch, content_length
+    ):
+        """ST-360: the body is counted as it streams and reading stops at the limit,
+        with a missing or an understated Content-Length"""
+        import asyncio
+        import json as _json
+        import api_server
+
+        monkeypatch.setenv("DATA_ANALYZER_MAX_UPLOAD_BYTES", "200")
+        headers = [(b"content-type", b"application/json"),
+                   (b"x-api-key", TEST_API_KEY.encode())]
+        if content_length is not None:
+            headers.append((b"content-length", content_length))
+        scope = {
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+            "method": "POST", "scheme": "http", "path": "/api/v1/analyze/json",
+            "raw_path": b"/api/v1/analyze/json", "query_string": b"", "root_path": "",
+            "headers": headers, "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+        }
+        total_chunks = 50
+        chunks_read = 0
+        sent = []
+
+        async def receive():
+            nonlocal chunks_read
+            chunks_read += 1
+            return {"type": "http.request", "body": b"x" * 100,
+                    "more_body": chunks_read < total_chunks}
+
+        async def send(message):
+            sent.append(message)
+
+        asyncio.run(api_server.app(scope, receive, send))
+
+        starts = [m for m in sent if m["type"] == "http.response.start"]
+        assert [m["status"] for m in starts] == [413]  # exactly one response
+        body = _json.loads(b"".join(m.get("body", b"") for m in sent
+                                    if m["type"] == "http.response.body"))
+        assert "200" in body["error"] and "timestamp" in body
+        # 200-byte limit, 100-byte chunks: refused on the 3rd chunk, the other 47 never read
+        assert chunks_read == 3
 
     def test_ST_360_new_routes_in_openapi(self, client):
         """ST-359/ST-360: both new routes are documented, JSON route with a request model"""

@@ -61,7 +61,8 @@ curl -sS http://127.0.0.1:8000/api/v1/version
 
 **Size limit.** A request to either analyze route larger than `DATA_ANALYZER_MAX_UPLOAD_BYTES`
 (default 104857600 bytes = 100 MB; set the environment variable to change it) is rejected with
-HTTP 413.
+HTTP 413. The limit is enforced while the body is received, so it also applies to chunked uploads
+that send no `Content-Length`.
 
 **Errors.** Errors are JSON, never HTML:
 
