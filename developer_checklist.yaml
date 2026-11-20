@@ -936,5 +936,36 @@ phase_release_1_0_small_features:
         get_available_deployments() with LLMCallError(error_class="deployment_not_allowed")
         before any HTTP call; max_output_tokens_for() floors every non-gpt-4 name at 40000;
         UI selectbox falls back to the first entry on a stale value and shows the model in use;
-        AZURE_OPENAI_DEPLOYMENTS added to both ACA manifest templates. REMAINING: owner to
-        adjust the list after live testing (only models verified to answer).
+        AZURE_OPENAI_DEPLOYMENTS added to both ACA manifest templates with the six models
+        verified live on 2026-11-20 (gpt-5-nano, gpt-5.4-mini, gpt-5.5, gpt-5.6-luna/terra/sol).
+
+phase_release_1_0_security_and_sdlc:
+  name: "Release 1.0: security review, fixes, test record, SDLC documents (Jira epic ADP-48)"
+  status: INPROGRESS
+  tasks:
+    - id: ADP-49
+      name: "Security review by two independent reviewers; 19 finding issues ADP-69..ADP-87"
+      status: INPROGRESS
+      notes: |
+        Fixed in code: ADP-72 (page cache per session), 73, 74, 76 (code part), 77, 78, 79, 80 (CI),
+        81, 82, 83, 84, 85, 86, 87. Details of findings are kept in Jira only (public repo).
+        OPEN, need the owner or IT: ADP-69 (files in the public repository), ADP-70 (old
+        credential file in history), ADP-71 (per-user sign-in), ADP-75 (shared cloud identity),
+        ADP-76 (data policy), ADP-72 (ownership of saved dictionaries on the API).
+    - id: ADP-88
+      name: "Checker findings that were detected but never shown (range with missing values, type checks)"
+      status: DONE
+    - id: ADP-53
+      name: "Every automated test described in plain language (tests/zephyr/) and recorded in Zephyr"
+      status: INPROGRESS
+      notes: "tools/release/build_zephyr_manifest.py assembles tests/zephyr/release-1.0-manifest.json."
+    - id: ADP-54
+      name: "SDLC documents from the DS-S-001 templates (Confluence ADP, SDLC / Data Analyzer)"
+      status: INPROGRESS
+      notes: "Release request ADP-91 and Validation Plan drafted; preliminary risk Medium. Board review is a people step."
+    - id: ADP-89
+      name: "Strengthen automated tests that prove little or cannot fail"
+      status: TODO
+    - id: ADP-90
+      name: "Selected tab label on the top bar is hard to read"
+      status: TODO

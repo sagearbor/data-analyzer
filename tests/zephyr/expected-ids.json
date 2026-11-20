@@ -601,6 +601,18 @@
   "tests.test_sec_schema_type_mapping.test_the_page_maps_types_and_lists_the_unmappable_one_as_not_checked",
   "tests.test_sec_schema_type_mapping.test_every_builtin_demo_dictionary_with_its_demo_data_analyses_without_a_422"
  ],
+ "test_sec_type_issues_surfaced": [
+  "tests.test_sec_type_issues_surfaced.test_a_bad_date_is_a_top_level_issue_and_counted_in_the_summary",
+  "tests.test_sec_type_issues_surfaced.test_an_int_column_containing_text_is_reported_per_row",
+  "tests.test_sec_type_issues_surfaced.test_a_bool_column_containing_other_text_is_reported",
+  "tests.test_sec_type_issues_surfaced.test_a_clean_typed_file_has_no_type_issue",
+  "tests.test_sec_type_issues_surfaced.test_a_schema_column_missing_from_the_data_is_an_issue",
+  "tests.test_sec_type_issues_surfaced.test_too_few_rows_is_an_issue",
+  "tests.test_sec_type_issues_surfaced.test_range_allowed_and_invalid_rule_findings_still_reach_issues_and_are_counted",
+  "tests.test_sec_type_issues_surfaced.test_a_rule_the_checker_cannot_apply_is_counted_in_the_summary",
+  "tests.test_sec_type_issues_surfaced.test_type_violations_beyond_the_listed_rows_are_counted_not_dropped",
+  "tests.test_sec_type_issues_surfaced.test_the_page_lists_the_invalid_date_under_its_own_heading"
+ ],
  "test_sec_ui_api_connection": [
   "tests.test_sec_ui_api_connection.test_api_call_with_the_key_disables_redirect_following",
   "tests.test_sec_ui_api_connection.test_a_redirect_from_the_api_is_an_error_and_is_not_followed",

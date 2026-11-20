@@ -1,0 +1,152 @@
+[
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_a_bad_date_is_a_top_level_issue_and_counted_in_the_summary",
+  "name": "Data Analyzer: An invalid date appears in the issue list and in the issue counts",
+  "objective": "Proves a date that fails its type check is reported as an issue and counted in the summary, not only buried in the type-check section. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse the made-up 5-row table (record_id, age, sex, sbp, visit_date) in which row 3 has the date 'not-a-date', and age and sbp are each blank once, declaring visit_date as a date and age as an integer.",
+    "data": "visit_date value 'not-a-date' at row 3",
+    "expected": "HTTP 200. The issue list has exactly one 'invalid_date' issue for visit_date, at row 3, value 'not-a-date', severity error."
+   },
+   {
+    "action": "Read the summary counts.",
+    "data": "Summary and issue totals",
+    "expected": "Issues found is 3 (2 missing-value entries plus 1 invalid date) and critical issues is 1. The total, returned count and truncated flag are consistent with the list."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_a_bad_date_is_a_top_level_issue_and_counted_in_the_summary"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_an_int_column_containing_text_is_reported_per_row",
+  "name": "Data Analyzer: Text in a whole-number column is reported row by row",
+  "objective": "Proves each non-number in an integer column becomes its own issue. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a one-column made-up file declared as integer.",
+    "data": "Column n: 1, abc, 3, xyz",
+    "expected": "The issue list has type-mismatch issues for column n at rows 1 and 3 only; critical issues is 2; totals are consistent."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_an_int_column_containing_text_is_reported_per_row"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_a_bool_column_containing_other_text_is_reported",
+  "name": "Data Analyzer: Unexpected text in a yes/no column is reported",
+  "objective": "Proves a value that is not true/false is flagged. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a one-column made-up file declared as boolean.",
+    "data": "Column flag: true, maybe, false",
+    "expected": "Exactly one type-mismatch issue for column flag, at row 1, with value 'maybe'."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_a_bool_column_containing_other_text_is_reported"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_a_clean_typed_file_has_no_type_issue",
+  "name": "Data Analyzer: A clean file with correct types has no issues",
+  "objective": "Proves no false alarms: valid values of every type produce an empty issue list. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a 2-row made-up file with integer, date, boolean and text columns, all valid.",
+    "data": "n: 1,2; d: 2026-01-01, 2026-01-02; f: yes, no; s: a, b",
+    "expected": "The issue list is empty and issues found is 0."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_a_clean_typed_file_has_no_type_issue"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_a_schema_column_missing_from_the_data_is_an_issue",
+  "name": "Data Analyzer: A dictionary column missing from the data file is reported",
+  "objective": "Proves a column that is declared but absent from the file is raised as an issue. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a file with column a only, declaring a column 'nope' as integer.",
+    "data": "Column a = 1; schema nope = int",
+    "expected": "A 'missing_column' issue for 'nope' is in the list and issues found is 1."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_a_schema_column_missing_from_the_data_is_an_issue"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_too_few_rows_is_an_issue",
+  "name": "Data Analyzer: Too few rows is reported as an issue",
+  "objective": "Proves a file with fewer rows than the required minimum is flagged. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a 1-row file with the minimum row count set to 5.",
+    "data": "1 row; minimum 5",
+    "expected": "A 'row_count_below_minimum' issue is in the list and issues found is 1."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_too_few_rows_is_an_issue"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_range_allowed_and_invalid_rule_findings_still_reach_issues_and_are_counted",
+  "name": "Data Analyzer: Range and allowed-value findings still reach the issue list and counts",
+  "objective": "Proves the older kinds of finding were not lost when type findings were added. Runs on both analyze routes (file upload and inline data). (Despite the name, no 'invalid rule' case is sent in this test; that one is covered by a separate test.)",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a 2-row file with a maximum of 100 on age and an allowed list of only 'y' for column c.",
+    "data": "age: 150, 5; c: x, y",
+    "expected": "The issue list includes both 'range_violation' and 'invalid_categorical_value'; issues found is 2; totals are consistent."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_range_allowed_and_invalid_rule_findings_still_reach_issues_and_are_counted"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_a_rule_the_checker_cannot_apply_is_counted_in_the_summary",
+  "name": "Data Analyzer: A rule that cannot be applied is reported and counted",
+  "objective": "Proves a rule with a nonsense value (minimum 'zz') becomes a visible issue rather than being dropped.",
+  "precondition": "No server request: the quality checker and report builder are called directly on a made-up 2-row table.",
+  "steps": [
+   {
+    "action": "Run the checks with the rule age minimum = 'zz' and build the report.",
+    "data": "age: 1, 2",
+    "expected": "The issue list contains exactly one issue, of type 'rule_invalid', and issues found and the total both equal 1."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_a_rule_the_checker_cannot_apply_is_counted_in_the_summary"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_type_violations_beyond_the_listed_rows_are_counted_not_dropped",
+  "name": "Data Analyzer: Many type errors are all counted even when the list is shorter",
+  "objective": "Proves counts cover every error, not just the rows listed in the report. Uses the file-upload route only.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a file of 30 text values in a column declared as integer.",
+    "data": "30 rows of 'x'",
+    "expected": "Issues total is 30 and issues found is 30; the returned, total and truncated figures are consistent."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_type_violations_beyond_the_listed_rows_are_counted_not_dropped"
+ },
+ {
+  "id": "tests.test_sec_type_issues_surfaced.test_the_page_lists_the_invalid_date_under_its_own_heading",
+  "name": "Data Analyzer: The page shows the invalid date under an 'Invalid Date' heading",
+  "objective": "Proves the user sees the bad date on screen, with its value.",
+  "precondition": "Web page loaded in the offline test harness with a made-up API key; its call to the service is routed to the in-process server; the AI dictionary reader is replaced by a canned dictionary (visit_date as date, age as integer 0 to 120); private temporary cache folder. No network.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary and the made-up 5-row table, then press Run analysis.",
+    "data": "Row 3 date 'not-a-date'",
+    "expected": "No exception is raised."
+   },
+   {
+    "action": "Read the section headings and error messages.",
+    "data": "Result page",
+    "expected": "A section headed 'Invalid Date (1 issues)' exists, and an error message contains 'not-a-date'."
+   }
+  ],
+  "source": "tests/test_sec_type_issues_surfaced.py::test_the_page_lists_the_invalid_date_under_its_own_heading"
+ }
+]
