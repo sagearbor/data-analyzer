@@ -1005,6 +1005,8 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
             # visible, otherwise a broken rule looks like a clean result.
             key = qp_issue.get('key')
             where = f"column '{_safe_label(column)}'" + (f", key '{_safe_label(key)}'" if key else "")
+            issues_total += 1
+            row_errors += 1
             issues.append({
                 "type": "rule_invalid",
                 "severity": "error",
@@ -1013,6 +1015,34 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
                            "This rule was NOT checked.",
             })
             continue
+
+        if issue_type in ("type_mismatch", "invalid_date"):
+            rule = f"type {qp_issue.get('expected_type', '')}".strip()
+
+        # Findings without row positions are still findings: one row-less issue.
+        rowless = None
+        if not violating_rows:
+            if qp_issue.get('check') == 'row_count':
+                rowless = ("row_count_below_minimum", None,
+                           f"Dataset has {qp_issue.get('row_count')} rows; the minimum is {qp_issue.get('min_required')}.")
+            elif qp_issue.get('issue') == 'missing_column':
+                rowless = ("missing_column", column,
+                           f"Column '{_safe_label(column)}' is in the schema but not in the data.")
+            elif issue_type in ("type_mismatch", "invalid_date"):
+                rowless = (issue_type, column,
+                           f"Column '{_safe_label(column)}' does not match its expected type ({_safe_label(qp_issue.get('expected_type'))}).")
+        if rowless:
+            issues_total += 1
+            row_errors += 1
+            if len(issues) < max_issues:
+                issues.append({"type": rowless[0], "severity": "error", "column": rowless[1], "message": rowless[2]})
+            continue
+
+        # Rows beyond the first listed ones are counted, not listed (see issues_truncated).
+        extra = int(qp_issue.get('violation_count') or 0) - len(violating_rows)
+        if issue_type in ("type_mismatch", "invalid_date") and extra > 0:
+            issues_total += extra
+            row_errors += extra
 
         for row_idx in violating_rows:
             issues_total += 1

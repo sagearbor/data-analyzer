@@ -633,7 +633,14 @@ class QualityChecker:
                             # If any values failed to parse, this is a type error
                             if failed_count > 0:
                                 raise ValueError(f"Invalid datetime values found: {failed_count} values could not be parsed")
-                    except:
+                        elif expected_type == "bool":
+                            # Object column that should be boolean: every non-null value
+                            # must look like a boolean.
+                            col_vals = self.df[column].dropna()
+                            bad = ~col_vals.astype(str).str.strip().str.lower().isin(self._BOOL_WORDS)
+                            if bad.any():
+                                raise ValueError("Non-boolean values found")
+                    except (ValueError, TypeError):
                         # For datetime issues, provide more specific information
                         if expected_type == "datetime":
                             col_data = self.df[column].dropna()
@@ -647,16 +654,21 @@ class QualityChecker:
                                 "expected_type": expected_type,
                                 "actual_type": actual_dtype,
                                 "invalid_values": invalid_dates.tolist(),
+                                "violating_rows": invalid_dates.index.tolist()[:10],  # first 10
+                                "violation_count": int(len(invalid_dates)),
                                 "valid_sample": col_data[pd.to_datetime(col_data, format='mixed', errors='coerce').notna()].head(2).tolist(),
                                 "description": f"Found {len(invalid_dates)} invalid date values in column '{column}'"
                             })
                         else:
+                            bad_rows = self._type_violating_rows(column, expected_type)
                             type_issues.append({
                                 "column": column,
                                 "issue": "type_mismatch",
                                 "expected_type": expected_type,
                                 "actual_type": actual_dtype,
-                                "sample_values": self.df[column].head(3).tolist()
+                                "sample_values": self.df[column].head(3).tolist(),
+                                "violating_rows": bad_rows[:10],  # first 10
+                                "violation_count": len(bad_rows),
                             })
         
         passed = len(type_issues) == 0
@@ -675,6 +687,18 @@ class QualityChecker:
         return result
     
     _RANGE_RULE_KEYS = ("min", "max", "allowed")
+    _BOOL_WORDS = frozenset({"true", "false", "t", "f", "yes", "no", "y", "n", "1", "0", "1.0", "0.0"})
+
+    def _type_violating_rows(self, column: str, expected_type: str) -> list:
+        """Index labels of the non-null values that do not fit an int/float/bool column."""
+        col = self.df[column]
+        if expected_type in ("int", "float"):
+            bad = col.notna() & pd.to_numeric(col, errors="coerce").isna()
+        elif expected_type == "bool":
+            bad = col.notna() & ~col.astype(str).str.strip().str.lower().isin(self._BOOL_WORDS)
+        else:
+            return []
+        return col.index[bad].tolist()
 
     @staticmethod
     def _is_finite_number(value: Any) -> bool:
