@@ -8,17 +8,28 @@ from web_app import (DictionaryTooLargeError, check_dictionary_text_size,
                      extract_pdf_manual_rules, extract_pdf_text, max_upload_bytes)
 
 
-class _Page:
-    def __init__(self, text):
-        self._t = text
+def _Reader(texts):
+    """Real in-memory PDF bytes with one page per text (extract_pdf_text now reads
+    PDF bytes in a child process instead of a reader object)."""
+    import io
 
-    def extract_text(self):
-        return self._t
+    import pypdf
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-
-class _Reader:
-    def __init__(self, texts):
-        self.pages = [_Page(t) for t in texts]
+    w = pypdf.PdfWriter()
+    for text in texts:
+        page = w.add_blank_page(200, 200)
+        font = DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+                                 NameObject("/Subtype"): NameObject("/Type1"),
+                                 NameObject("/BaseFont"): NameObject("/Helvetica")})
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): w._add_object(font)})})
+        stream = DecodedStreamObject()
+        stream.set_data(b"BT /F1 12 Tf 10 100 Td (" + text.encode() + b") Tj ET")
+        page[NameObject("/Contents")] = w._add_object(stream)
+    buf = io.BytesIO()
+    w.write(buf)
+    return buf.getvalue()
 
 
 # --- B-03 -------------------------------------------------------------------

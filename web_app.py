@@ -23,6 +23,8 @@ import plotly.express as px
 import hashlib
 import os
 import tempfile
+import subprocess
+import sys
 import stat as stat_module
 import time
 import logging
@@ -174,155 +176,131 @@ def force_text_cells(workbook) -> int:
 
 
 # --- Dictionary text limits (B-04) -----------------------------------------
-DEFAULT_PDF_MAX_PAGE_BYTES = 5_000_000
+DEFAULT_PDF_EXTRACT_TIMEOUT_SECONDS = 30
+DEFAULT_PDF_EXTRACT_MAX_MEMORY_MB = 400
+_PDF_WORKER_PATH = Path(__file__).resolve().parent / "src" / "pdf_extract_worker.py"
+# Only these variables reach the PDF child: no API key, no Azure settings.
+_PDF_CHILD_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SYSTEMROOT",
+                       "PYTHONUSERBASE", "PYTHONPATH", "VIRTUAL_ENV")
 
 
-class _PageSizeError(Exception):
-    """A PDF page's decoded content could not be proven small (reason: too_large | unbounded | unreadable)."""
-
-    def __init__(self, reason: str):
-        super().__init__(reason)
-        self.reason = reason
+def _pdf_worker_command(max_pages: int, max_chars: int, max_memory_mb: int) -> list:
+    """The child command line. A separate function so tests can substitute the worker."""
+    return [sys.executable, str(_PDF_WORKER_PATH), str(max_pages), str(max_chars), str(max_memory_mb)]
 
 
-_PDF_FORM_DEPTH_LIMIT = 3
+def _run_pdf_worker(pdf_bytes: bytes, max_pages: int, max_chars: int) -> dict:
+    """Run the extraction worker in a child process with a wall-clock timeout, a
+    memory ceiling (applied in the child, Linux only - see pdf_extract_worker) and
+    a cap on the bytes read from its stdout. Returns the worker's JSON result;
+    raises DictionaryTooLargeError (user-safe message) for every failure - a
+    partial result is never returned."""
+    import threading
 
-
-def _bounded_stream_size(stream, budget: int) -> int:
-    """Decoded size of one content stream, never materialising more than
-    budget + 1 bytes. No filter: raw length. A single /FlateDecode: bounded
-    zlib inflate. Any other filter/chain: unbounded (refused)."""
-    import zlib
-
-    raw = getattr(stream, "_data", None)
-    if raw is None:
-        raise _PageSizeError("unreadable")
-    raw = bytes(raw)
-    filt = stream.get("/Filter")
-    filt = filt.get_object() if filt is not None and hasattr(filt, "get_object") else filt
-    if isinstance(filt, (list, tuple)):
-        names = [str(f.get_object() if hasattr(f, "get_object") else f) for f in filt]
-    elif filt is None:
-        names = []
-    else:
-        names = [str(filt)]
-    if not names:
-        size = len(raw)
-    elif names in (["/FlateDecode"], ["/Fl"]):
-        d = zlib.decompressobj()
-        size, data = 0, raw
-        try:
-            while True:
-                chunk = d.decompress(data, max(1, budget + 1 - size))
-                size += len(chunk)
-                if size > budget:
-                    break
-                data = d.unconsumed_tail
-                if not data:
-                    break
-        except zlib.error:
-            raise _PageSizeError("unreadable")
-    else:
-        raise _PageSizeError("unbounded")
-    if size > budget:
-        raise _PageSizeError("too_large")
-    return size
-
-
-def _page_resources(page):
-    node = page
-    for _ in range(20):  # /Resources can be inherited from a parent /Pages node
-        res = node.get("/Resources") if hasattr(node, "get") else None
-        if res is not None:
-            return res.get_object()
-        parent = node.get("/Parent")
-        if parent is None:
-            return None
-        node = parent.get_object()
-    return None
-
-
-def _bounded_container_size(container, limit: int, used: int, depth: int, seen: set) -> int:
-    """Add up decoded content-stream sizes of a page or Form XObject (and of the
-    Form XObjects it references, to a depth limit). Returns the new running total."""
-    if depth > _PDF_FORM_DEPTH_LIMIT:
-        raise _PageSizeError("unbounded")
-    contents = container.get("/Contents") if depth == 0 else container
-    contents = contents.get_object() if contents is not None else None
-    if contents is not None:
-        parts = list(contents) if isinstance(contents, (list, tuple)) else [contents]
-        for part in parts:
-            used += _bounded_stream_size(part.get_object(), limit - used)
-    res = _page_resources(container) if depth == 0 else container.get("/Resources")
-    res = res.get_object() if res is not None and hasattr(res, "get_object") else res
-    xobjects = res.get("/XObject") if res is not None else None
-    xobjects = xobjects.get_object() if xobjects is not None else None
-    for ref in (xobjects.values() if xobjects else ()):
-        obj = ref.get_object()
-        if id(obj) in seen or obj.get("/Subtype") != "/Form":
-            continue
-        seen.add(id(obj))
-        # The recursion counts the form's own stream, then its nested forms.
-        used = _bounded_container_size(obj, limit, used, depth + 1, seen)
-    return used
-
-
-def _page_content_bytes(page, limit: int) -> int:
-    """Decoded size of everything extract_text() would have to decode for this
-    page, bounded by `limit`. Raises _PageSizeError (fail closed) when it is too
-    large, uses an encoding that cannot be bounded, or cannot be measured."""
-    if not hasattr(page, "get"):
-        return 0  # not a PDF page object at all (nothing to measure); real pages always have .get
+    timeout = _env_int("UI_PDF_EXTRACT_TIMEOUT_SECONDS", DEFAULT_PDF_EXTRACT_TIMEOUT_SECONDS)
+    mem_mb = _env_int("UI_PDF_EXTRACT_MAX_MEMORY_MB", DEFAULT_PDF_EXTRACT_MAX_MEMORY_MB)
+    out_cap = max_chars * 12 + 4096  # JSON-escaped text is at most 12 bytes per character
+    env = {k: os.environ[k] for k in _PDF_CHILD_ENV_KEYS if k in os.environ}
+    unreadable = DictionaryTooLargeError(
+        "This PDF could not be read safely (the reader stopped or produced invalid output). "
+        "Re-save it as a standard PDF, or split it, and upload it again.")
     try:
-        return _bounded_container_size(page, limit, 0, 0, set())
-    except _PageSizeError:
-        raise
-    except Exception:
-        raise _PageSizeError("unreadable")
+        proc = subprocess.Popen(_pdf_worker_command(max_pages, max_chars, mem_mb),
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                env=env, close_fds=True, shell=False)
+    except OSError:
+        logger.error("pdf_worker_start_failed")
+        raise unreadable
+
+    box: list = []
+
+    def _write():
+        try:
+            proc.stdin.write(pdf_bytes)
+        except OSError:
+            pass
+        finally:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+
+    def _read():
+        box.append(proc.stdout.read(out_cap + 1))
+
+    threads = [threading.Thread(target=_write, daemon=True), threading.Thread(target=_read, daemon=True)]
+    for t in threads:
+        t.start()
+    deadline = time.monotonic() + timeout
+    timed_out = False
+    while proc.poll() is None:
+        if time.monotonic() > deadline:
+            timed_out = True
+            break
+        if box and len(box[0]) > out_cap:  # over-long output: stop the child
+            break
+        time.sleep(0.02)
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait()
+    for t in threads:
+        t.join(timeout=2)
+    if timed_out:
+        logger.warning("pdf_worker_timeout seconds=%d", timeout)
+        raise DictionaryTooLargeError(
+            f"Reading this PDF took too long (more than {timeout} seconds) and was stopped. "
+            "Split the dictionary into smaller files and upload them separately.")
+    out = box[0] if box else b""
+    if proc.returncode != 0 or not out or len(out) > out_cap:
+        logger.warning("pdf_worker_failed returncode=%s output_bytes=%d", proc.returncode, len(out))
+        raise unreadable
+    try:
+        result = json.loads(out.decode("utf-8"))
+        if not isinstance(result, dict) or result.get("status") not in (
+                "ok", "too_many_pages", "too_much_text", "error"):
+            raise ValueError("unexpected worker output")
+    except (ValueError, UnicodeDecodeError):
+        logger.warning("pdf_worker_bad_output")
+        raise unreadable
+    return result
 
 
-def extract_pdf_text(reader, max_pages: Optional[int] = None, max_chars: Optional[int] = None) -> str:
-    """Concatenate page text from a pypdf reader, refusing oversized input.
+def extract_pdf_text_and_pages(pdf_bytes: bytes, max_pages: Optional[int] = None,
+                               max_chars: Optional[int] = None) -> tuple:
+    """Extract text from PDF bytes in a bounded child process.
 
-    Raises DictionaryTooLargeError (with a message fit to show the user) when
-    the PDF has more than `max_pages` pages or yields more than `max_chars`
-    characters. Defaults come from UI_PDF_MAX_PAGES / UI_DICT_MAX_CHARS.
+    Returns (text, page_count). Raises DictionaryTooLargeError (message fit to
+    show the user) when the PDF has more than `max_pages` pages or more than
+    `max_chars` characters of text, takes too long, exceeds the child's memory
+    ceiling, or cannot be read. Defaults: UI_PDF_MAX_PAGES / UI_DICT_MAX_CHARS.
     """
     max_pages = max_pages or _env_int("UI_PDF_MAX_PAGES", DEFAULT_PDF_MAX_PAGES)
     max_chars = max_chars or _env_int("UI_DICT_MAX_CHARS", DEFAULT_DICT_MAX_CHARS)
-    pages = reader.pages
-    if len(pages) > max_pages:
+    result = _run_pdf_worker(pdf_bytes, max_pages, max_chars)
+    status = result.get("status")
+    if status == "too_many_pages":
         raise DictionaryTooLargeError(
-            f"This PDF has {len(pages)} pages; the limit is {max_pages}. "
+            f"This PDF has {int(result.get('pages', 0))} pages; the limit is {max_pages}. "
             "Split the dictionary into smaller files and upload them separately."
         )
-    max_page_bytes = _env_int("UI_PDF_MAX_PAGE_BYTES", DEFAULT_PDF_MAX_PAGE_BYTES)
-    parts, total = [], 0
-    for number, page in enumerate(pages, start=1):
-        # Checked BEFORE extraction: extract_text() materialises the whole page.
-        try:
-            _page_content_bytes(page, max_page_bytes)
-        except _PageSizeError as e:
-            if e.reason == "too_large":
-                msg = (f"Page {number} of this PDF is too large to read safely "
-                       f"(more than {max_page_bytes:,} bytes of page content once decoded). "
-                       "Split or simplify the dictionary and upload it again.")
-            elif e.reason == "unbounded":
-                msg = (f"Page {number} of this PDF uses an encoding that cannot be size-checked, "
-                       "so it was not read. Re-save the PDF as a standard PDF and upload it again.")
-            else:
-                msg = (f"Page {number} of this PDF could not be size-checked, so it was not read. "
-                       "Re-save the PDF and upload it again.")
-            raise DictionaryTooLargeError(msg)
-        text = (page.extract_text() or "") + "\n"
-        total += len(text)
-        if total > max_chars:
+    if status == "too_much_text":
+        raise DictionaryTooLargeError(
+            f"The text in this PDF is longer than the limit of {max_chars:,} characters. "
+            "Split the dictionary into smaller files and upload them separately."
+        )
+    if status != "ok" or not isinstance(result.get("text"), str):
+        if result.get("reason") == "memory":
             raise DictionaryTooLargeError(
-                f"The text in this PDF is longer than the limit of {max_chars:,} characters. "
-                "Split the dictionary into smaller files and upload them separately."
-            )
-        parts.append(text)
-    return "".join(parts)
+                "This PDF needs too much memory to read safely. "
+                "Split the dictionary into smaller files and upload them separately.")
+        raise DictionaryTooLargeError(
+            "This PDF could not be read. Re-save it as a standard PDF and upload it again.")
+    return result["text"], int(result.get("pages", 0))
+
+
+def extract_pdf_text(pdf_bytes: bytes, max_pages: Optional[int] = None, max_chars: Optional[int] = None) -> str:
+    """Text of a PDF (see extract_pdf_text_and_pages for the limits and errors)."""
+    return extract_pdf_text_and_pages(pdf_bytes, max_pages, max_chars)[0]
 
 
 def check_dictionary_text_size(text: str, max_chars: Optional[int] = None) -> str:
@@ -1951,9 +1929,9 @@ if nav_choice == "Analyze":
                             # Read file content
                             file_content = ""
                             if dict_file.name.endswith('.pdf'):
-                                pdf_reader = pypdf.PdfReader(dict_file)
-                                # Bounded pages/characters; raises DictionaryTooLargeError
-                                file_content = extract_pdf_text(pdf_reader)
+                                # Bounded pages/characters/time/memory, in a child process;
+                                # raises DictionaryTooLargeError
+                                file_content = extract_pdf_text(dict_file.getvalue())
                             elif dict_file.name.endswith('.csv'):
                                 file_content = dict_file.read().decode('utf-8')
                             elif dict_file.name.endswith('.txt'):
@@ -2056,9 +2034,7 @@ if nav_choice == "Analyze":
                             # Read PDF content. Page count and total characters are
                             # bounded (UI_PDF_MAX_PAGES / UI_DICT_MAX_CHARS); a
                             # DictionaryTooLargeError is shown to the user below.
-                            pdf_reader = pypdf.PdfReader(dict_file)
-                            num_pages = len(pdf_reader.pages)
-                            extracted_text = extract_pdf_text(pdf_reader)
+                            extracted_text, num_pages = extract_pdf_text_and_pages(dict_file.getvalue())
                             progress_bar.progress(1.0, text=f"Processed {num_pages} pages")
 
                             # Linear-time pattern extraction (no ReDoS, see extract_pdf_manual_rules)

@@ -43,6 +43,24 @@
    "id": "219591",
    "type": "Task",
    "summary": "Deploy release 1.0 to the development environment and verify"
+  },
+  "range-nulls": {
+   "key": "ADP-88",
+   "id": "219626",
+   "type": "Task",
+   "summary": "Range checks missed violations in columns with missing values (fixed)"
+  },
+  "weak-tests": {
+   "key": "ADP-89",
+   "id": "219627",
+   "type": "Task",
+   "summary": "Strengthen automated tests that prove little or cannot fail"
+  },
+  "nav-contrast": {
+   "key": "ADP-90",
+   "id": "219628",
+   "type": "Task",
+   "summary": "Selected tab label on the top bar is hard to read"
   }
  },
  "pages": {

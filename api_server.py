@@ -560,7 +560,22 @@ def _peer_in_trusted_networks(peer: str, nets) -> bool:
 
 def get_client_id(request: Optional[Request]) -> str:
     """The one client identifier used by BOTH the rate limiter and the
-    failed-key throttle.
+    failed-key throttle (see get_client_id_info for the per-caller flag)."""
+    return get_client_id_info(request)[0]
+
+
+def get_client_id_info(request: Optional[Request]) -> "tuple[str, bool]":
+    """Return (client_id, per_caller).
+
+    per_caller is True ONLY when the id came from a forwarded-address entry that
+    was honoured under DATA_ANALYZER_TRUSTED_PROXY_HOPS (and, when set,
+    DATA_ANALYZER_TRUSTED_PROXY_CIDRS). Otherwise the TCP peer address was used,
+    which may be shared by many callers (a proxy, the UI) so per_caller is False.
+
+    Lockout rule that depends on it (see _enforce_credential_throttle): a
+    per-caller id that has hit the failure limit is refused for ANY presented
+    credential; a shared id never has a CORRECT credential refused (only wrong
+    ones are counted and refused), so one bad caller cannot lock everyone out.
 
     Default: the TCP peer (request.client.host). When
     DATA_ANALYZER_TRUSTED_PROXY_HOPS=N (N >= 1) the Nth entry of
@@ -584,12 +599,28 @@ def get_client_id(request: Optional[Request]) -> str:
             if len(entries) >= hops:
                 candidate = _normalise_client_id(entries[-hops])
                 if candidate:
-                    return candidate
-    return peer or "unknown"
+                    return candidate, True
+    return peer or "unknown", False
 
 
 def _auth_client_id(request: Optional[Request]) -> str:
     return get_client_id(request)
+
+
+def _enforce_credential_throttle(kind: str, request: Optional[Request], matches: bool) -> None:
+    """Apply the lockout rule after the constant-time comparison was made.
+
+    per-caller id: locked out -> identical 429 whether the credential is right or
+    wrong (no guessing oracle). Shared id (peer address): a correct credential is
+    always accepted; wrong ones count and get 429 once the limit is reached.
+    Returns normally only when the credential is accepted; otherwise the caller
+    raises 403 after this has counted the failure."""
+    _cid, per_caller = get_client_id_info(request)
+    if matches and not per_caller:
+        return
+    _reject_if_auth_locked_out(kind, request)
+    if not matches:
+        _record_auth_failure(kind, request)
 
 
 def _reject_if_auth_locked_out(kind: str, request: Optional[Request]) -> None:
@@ -683,10 +714,8 @@ async def verify_api_key(
     matches = _secrets_equal(api_key, API_KEY)
     # A locked-out client gets the identical 429 whether the key is right or wrong
     # (otherwise a correct guess during a lockout would be an oracle).
-    _reject_if_auth_locked_out("api_key", request)
+    _enforce_credential_throttle("api_key", request, matches)
     if not matches:
-        # Count and log the failed attempt (never the key itself).
-        _record_auth_failure("api_key", request)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid credentials provided.",
@@ -734,9 +763,8 @@ async def verify_admin_password(
     # Constant-time comparison, always performed (also when locked out).
     matches = _secrets_equal(admin_password, ADMIN_PASSWORD)
     # Locked-out client: identical 429 for a right or wrong password.
-    _reject_if_auth_locked_out("admin", request)
+    _enforce_credential_throttle("admin", request, matches)
     if not matches:
-        _record_auth_failure("admin", request)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid admin credentials provided.",

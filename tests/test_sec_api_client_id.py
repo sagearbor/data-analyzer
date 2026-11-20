@@ -118,12 +118,40 @@ def test_the_rate_limiter_uses_the_same_client_id_as_the_throttle(api, monkeypat
     assert api.limiter._key_func(req) == api.get_client_id(req) == "203.0.113.5"
 
 
-def test_after_the_limit_both_wrong_and_correct_keys_from_that_client_get_the_same_429(client):
+def test_per_caller_id_after_the_limit_both_wrong_and_correct_keys_get_the_same_429(client, monkeypatch):
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
     for i in range(3):
-        assert _post(client, f"w{i}").status_code == 403
-    wrong, right = _post(client, "w-more"), _post(client, KEY)
+        assert _post(client, f"w{i}", xff="203.0.113.1").status_code == 403
+    wrong, right = _post(client, "w-more", xff="203.0.113.1"), _post(client, KEY, xff="203.0.113.1")
     assert wrong.status_code == right.status_code == 429
     assert wrong.headers["Retry-After"] == right.headers["Retry-After"] == "60"
+
+
+def test_shared_peer_id_after_the_limit_a_correct_key_is_served_and_wrong_keys_get_429(client):
+    for i in range(3):
+        assert _post(client, f"w{i}").status_code == 403
+    assert _post(client, KEY).status_code == 200
+    assert _post(client, "w-more").status_code == 429
+
+
+@pytest.mark.parametrize("setup", ["header_missing", "peer_outside_cidr"])
+def test_when_a_forwarded_entry_is_not_used_the_id_is_shared_and_correct_keys_are_served(client, monkeypatch, setup):
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    xff = None
+    if setup == "peer_outside_cidr":
+        monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+        xff = "6.6.6.6, 203.0.113.1"
+    for i in range(3):
+        assert _post(client, f"w{i}", xff=xff).status_code == 403
+    assert _post(client, KEY, xff=xff).status_code == 200
+    assert _post(client, "more", xff=xff).status_code == 429
+
+
+def test_the_per_caller_flag_is_true_only_when_a_forwarded_entry_was_used(api, monkeypatch):
+    assert api.get_client_id_info(_req(api, "6.6.6.6, 203.0.113.5"))[1] is False
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    assert api.get_client_id_info(_req(api, "6.6.6.6, 203.0.113.5")) == ("203.0.113.5", True)
+    assert api.get_client_id_info(_req(api)) == ("198.51.100.7", False)
 
 
 def test_a_locked_out_client_does_not_affect_a_different_client_id(client, monkeypatch):
@@ -140,12 +168,34 @@ def test_a_missing_key_is_still_401_during_a_lockout_and_is_not_counted(client):
     assert _post(client, None).status_code == 401
 
 
-def test_admin_password_lockout_gives_the_same_429_for_right_and_wrong_passwords(api, monkeypatch):
+def _admin_call(api, req, pw):
+    import asyncio
+
+    return asyncio.run(api.verify_admin_password(pw, req))
+
+
+def test_admin_password_on_a_shared_peer_id_a_correct_password_is_served_wrong_ones_get_429(api, monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(api, "ADMIN_PASSWORD", "sec-test-admin")
+    req = _req(api)
+    for _ in range(3):
+        with pytest.raises(HTTPException) as e:
+            _admin_call(api, req, "wrong")
+        assert e.value.status_code == 403
+    assert _admin_call(api, req, "sec-test-admin") == "sec-test-admin"
+    with pytest.raises(HTTPException) as e:
+        _admin_call(api, req, "wrong")
+    assert e.value.status_code == 429
+
+
+def test_admin_password_lockout_gives_the_same_429_for_right_and_wrong_passwords_per_caller(api, monkeypatch):
     from fastapi import HTTPException
     import asyncio
 
     monkeypatch.setattr(api, "ADMIN_PASSWORD", "sec-test-admin")
-    req = _req(api)
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    req = _req(api, "6.6.6.6, 203.0.113.9")
 
     def call(pw):
         return asyncio.run(api.verify_admin_password(pw, req))

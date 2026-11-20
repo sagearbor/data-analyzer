@@ -86,113 +86,104 @@ def test_a_non_regular_entry_file_is_refused(tmp_path):
     cache.put(key, {"x": 1})             # nor hang on write
 
 
-# ---- PDF page size (decoded, fail closed) ----------------------------------
-import zlib
+# ---- PDF extraction in a bounded child process ------------------------------
+import sys
+import textwrap
 
-from pypdf.generic import ArrayObject, DictionaryObject
+from tests.test_sec_ui_dictionary_limits import _Reader as make_pdf
 
-
-def _pdf(content: bytes, pages=1, flate=False, form=False, filter_name=None):
-    """In-memory PDF. flate: compress the content stream. form: put the content in
-    a Form XObject drawn by a tiny page stream instead."""
-    w = pypdf.PdfWriter()
-    for _ in range(pages):
-        page = w.add_blank_page(200, 200)
-        stream = DecodedStreamObject()
-        stream.set_data(content)
-        if flate:
-            stream = stream.flate_encode()
-        if filter_name:
-            stream[NameObject("/Filter")] = NameObject(filter_name)
-        if form:
-            stream[NameObject("/Type")] = NameObject("/XObject")
-            stream[NameObject("/Subtype")] = NameObject("/Form")
-            from pypdf.generic import RectangleObject
-            stream[NameObject("/BBox")] = RectangleObject([0, 0, 10, 10])
-            xo = DictionaryObject({NameObject("/Fm0"): w._add_object(stream)})
-            page[NameObject("/Resources")] = DictionaryObject({NameObject("/XObject"): xo})
-            small = DecodedStreamObject()
-            small.set_data(b"/Fm0 Do")
-            page[NameObject("/Contents")] = w._add_object(small)
-        else:
-            page[NameObject("/Contents")] = w._add_object(stream)
-    buf = io.BytesIO()
-    w.write(buf)
-    return pypdf.PdfReader(io.BytesIO(buf.getvalue()))
+PYTHON = sys.executable
 
 
-def _spy_extract(monkeypatch, reader):
-    calls = []
-    monkeypatch.setattr(type(reader.pages[0]), "extract_text", lambda self, *a, **k: calls.append(1) or "")
-    return calls
+def _substitute_worker(monkeypatch, script: str):
+    """Tests only: replace the worker command with an inline script."""
+    monkeypatch.setattr(web_app, "_pdf_worker_command",
+                        lambda *a: [PYTHON, "-c", textwrap.dedent(script)])
 
 
-def test_a_page_with_content_over_the_per_page_byte_limit_is_refused_before_extraction(monkeypatch):
-    monkeypatch.setenv("UI_PDF_MAX_PAGE_BYTES", "100")
-    reader = _pdf(b"BT (" + b"a" * 500 + b") Tj ET")
-    calls = _spy_extract(monkeypatch, reader)
-    with pytest.raises(DictionaryTooLargeError) as e:
-        extract_pdf_text(reader)
-    assert "Page 1" in str(e.value) and "100" in str(e.value)
-    assert calls == []
+def test_a_normal_small_pdf_extracts_through_the_real_subprocess():
+    text, pages = web_app.extract_pdf_text_and_pages(make_pdf(["one", "two"]))
+    assert (text, pages) == ("one\ntwo\n", 2)
 
 
-def test_a_small_compressed_stream_that_expands_past_the_limit_is_refused_without_extraction(monkeypatch):
-    monkeypatch.setenv("UI_PDF_MAX_PAGE_BYTES", "5000")
-    reader = _pdf(b"0" * 2_000_000, flate=True)   # stored size (~2 KB) is under the limit
-    assert len(reader.pages[0]["/Contents"].get_object()._data) < 5000
-    calls = _spy_extract(monkeypatch, reader)
-    with pytest.raises(DictionaryTooLargeError) as e:
-        extract_pdf_text(reader)
-    assert "once decoded" in str(e.value)
-    assert calls == []
+def test_a_pdf_whose_text_exceeds_a_tiny_character_limit_is_refused():
+    with pytest.raises(DictionaryTooLargeError, match="characters"):
+        extract_pdf_text(make_pdf(["y" * 600, "y" * 600]), max_chars=1000)
 
 
-def test_a_form_xobject_carrying_the_large_content_is_refused(monkeypatch):
-    monkeypatch.setenv("UI_PDF_MAX_PAGE_BYTES", "1000")
-    reader = _pdf(b"0" * 500_000, flate=True, form=True)
-    calls = _spy_extract(monkeypatch, reader)
+def test_a_pdf_over_the_page_limit_is_refused_with_the_page_count():
+    with pytest.raises(DictionaryTooLargeError, match=r"4 pages; the limit is 3"):
+        extract_pdf_text(make_pdf(["a"] * 4), max_pages=3)
+
+
+def test_a_worker_that_hangs_is_killed_at_the_timeout_and_the_user_is_told_it_took_too_long(monkeypatch):
+    import time
+
+    monkeypatch.setenv("UI_PDF_EXTRACT_TIMEOUT_SECONDS", "1")
+    _substitute_worker(monkeypatch, "import time; time.sleep(60)")
+    started = time.monotonic()
+    with pytest.raises(DictionaryTooLargeError, match="took too long"):
+        extract_pdf_text(make_pdf(["x"]))
+    assert time.monotonic() - started < 10
+
+
+@pytest.mark.parametrize("script", [
+    "import sys; sys.exit(3)",
+    "print('not json at all')",
+    "import os, signal; os.kill(os.getpid(), signal.SIGKILL)",
+    "print('{\"status\": \"ok\"}')",                       # ok without text: incomplete
+    "print('{\"status\": \"something-else\"}')",
+    "",
+])
+def test_a_worker_that_exits_badly_or_prints_garbage_is_refused(monkeypatch, script):
+    _substitute_worker(monkeypatch, script)
     with pytest.raises(DictionaryTooLargeError):
-        extract_pdf_text(reader)
-    assert calls == []
+        extract_pdf_text(make_pdf(["x"]))
 
 
-def test_a_stream_with_an_encoding_that_cannot_be_bounded_is_refused(monkeypatch):
-    monkeypatch.setenv("UI_PDF_MAX_PAGE_BYTES", "100000")
-    reader = _pdf(b"abc", filter_name="/LZWDecode")
-    calls = _spy_extract(monkeypatch, reader)
-    with pytest.raises(DictionaryTooLargeError) as e:
-        extract_pdf_text(reader)
-    assert "cannot be size-checked" in str(e.value)
-    assert calls == []
+def test_over_long_worker_output_is_refused_and_the_child_stopped(monkeypatch):
+    _substitute_worker(monkeypatch, "import sys; sys.stdout.write('a' * 5_000_000); sys.stdout.flush()")
+    with pytest.raises(DictionaryTooLargeError):
+        extract_pdf_text(make_pdf(["x"]), max_chars=100)
 
 
-def test_a_measurement_error_refuses_the_page_instead_of_treating_it_as_empty(monkeypatch):
-    reader = _pdf(b"BT ET")
-    calls = _spy_extract(monkeypatch, reader)
-
-    def boom(*a, **k):
-        raise RuntimeError("synthetic")
-
-    monkeypatch.setattr(web_app, "_bounded_stream_size", boom)
-    with pytest.raises(DictionaryTooLargeError) as e:
-        extract_pdf_text(reader)
-    assert "could not be size-checked" in str(e.value)
-    assert calls == []
+def test_the_child_environment_has_no_api_key_or_azure_settings(monkeypatch):
+    monkeypatch.setenv("DATA_ANALYZER_API_KEY", "SECRET-KEY-VALUE")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.invalid")
+    _substitute_worker(monkeypatch, """
+        import os, json
+        bad = [k for k in os.environ if k.startswith(("DATA_ANALYZER", "AZURE", "LLM_"))]
+        print(json.dumps({"status": "ok", "pages": 1, "text": "leaked:" + ",".join(bad)}))
+    """)
+    assert extract_pdf_text(make_pdf(["x"])) == "leaked:"
 
 
-def test_a_normal_small_pdf_still_extracts(monkeypatch):
-    monkeypatch.setenv("UI_PDF_MAX_PAGE_BYTES", "10000")
-    assert isinstance(extract_pdf_text(_pdf(b"BT ET")), str)
-    assert isinstance(extract_pdf_text(_pdf(b"BT ET", flate=True)), str)
-    assert isinstance(extract_pdf_text(_pdf(b"BT ET", flate=True, form=True)), str)
+def test_the_worker_does_not_import_the_app_or_streamlit():
+    import subprocess
+
+    code = ("import runpy, sys; sys.argv=['w','5','100','400']; "
+            "sys.stdin = open('/dev/null'); "
+            "mod = runpy.run_path(r'%s', run_name='not_main'); "
+            "print(any(m in sys.modules for m in ('web_app', 'streamlit')))" % web_app._PDF_WORKER_PATH)
+    out = subprocess.run([PYTHON, "-c", code], capture_output=True, text=True, timeout=60)
+    assert out.stdout.strip() == "False"
 
 
-def test_a_page_without_content_measures_zero_and_streams_in_an_array_add_up():
-    blank = pypdf.PdfWriter()
-    blank.add_blank_page(10, 10)
-    assert web_app._page_content_bytes(blank.pages[0], 100) == 0
-    reader = _pdf(b"x" * 40)
-    assert web_app._page_content_bytes(reader.pages[0], 100) == 40
-    with pytest.raises(web_app._PageSizeError):
-        web_app._page_content_bytes(reader.pages[0], 39)
+@pytest.mark.skipif(sys.platform != "linux",
+                    reason="RLIMIT_AS is only enforced on Linux (the container); unsupported/unreliable on macOS")
+def test_an_over_limit_allocation_in_the_child_is_refused():
+    import subprocess
+
+    code = ("import runpy; m = runpy.run_path(r'%s', run_name='not_main'); "
+            "m['apply_memory_limit'](100); "
+            "\ntry:\n    bytearray(1024*1024*1024)\n    print('allocated')\n"
+            "except MemoryError:\n    print('refused')" % web_app._PDF_WORKER_PATH)
+    out = subprocess.run([PYTHON, "-c", code], capture_output=True, text=True, timeout=60)
+    assert out.stdout.strip() == "refused"
+
+
+def test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it(monkeypatch):
+    import runpy
+
+    mod = runpy.run_path(str(web_app._PDF_WORKER_PATH), run_name="not_main")
+    assert mod["apply_memory_limit"](10**9) in (True, False)
