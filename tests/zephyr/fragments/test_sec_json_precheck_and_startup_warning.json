@@ -83,7 +83,7 @@
    {
     "action": "Send the JSON value 5, then \"x\", then null.",
     "data": "5; \"x\"; null",
-    "expected": "HTTP 400 and the message says 'list of records or an object of columns'."
+    "expected": "HTTP 400 and the message contains both 'list of records' and 'object of columns' (checked as two separate phrases)."
    }
   ],
   "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_json_that_is_not_a_list_or_object_is_a_400_with_a_stable_message"
@@ -186,5 +186,118 @@
    }
   ],
   "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_startup_event_calls_the_check_and_does_not_refuse_to_start"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_every_shape_other_than_the_two_accepted_ones_is_a_400_on_both_routes",
+  "name": "Data Analyzer: Any JSON layout other than a list of records or an object of columns is refused with HTTP 400",
+  "objective": "Proves exactly two JSON layouts are accepted and every other layout gets a clear HTTP 400 before any table is built. Runs 6 layouts on both routes (12 runs).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The table-building library's JSON reader, DataFrame and flattening functions are replaced by a trap that fails the test if called.",
+  "steps": [
+   {
+    "action": "Send each unaccepted layout to each analyze route.",
+    "data": "list of lists [[1,2],[3,4]]; a list with a non-object [{a:1}, 5]; object of objects {a:{0:1}, b:{0:2}}; split layout {columns:[a,b], data:[[1,2]]}; columns of different lengths {a:[1,2,3], b:[1]}; a column that is a single value {a:[1,2], b:5}",
+    "expected": "HTTP 400 every time, and the message contains both 'list of records' and 'object of columns'. The trap is never triggered."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_every_shape_other_than_the_two_accepted_ones_is_a_400_on_both_routes"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_the_library_loader_refuses_the_same_shapes",
+  "name": "Data Analyzer: The data loading library refuses the same unaccepted JSON layouts",
+  "objective": "Proves the loader used outside the web service applies the same shape rules. Runs once per layout (6 runs).",
+  "precondition": "No server request; the loader is called directly with made-up JSON.",
+  "steps": [
+   {
+    "action": "Load each unaccepted layout.",
+    "data": "list of lists [[1,2],[3,4]]; a list with a non-object [{a:1}, 5]; object of objects {a:{0:1}, b:{0:2}}; split layout {columns:[a,b], data:[[1,2]]}; columns of different lengths {a:[1,2,3], b:[1]}; a column that is a single value {a:[1,2], b:5}",
+    "expected": "An error whose message mentions 'list of records' is raised each time."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_library_loader_refuses_the_same_shapes"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_nested_records_whose_flattened_leaf_count_exceeds_the_column_limit_are_413_before_any_dataframe",
+  "name": "Data Analyzer: Nested records are counted by their final fields against the column limit, before any table is built",
+  "objective": "Proves a record with nested sub-objects is measured by the columns the table would really have, so nesting cannot hide a too-wide file.",
+  "precondition": "No server request; loader functions called directly. Column limit set to 5. The table-building library is replaced by a trap that fails the test if called.",
+  "steps": [
+   {
+    "action": "Check a record with 5 final fields (id, p.a, p.b, p.c.d, p.c.e) against the limit of 5.",
+    "data": "One nested record",
+    "expected": "Accepted without error."
+   },
+   {
+    "action": "Add a 6th nested field and check again, then load the same text through the loader.",
+    "data": "Sixth field p.c.f",
+    "expected": "A 'data too large' error mentioning 'columns' is raised both times."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_nested_records_whose_flattened_leaf_count_exceeds_the_column_limit_are_413_before_any_dataframe"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_the_leaf_path_count_matches_what_json_normalize_builds_and_never_undercounts",
+  "name": "Data Analyzer: The column counter agrees with the number of columns the table actually gets",
+  "objective": "Proves the pre-check never under-counts columns for nested data, and equals the real count except in one deliberately cautious case (an empty sub-object). Runs 4 sample sets at nesting depths 0, 1, 2 and 5.",
+  "precondition": "No server request; pandas' own flattening and the loader's counter are both called on made-up records.",
+  "steps": [
+   {
+    "action": "For each sample and depth compare the counter with the number of columns pandas builds.",
+    "data": "Samples: simple record; nested records with a list; empty and deeply nested sub-objects; null values",
+    "expected": "The counter is never lower than the real number, and is exactly equal whenever no sample contains an empty sub-object."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_leaf_path_count_matches_what_json_normalize_builds_and_never_undercounts"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_the_cells_limit_is_enforced_for_json_and_csv",
+  "name": "Data Analyzer: The total-cells limit applies to both JSON and CSV uploads",
+  "objective": "Proves a single limit on rows times columns stops large files in either format, and that a small CSV still works. The limit is 10 cells.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. Total-cells limit set to 10.",
+  "steps": [
+   {
+    "action": "Upload a JSON list of 4 records with 3 fields each (12 cells).",
+    "data": "12 cells",
+    "expected": "HTTP 413 and the message contains DATA_ANALYZER_MAX_CELLS."
+   },
+   {
+    "action": "Upload a CSV with a header and 4 rows of 3 values (12 cells).",
+    "data": "12 cells",
+    "expected": "HTTP 413 and the message contains DATA_ANALYZER_MAX_CELLS."
+   },
+   {
+    "action": "Upload a CSV with a header and 1 row of 3 values.",
+    "data": "3 cells",
+    "expected": "HTTP 200."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_cells_limit_is_enforced_for_json_and_csv"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_pandas_read_json_is_not_called_at_all_on_the_valid_paths",
+  "name": "Data Analyzer: Valid JSON files are analysed without using the library's JSON reader",
+  "objective": "Proves the risky generic JSON reader is no longer on the path for either accepted layout.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The library's JSON reader is replaced by a function that fails the test if called.",
+  "steps": [
+   {
+    "action": "Analyse a 2-record list and an object of columns on both routes.",
+    "data": "[{a:1},{a:2}] and {a:[1,2]}",
+    "expected": "All four requests get HTTP 200, and the reader is never called."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_pandas_read_json_is_not_called_at_all_on_the_valid_paths"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_built_tables_have_the_same_dtypes_and_values_as_pd_read_json",
+  "name": "Data Analyzer: The new JSON table builder gives the same column types and values as the old reader",
+  "objective": "Proves switching to the in-house table builder does not change results. Runs 6 sample files (numbers, decimals, text, nulls, booleans, numeric-looking text, bad date, date-named and timestamp columns).",
+  "precondition": "No server request; both the old library reader (warnings silenced) and the new builder are run on made-up JSON.",
+  "steps": [
+   {
+    "action": "Build a table both ways from each sample.",
+    "data": "Six samples, including dates like '2026-01-05', 'not-a-date' and '2026-01-05T10:00:00'",
+    "expected": "The column types are identical, and all values compared as text are identical."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_built_tables_have_the_same_dtypes_and_values_as_pd_read_json"
  }
 ]
