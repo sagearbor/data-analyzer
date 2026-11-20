@@ -1,0 +1,226 @@
+[
+ {
+  "id": "tests.test_sec_api_upload_limits.test_dictionary_upload_over_its_own_limit_is_refused_before_any_llm_work",
+  "name": "Data Analyzer: An oversized dictionary upload is refused before any AI work",
+  "objective": "Shows large dictionary files are stopped early so they cannot run up AI cost.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model. Dictionary and program-creation steps are replaced by stand-ins.",
+  "steps": [
+   {
+    "action": "Set the dictionary upload limit to 1000 bytes and upload a dictionary of about 4000 bytes.",
+    "data": "'a,b' repeated 1000 times",
+    "expected": "HTTP 413 (too large); the error names DATA_ANALYZER_MAX_DICTIONARY_UPLOAD_BYTES; the program-creation (AI) step was never called."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_dictionary_upload_over_its_own_limit_is_refused_before_any_llm_work"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_dictionary_upload_without_content_length_is_still_stopped_while_streaming",
+  "name": "Data Analyzer: An oversized dictionary sent without a declared size is still stopped",
+  "objective": "Shows the limit cannot be dodged by omitting the size header.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model. Dictionary and program-creation steps are replaced by stand-ins.",
+  "steps": [
+   {
+    "action": "Set the limit to 1000 bytes and send 5000 bytes in pieces (no Content-Length header).",
+    "data": "50 chunks of 100 bytes",
+    "expected": "HTTP 413 and the program-creation step was never called."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_dictionary_upload_without_content_length_is_still_stopped_while_streaming"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_dictionary_default_limit_is_much_smaller_than_the_analyze_limit",
+  "name": "Data Analyzer: The default dictionary size limit is 2 MB and smaller than the data limit",
+  "objective": "Shows the shipped defaults: dictionaries are capped lower than data files.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Remove both limit settings and read the two default limits.",
+    "data": "No settings",
+    "expected": "Dictionary limit is exactly 2,097,152 bytes (2 MB) and is smaller than the analyze limit."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_dictionary_default_limit_is_much_smaller_than_the_analyze_limit"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_small_dictionary_upload_is_not_blocked_by_the_limit",
+  "name": "Data Analyzer: A small dictionary upload is not blocked",
+  "objective": "Shows normal-sized files still work.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model. Dictionary and program-creation steps are replaced by stand-ins.",
+  "steps": [
+   {
+    "action": "Set the limit to 100,000 bytes and upload a tiny dictionary.",
+    "data": "'a,b / 1,2'",
+    "expected": "HTTP 200."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_small_dictionary_upload_is_not_blocked_by_the_limit"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_csv_with_more_rows_than_the_limit_is_refused_with_413",
+  "name": "Data Analyzer: A CSV with too many rows is refused with HTTP 413",
+  "objective": "Shows the row cap is enforced.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the maximum rows to 50 and upload a CSV with 100 data rows.",
+    "data": "100 rows of '1,2'",
+    "expected": "HTTP 413; the error mentions DATA_ANALYZER_MAX_ROWS."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_csv_with_more_rows_than_the_limit_is_refused_with_413"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_csv_with_more_columns_than_the_limit_is_refused_with_413",
+  "name": "Data Analyzer: A CSV with too many columns is refused with HTTP 413",
+  "objective": "Shows the column cap is enforced.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the maximum columns to 5 and upload a CSV with 20 columns.",
+    "data": "20 columns, 1 row",
+    "expected": "HTTP 413; the error mentions DATA_ANALYZER_MAX_COLUMNS."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_csv_with_more_columns_than_the_limit_is_refused_with_413"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_csv_within_limits_is_still_analysed",
+  "name": "Data Analyzer: A CSV within the limits is still analysed",
+  "objective": "Shows limits do not block normal files.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the maximum rows to 50 and upload a 2-row CSV.",
+    "data": "a,b / 1,2 / 3,4",
+    "expected": "HTTP 200 and the summary reports 2 rows."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_csv_within_limits_is_still_analysed"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_xlsx_that_expands_beyond_the_uncompressed_limit_is_refused_before_loading",
+  "name": "Data Analyzer: An Excel file that expands too much is refused before it is opened",
+  "objective": "Shows a 'zip bomb' style workbook (small file that is huge when unpacked) is stopped without being loaded.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Build a made-up Excel file of 3000 rows, set the unpacked-size limit to 20,000 bytes, and make the Excel-opening routine fail the test if it is reached.",
+    "data": "3000 rows x 2 columns",
+    "expected": "HTTP 413; the error mentions DATA_ANALYZER_MAX_EXCEL_UNCOMPRESSED_BYTES; the Excel opener was never reached."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_xlsx_that_expands_beyond_the_uncompressed_limit_is_refused_before_loading"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_xlsx_sheet_dimensions_over_the_row_limit_are_refused_before_loading",
+  "name": "Data Analyzer: An Excel sheet with too many rows is refused before it is opened",
+  "objective": "Shows the row cap is checked from the sheet's declared size without loading it.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Build an Excel file of 300 rows, set maximum rows to 100, and make the Excel opener fail the test if reached.",
+    "data": "300 rows",
+    "expected": "HTTP 413; the error mentions DATA_ANALYZER_MAX_ROWS."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_xlsx_sheet_dimensions_over_the_row_limit_are_refused_before_loading"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_xlsx_with_too_many_sheets_is_refused",
+  "name": "Data Analyzer: An Excel workbook with too many sheets is refused",
+  "objective": "Shows the sheet-count cap is enforced.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Build a workbook with 6 sheets and set the maximum to 3.",
+    "data": "6 sheets of 2 rows",
+    "expected": "HTTP 413; the error mentions DATA_ANALYZER_MAX_EXCEL_SHEETS."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_xlsx_with_too_many_sheets_is_refused"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_xlsx_within_limits_is_still_analysed",
+  "name": "Data Analyzer: A normal Excel file is still analysed",
+  "objective": "Shows Excel limits do not block ordinary files.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Upload a 5-row Excel file with default limits.",
+    "data": "5 rows x 2 columns",
+    "expected": "HTTP 200 and the summary reports 5 rows."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_xlsx_within_limits_is_still_analysed"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_zip_with_too_many_internal_parts_is_refused_as_an_excel_file",
+  "name": "Data Analyzer: A zip with too many internal parts is refused as an Excel file",
+  "objective": "Shows the loader refuses an archive with an excessive number of internal files.",
+  "precondition": "Data loader called directly, no server; a made-up zip is built in memory.",
+  "steps": [
+   {
+    "action": "Set the archive-member limit to 10 and load a zip with 30 small parts.",
+    "data": "30 parts",
+    "expected": "A 'data too large' error is raised."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_zip_with_too_many_internal_parts_is_refused_as_an_excel_file"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_json_inline_route_enforces_the_row_limit_too",
+  "name": "Data Analyzer: The inline-data route also enforces the row limit",
+  "objective": "Shows the limit applies to both ways of sending data.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set maximum rows to 5 and send inline CSV text with 50 rows to the inline-data route.",
+    "data": "50 rows",
+    "expected": "HTTP 413."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_json_inline_route_enforces_the_row_limit_too"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_issue_list_is_cut_at_the_limit_and_says_so_with_the_true_total",
+  "name": "Data Analyzer: A very long issue list is cut at the limit and says so, with the true total",
+  "objective": "Shows the report stays a sensible size but never hides how many problems there really were.",
+  "precondition": "Report-building code called directly on a made-up table; no server.",
+  "steps": [
+   {
+    "action": "Set the issue cap to 10 and build a report from one issue affecting 100 rows.",
+    "data": "100-row table; rule 'min >= 1000'",
+    "expected": "10 issues returned; issues_returned 10; issues_total 100; issues_truncated true; summary issues_found 100 and critical_issues 100."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_issue_list_is_cut_at_the_limit_and_says_so_with_the_true_total"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_issue_list_is_not_marked_truncated_when_under_the_limit",
+  "name": "Data Analyzer: An issue list under the limit is not marked as cut",
+  "objective": "Shows the truncation flag is false when nothing was cut.",
+  "precondition": "Report-building code called directly on a made-up table; no server.",
+  "steps": [
+   {
+    "action": "Set the issue cap to 10 and build a report from one issue affecting 3 rows.",
+    "data": "3-row table",
+    "expected": "issues_truncated is false and issues_total equals issues_returned, both 3."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_issue_list_is_not_marked_truncated_when_under_the_limit"
+ },
+ {
+  "id": "tests.test_sec_api_upload_limits.test_analyze_response_carries_the_truncation_fields",
+  "name": "Data Analyzer: An analysis response includes the truncation fields",
+  "objective": "Shows callers can always see the totals and truncation flag.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; limits are set through environment settings in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Upload a tiny valid CSV.",
+    "data": "a / 1 / 2",
+    "expected": "HTTP 200; issues_truncated is false and issues_total equals the number of issues listed."
+   }
+  ],
+  "source": "tests/test_sec_api_upload_limits.py::test_analyze_response_carries_the_truncation_fields"
+ }
+]

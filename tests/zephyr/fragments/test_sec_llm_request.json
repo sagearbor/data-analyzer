@@ -1,0 +1,156 @@
+[
+ {
+  "id": "tests.test_sec_llm_request.test_model_request_asks_service_not_to_store_by_default",
+  "name": "Data Analyzer: AI request tells the service not to store the conversation by default",
+  "objective": "Proves that by default the request sent to the AI service asks it not to keep a copy of the data.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured.",
+  "steps": [
+   {
+    "action": "Extract fields from the made-up text 'age: integer' with no store setting configured",
+    "data": "age: integer",
+    "expected": "The request body sent contains 'store' set to false"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_model_request_asks_service_not_to_store_by_default"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_store_flag_can_be_omitted_with_one_env_var",
+  "name": "Data Analyzer: AI request can omit the store option with one setting",
+  "objective": "Proves that setting LLM_RESPONSES_STORE to 'omit' removes the store option from the request, for services that reject it.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured.",
+  "steps": [
+   {
+    "action": "Set the setting to 'omit' and extract fields from 'age: integer'",
+    "data": "LLM_RESPONSES_STORE=omit",
+    "expected": "The request body sent has no 'store' entry at all"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_store_flag_can_be_omitted_with_one_env_var"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_model_request_never_follows_redirects",
+  "name": "Data Analyzer: AI request is sent with redirect-following turned off",
+  "objective": "Proves the credential-bearing request to the AI service cannot be silently forwarded to another address.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured.",
+  "steps": [
+   {
+    "action": "Extract fields from 'age: integer' and inspect how the request was sent",
+    "data": "age: integer",
+    "expected": "The request was made with the 'allow redirects' option set to false"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_model_request_never_follows_redirects"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_a_redirect_from_the_model_endpoint_is_a_failure",
+  "name": "Data Analyzer: A redirect answer from the AI service is treated as a failure",
+  "objective": "Proves that if the AI service replies with HTTP 302 (a redirect), the program stops with a clear error instead of following it.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured.",
+  "steps": [
+   {
+    "action": "Make the canned service reply with status 302 and run the extraction",
+    "data": "status 302",
+    "expected": "An error is raised with the error class 'redirect_refused'; exactly one request was made (no retry, no follow-up)"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_a_redirect_from_the_model_endpoint_is_a_failure"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_plain_http_endpoint_is_refused",
+  "name": "Data Analyzer: Unencrypted http address for the AI service is rejected at startup",
+  "objective": "Proves the AI client refuses to be set up with a non-encrypted web address.",
+  "precondition": "No network. The environment is set with an http:// (not https://) endpoint and no insecure override.",
+  "steps": [
+   {
+    "action": "Create the AI client",
+    "data": "Endpoint http://model.example.test/ (made-up)",
+    "expected": "A ValueError (a configuration error) is raised"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_plain_http_endpoint_is_refused"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_plain_http_endpoint_allowed_only_with_explicit_local_dev_override",
+  "name": "Data Analyzer: Unencrypted address is allowed only with an explicit local-development switch",
+  "objective": "Proves a plain http address works only when the developer deliberately sets the override, e.g. for a local test model.",
+  "precondition": "No network. Endpoint set to a local http address and LLM_ALLOW_INSECURE_ENDPOINT set to 1.",
+  "steps": [
+   {
+    "action": "Create the AI client",
+    "data": "Endpoint http://localhost:9999/ with the override on",
+    "expected": "Creation succeeds and the stored endpoint still starts with 'http://'"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_plain_http_endpoint_allowed_only_with_explicit_local_dev_override"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_http_endpoint_changed_after_startup_is_still_refused_at_call_time",
+  "name": "Data Analyzer: Switching to an http address after startup is still blocked when a request is made",
+  "objective": "Proves the https check is repeated at the moment of each call, so changing the address later cannot bypass it.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured.",
+  "steps": [
+   {
+    "action": "Create the client with a valid https endpoint, then change its endpoint to an http address, then try an extraction",
+    "data": "http://model.example.test (made-up)",
+    "expected": "An error is raised with class 'endpoint_not_https' and the web request function was never called"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_http_endpoint_changed_after_startup_is_still_refused_at_call_time"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_oversized_dictionary_is_rejected_before_any_model_call",
+  "name": "Data Analyzer: Oversized data dictionary is rejected before anything is sent to the AI",
+  "objective": "Proves a data dictionary over the character limit is refused with a clear error and costs nothing.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured.",
+  "steps": [
+   {
+    "action": "Set the input limit to 1000 characters and parse a text of 1001 'x' characters",
+    "data": "1001 characters, limit 1000",
+    "expected": "An error with class 'input_too_large' is raised and no request was sent to the AI"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_oversized_dictionary_is_rejected_before_any_model_call"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_dictionary_needing_too_many_chunks_is_rejected_not_truncated",
+  "name": "Data Analyzer: Dictionary needing too many pieces is refused, not silently cut short",
+  "objective": "Proves a large dictionary that would need more AI calls than the limit is rejected outright rather than partly processed.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured. The token counter and splitter are replaced so the text appears long and splits into 3 pieces.",
+  "steps": [
+   {
+    "action": "Set the chunk limit to 2 and parse text that splits into 3 pieces",
+    "data": "3 pieces vs limit 2",
+    "expected": "An error with class 'too_many_chunks' is raised and no request was sent to the AI"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_dictionary_needing_too_many_chunks_is_rejected_not_truncated"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_chunk_count_at_the_limit_is_still_processed",
+  "name": "Data Analyzer: Dictionary needing exactly the maximum number of pieces is still processed",
+  "objective": "Proves the limit is not off by one: text splitting into exactly the allowed number of pieces is handled in full.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured. The token counter and splitter are replaced so the text splits into 2 pieces.",
+  "steps": [
+   {
+    "action": "Set the chunk limit to 2 and parse text that splits into 2 pieces",
+    "data": "2 pieces vs limit 2",
+    "expected": "The result reports 2 chunks processed and exactly 2 requests were sent"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_chunk_count_at_the_limit_is_still_processed"
+ },
+ {
+  "id": "tests.test_sec_llm_request.test_output_token_budget_is_never_below_the_40000_floor",
+  "name": "Data Analyzer: AI request always allows at least 40,000 output tokens",
+  "objective": "Proves the output allowance for the AI answer is not set too low, which would cut off or empty the answers of reasoning models.",
+  "precondition": "No network and no AI model: the web request to the Azure OpenAI service is replaced by a canned answer, with a made-up endpoint address and deployment name configured.",
+  "steps": [
+   {
+    "action": "Extract fields from 'age: integer' and inspect the request",
+    "data": "age: integer",
+    "expected": "The maximum-output-tokens value in the request is 40000 or more"
+   }
+  ],
+  "source": "tests/test_sec_llm_request.py::test_output_token_budget_is_never_below_the_40000_floor"
+ }
+]

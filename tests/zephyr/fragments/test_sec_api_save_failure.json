@@ -1,0 +1,114 @@
+[
+ {
+  "id": "tests.test_sec_api_save_failure.test_saving_two_programs_with_the_same_name_raises_instead_of_returning_a_phantom_id",
+  "name": "Data Analyzer: Saving a second program with an existing name raises an error instead of returning a fake ID",
+  "objective": "Shows a failed save is never reported as a success.",
+  "precondition": "Program manager and its program store created in a temporary folder; the AI parser is replaced by a canned dictionary answer (one field, 'age', type int). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Create a program named 'Same Name', then create another with the same name.",
+    "data": "Dictionary text 'age,int'; name 'Same Name'",
+    "expected": "The second attempt raises a save error."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_saving_two_programs_with_the_same_name_raises_instead_of_returning_a_phantom_id"
+ },
+ {
+  "id": "tests.test_sec_api_save_failure.test_a_program_that_was_really_saved_can_be_loaded_back_by_its_id",
+  "name": "Data Analyzer: A saved program can be loaded back by its ID",
+  "objective": "Shows a returned ID corresponds to a real stored program.",
+  "precondition": "Program manager and its program store created in a temporary folder; the AI parser is replaced by a canned dictionary answer (one field, 'age', type int). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Create and save a program, then load it by its ID.",
+    "data": "Dictionary text 'age,int'",
+    "expected": "The stored program is found (not empty)."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_a_program_that_was_really_saved_can_be_loaded_back_by_its_id"
+ },
+ {
+  "id": "tests.test_sec_api_save_failure.test_a_custom_program_name_is_stored_by_the_single_insert",
+  "name": "Data Analyzer: A custom program name is stored in the one save",
+  "objective": "Shows the chosen name is used straight away and the program can be found by that name.",
+  "precondition": "Program manager and its program store created in a temporary folder; the AI parser is replaced by a canned dictionary answer (one field, 'age', type int). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Create a program named 'PatientIntake', then load it by that name.",
+    "data": "name PatientIntake",
+    "expected": "The program's name is PatientIntake and loading by that name returns the same program ID."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_a_custom_program_name_is_stored_by_the_single_insert"
+ },
+ {
+  "id": "tests.test_sec_api_save_failure.test_not_saving_still_works_and_stores_nothing",
+  "name": "Data Analyzer: Choosing not to save still works and stores nothing",
+  "objective": "Shows the no-save option produces a result without writing to the store.",
+  "precondition": "Program manager and its program store created in a temporary folder; the AI parser is replaced by a canned dictionary answer (one field, 'age', type int). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Create a program with saving turned off, then look for it in the store.",
+    "data": "save=False",
+    "expected": "Nothing is found in the store for its ID."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_not_saving_still_works_and_stores_nothing"
+ },
+ {
+  "id": "tests.test_sec_api_save_failure.test_database_refusing_the_save_is_raised_not_swallowed",
+  "name": "Data Analyzer: A refusal from the database is raised, not hidden",
+  "objective": "Shows if the store reports failure the caller is told.",
+  "precondition": "Program manager and its program store created in a temporary folder; the AI parser is replaced by a canned dictionary answer (one field, 'age', type int). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Replace the store with a stand-in that reports 'not saved', then create a program.",
+    "data": "Store returns False",
+    "expected": "A save error is raised."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_database_refusing_the_save_is_raised_not_swallowed"
+ },
+ {
+  "id": "tests.test_sec_api_save_failure.test_failed_insert_leaves_no_orphaned_code_file",
+  "name": "Data Analyzer: A failed save leaves no stray program file behind",
+  "objective": "Shows a rejected duplicate does not leave clutter on disk.",
+  "precondition": "Program manager and its program store created in a temporary folder; the AI parser is replaced by a canned dictionary answer (one field, 'age', type int). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Create program 'Dup', note the files in the programs folder, then try to create 'Dup' again.",
+    "data": "name Dup",
+    "expected": "The second attempt raises a save error and the list of files in the folder is unchanged."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_failed_insert_leaves_no_orphaned_code_file"
+ },
+ {
+  "id": "tests.test_sec_api_save_failure.test_api_reports_a_failed_save_as_an_error_not_as_a_program_id",
+  "name": "Data Analyzer: The API reports a failed save as an error, not as a program ID",
+  "objective": "Shows the web interface does not claim success when saving failed.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; the program manager is replaced by a stand-in. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make the program manager raise a save error, then upload a tiny dictionary asking to save it as 'X'.",
+    "data": "save_program true; program_name X",
+    "expected": "HTTP 500; the reply has no program_id; the error text contains 'could not be saved'."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_api_reports_a_failed_save_as_an_error_not_as_a_program_id"
+ },
+ {
+  "id": "tests.test_sec_api_save_failure.test_api_passes_the_custom_name_into_the_single_save_instead_of_renaming_afterwards",
+  "name": "Data Analyzer: The API sends the custom name into the single save, with no second save",
+  "objective": "Shows the name is given at creation time rather than changed afterwards, which could fail silently.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; the program manager is replaced by a stand-in. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Upload a tiny dictionary asking to save it as 'Custom' with a stand-in program manager that succeeds.",
+    "data": "save_program true; program_name Custom",
+    "expected": "HTTP 200; the manager was called with program_name 'Custom'; the database save routine was never called separately."
+   }
+  ],
+  "source": "tests/test_sec_api_save_failure.py::test_api_passes_the_custom_name_into_the_single_save_instead_of_renaming_afterwards"
+ }
+]

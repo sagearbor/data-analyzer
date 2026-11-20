@@ -1,0 +1,161 @@
+[
+ {
+  "id": "tests.test_sec_api_admin_auth.test_the_old_hardcoded_admin_password_is_not_accepted_when_nothing_is_configured",
+  "name": "Data Analyzer: The old built-in admin password is rejected when no admin password is configured",
+  "objective": "Shows there is no secret default password left in the product that would let anyone in.",
+  "precondition": "Program store (the small database that holds saved programs) created in a temporary folder; admin-password environment variables set as stated in each step. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Remove both admin-password settings, then check the old built-in password.",
+    "data": "Old built-in password text (no longer valid)",
+    "expected": "The check returns False (refused)."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_the_old_hardcoded_admin_password_is_not_accepted_when_nothing_is_configured"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_the_legacy_ADMIN_PW_variable_alone_does_not_enable_admin_access",
+  "name": "Data Analyzer: The old-style ADMIN_PW setting alone no longer switches admin access on",
+  "objective": "Shows only the documented setting name enables admin access.",
+  "precondition": "Program store (the small database that holds saved programs) created in a temporary folder; admin-password environment variables set as stated in each step. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Set only the old setting ADMIN_PW to a made-up value, then check that same value.",
+    "data": "ADMIN_PW = legacy-name-password",
+    "expected": "The check returns False (refused)."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_the_legacy_ADMIN_PW_variable_alone_does_not_enable_admin_access"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_the_documented_admin_password_variable_is_the_one_that_is_checked",
+  "name": "Data Analyzer: The documented admin password setting is the one that is checked",
+  "objective": "Shows the right password is accepted and a wrong one is refused.",
+  "precondition": "Program store (the small database that holds saved programs) created in a temporary folder; admin-password environment variables set as stated in each step. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Set DATA_ANALYZER_ADMIN_PASSWORD to a made-up value and check the right and a wrong password.",
+    "data": "Right: correct-horse; wrong: wrong",
+    "expected": "Right password returns True; wrong password returns False."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_the_documented_admin_password_variable_is_the_one_that_is_checked"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_an_empty_admin_password_never_matches_an_empty_configuration",
+  "name": "Data Analyzer: An empty password does not match an empty admin-password setting",
+  "objective": "Shows a blank setting cannot be bypassed by sending a blank password.",
+  "precondition": "Program store (the small database that holds saved programs) created in a temporary folder; admin-password environment variables set as stated in each step. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Set the admin password setting to empty and check an empty password.",
+    "data": "Empty text for both",
+    "expected": "The check returns False (refused)."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_an_empty_admin_password_never_matches_an_empty_configuration"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_non_ascii_admin_password_attempts_are_rejected_without_raising",
+  "name": "Data Analyzer: A password with accented characters is refused without crashing",
+  "objective": "Shows unusual characters in a login attempt give a clean refusal, not an error.",
+  "precondition": "Program store (the small database that holds saved programs) created in a temporary folder; admin-password environment variables set as stated in each step. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Set a made-up admin password and check an attempt containing an accented letter.",
+    "data": "Attempt: café",
+    "expected": "The check returns False and no exception is raised."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_non_ascii_admin_password_attempts_are_rejected_without_raising"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_admin_comparison_is_constant_time",
+  "name": "Data Analyzer: Admin password comparison uses the safe timing-resistant method and the old password is absent from the code",
+  "objective": "Shows the source code uses the standard safe comparison and no longer contains the old built-in password. This reads the source file; it does not run a timing measurement.",
+  "precondition": "Source file available. Static text check only.",
+  "steps": [
+   {
+    "action": "Read the text of the program-store source file src/program_cache.py.",
+    "data": "Source file text",
+    "expected": "It contains 'secrets.compare_digest' and does not contain the old built-in password text."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_admin_comparison_is_constant_time"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_admin_dependency_refuses_with_503_when_unconfigured_in_a_local_environment",
+  "name": "Data Analyzer: Admin actions are refused with HTTP 503 when no admin password is set (local machine)",
+  "objective": "Shows the server fails safe: with no admin password configured it denies admin access instead of allowing it.",
+  "precondition": "Server application loaded in the offline test harness. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the server's admin password to none and call the admin check with the header value 'anything'.",
+    "data": "Header value: anything",
+    "expected": "The check is refused with HTTP 503 (service unavailable)."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_admin_dependency_refuses_with_503_when_unconfigured_in_a_local_environment"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_admin_dependency_refuses_with_503_when_unconfigured_in_a_deployed_environment",
+  "name": "Data Analyzer: Admin actions are refused with HTTP 503 when no admin password is set (deployed environment)",
+  "objective": "Shows the same fail-safe behaviour when the server believes it is running in the cloud.",
+  "precondition": "Server application loaded in the offline test harness. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the admin password to empty, mark the environment as a deployed container app, and call the admin check with no header.",
+    "data": "CONTAINER_APP_NAME = some-app; no password header",
+    "expected": "The check is refused with HTTP 503."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_admin_dependency_refuses_with_503_when_unconfigured_in_a_deployed_environment"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_admin_dependency_accepts_only_the_configured_password",
+  "name": "Data Analyzer: Admin check accepts only the configured password",
+  "objective": "Shows the right password is let through and a wrong password gets HTTP 403 (forbidden).",
+  "precondition": "Server application loaded in the offline test harness. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Configure admin password 's3cret-admin' and call the check with that password.",
+    "data": "s3cret-admin",
+    "expected": "The check returns the password (accepted)."
+   },
+   {
+    "action": "Call the check with a wrong password.",
+    "data": "nope",
+    "expected": "Refused with HTTP 403."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_admin_dependency_accepts_only_the_configured_password"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_non_ascii_admin_header_gives_403_not_a_crash",
+  "name": "Data Analyzer: A non-English-character admin password header gets HTTP 403, not a crash",
+  "objective": "Shows odd characters in the admin header produce a normal refusal.",
+  "precondition": "Server application loaded in the offline test harness. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Configure a made-up admin password and call the check with a header containing accented letters.",
+    "data": "Header: éé",
+    "expected": "Refused with HTTP 403 (no unhandled error)."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_non_ascii_admin_header_gives_403_not_a_crash"
+ },
+ {
+  "id": "tests.test_sec_api_admin_auth.test_api_key_check_refuses_with_503_when_unconfigured_in_a_deployed_environment",
+  "name": "Data Analyzer: API key check is refused with HTTP 503 when no API key is set in a deployed environment",
+  "objective": "Shows a production server with a missing API key setting denies requests instead of letting everyone in.",
+  "precondition": "Server application loaded in the offline test harness. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the server's API key to none, mark the environment as production (APP_ENV=prod) and call the API-key check with no key.",
+    "data": "No key sent",
+    "expected": "The check is refused with HTTP 503."
+   }
+  ],
+  "source": "tests/test_sec_api_admin_auth.py::test_api_key_check_refuses_with_503_when_unconfigured_in_a_deployed_environment"
+ }
+]

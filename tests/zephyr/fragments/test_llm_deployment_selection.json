@@ -1,0 +1,548 @@
+[
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_defaults_to_single_deployment_when_unset",
+  "name": "Data Analyzer: Model list defaults to the single built-in model when nothing is set",
+  "objective": "Shows the product has a safe default model.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "Neither AZURE_OPENAI_DEPLOYMENTS nor AZURE_OPENAI_DEPLOYMENT is set",
+    "expected": "The list is exactly ['gpt-5-nano']."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_defaults_to_single_deployment_when_unset"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_falls_back_to_azure_openai_deployment_when_deployments_unset",
+  "name": "Data Analyzer: Model list falls back to the single configured model",
+  "objective": "Shows the older single-model setting still works.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "AZURE_OPENAI_DEPLOYMENTS unset; AZURE_OPENAI_DEPLOYMENT = gpt-4o-mini",
+    "expected": "The list is exactly ['gpt-4o-mini']."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_falls_back_to_azure_openai_deployment_when_deployments_unset"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_parses_comma_separated_list",
+  "name": "Data Analyzer: A comma-separated model list is read as separate models",
+  "objective": "Shows several models can be offered.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "AZURE_OPENAI_DEPLOYMENTS = gpt-5-nano,gpt-5-mini,gpt-4o-mini",
+    "expected": "The list is ['gpt-5-nano','gpt-5-mini','gpt-4o-mini'] in that order."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_parses_comma_separated_list"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_strips_whitespace_around_entries",
+  "name": "Data Analyzer: Spaces around model names are ignored",
+  "objective": "Shows hand-typed lists with stray spaces still work.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "' gpt-5-nano , gpt-5-mini ,gpt-4o-mini '",
+    "expected": "The list is ['gpt-5-nano','gpt-5-mini','gpt-4o-mini']."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_strips_whitespace_around_entries"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_deduplicates_preserving_order",
+  "name": "Data Analyzer: Repeated model names are listed once, in original order",
+  "objective": "Shows duplicates in the setting do not create duplicate choices.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "gpt-5-nano,gpt-5-mini,gpt-5-nano",
+    "expected": "The list is ['gpt-5-nano','gpt-5-mini']."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_deduplicates_preserving_order"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_empty_string_falls_back_to_default",
+  "name": "Data Analyzer: An empty model list falls back to the single configured model",
+  "objective": "Shows a blank setting does not leave the app with no model.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "AZURE_OPENAI_DEPLOYMENTS = '' ; AZURE_OPENAI_DEPLOYMENT = gpt-5-mini",
+    "expected": "The list is ['gpt-5-mini']."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_empty_string_falls_back_to_default"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_whitespace_only_string_falls_back_to_default",
+  "name": "Data Analyzer: A list of only blanks and commas falls back to the single configured model",
+  "objective": "Shows junk in the setting does not leave the app with no model.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "AZURE_OPENAI_DEPLOYMENTS = '   ,  ,' ; AZURE_OPENAI_DEPLOYMENT = gpt-5-mini",
+    "expected": "The list is ['gpt-5-mini']."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_whitespace_only_string_falls_back_to_default"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_always_returns_at_least_one_entry",
+  "name": "Data Analyzer: Model list always has at least one entry",
+  "objective": "Shows the app can never end up with an empty model choice.",
+  "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the environment values, then ask for the list of available AI models.",
+    "data": "Neither setting is set",
+    "expected": "The result is a list with at least one item (the test does not check which item)."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_always_returns_at_least_one_entry"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_default_deployment_used_when_no_override",
+  "name": "Data Analyzer: Dictionary reading uses the default AI model when no other is chosen",
+  "objective": "Shows the default model is what gets called.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run field extraction on a dictionary text with no model chosen.",
+    "data": "'some dictionary text'",
+    "expected": "The request body sent to the AI service names model gpt-5-nano."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_default_deployment_used_when_no_override"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_per_call_override_takes_precedence",
+  "name": "Data Analyzer: A model chosen for one request is used for that request",
+  "objective": "Shows the user's model choice reaches the AI call.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run field extraction choosing model gpt-5-mini.",
+    "data": "deployment gpt-5-mini",
+    "expected": "The request names model gpt-5-mini."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_per_call_override_takes_precedence"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_override_does_not_mutate_client_default",
+  "name": "Data Analyzer: Choosing a model for one request does not change the default for later requests",
+  "objective": "Shows one user's choice cannot leak into the shared default.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run extraction choosing gpt-5-mini, then read the client's default model.",
+    "data": "deployment gpt-5-mini",
+    "expected": "The client's default model is still gpt-5-nano."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_override_does_not_mutate_client_default"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_extract_fields_from_chunk_forwards_override",
+  "name": "Data Analyzer: A model choice is passed down when reading one chunk of text",
+  "objective": "Shows the choice reaches the chunk-level call.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Extract fields from a text chunk choosing gpt-4o-mini.",
+    "data": "deployment gpt-4o-mini",
+    "expected": "The request names model gpt-4o-mini."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_extract_fields_from_chunk_forwards_override"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_parse_dictionary_single_call_mode_forwards_override",
+  "name": "Data Analyzer: A model choice is used when a short dictionary is read in one go",
+  "objective": "Shows the choice reaches the normal (short dictionary) path.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Parse a short dictionary text choosing gpt-5-mini; the canned reply holds one field ('age', int).",
+    "data": "deployment gpt-5-mini",
+    "expected": "The request names gpt-5-mini; the result says mode 'single-call' and has 1 field."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_parse_dictionary_single_call_mode_forwards_override"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_parse_dictionary_without_override_uses_default",
+  "name": "Data Analyzer: A short dictionary uses the default model when none is chosen",
+  "objective": "Shows the default is used on the normal path.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Parse a short dictionary text with no model chosen.",
+    "data": "No model",
+    "expected": "The request names gpt-5-nano."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_parse_dictionary_without_override_uses_default"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_parse_dictionary_chunked_mode_forwards_override",
+  "name": "Data Analyzer: A model choice is used for every part of a long dictionary",
+  "objective": "Shows the choice is applied to each piece when a large dictionary is split.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Force the 'long dictionary' path (size reported as 90,000 tokens, text split into 2 chunks) and parse choosing gpt-5-mini.",
+    "data": "2 chunks; deployment gpt-5-mini",
+    "expected": "Result mode is 'chunked'; exactly 2 AI calls were made, each naming gpt-5-mini."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_parse_dictionary_chunked_mode_forwards_override"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentOverridePlumbing.test_max_output_tokens_uses_override_deployment_limits",
+  "name": "Data Analyzer: The output-size limit follows the chosen model",
+  "objective": "Shows the response-size limit sent is that of the chosen model, not of the default.",
+  "precondition": "AI client created with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5-mini, gpt-4o-mini', default model gpt-5-nano. The web call to the AI service is replaced by a canned reply that records what was sent. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run extraction choosing gpt-4o-mini.",
+    "data": "deployment gpt-4o-mini",
+    "expected": "The request's max_output_tokens is exactly 16384."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentOverridePlumbing::test_max_output_tokens_uses_override_deployment_limits"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_override_not_on_the_allow_list_is_refused_before_any_http_call",
+  "name": "Data Analyzer: A model not on the allowed list is refused before any web call",
+  "objective": "Shows nobody can make the server call an unapproved (possibly costly) model.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run extraction choosing model 'gpt-9-unlisted'.",
+    "data": "deployment gpt-9-unlisted",
+    "expected": "An LLM call error is raised with class 'deployment_not_allowed', naming the model; the AI web call was never made."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_override_not_on_the_allow_list_is_refused_before_any_http_call"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_parse_dictionary_refuses_a_disallowed_override_without_calling_out",
+  "name": "Data Analyzer: Dictionary parsing refuses an unapproved model without calling out",
+  "objective": "Shows the allow-list is enforced on the main parse route.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Parse a short dictionary choosing 'not-listed'.",
+    "data": "deployment not-listed",
+    "expected": "An error of class 'deployment_not_allowed' is raised and no web call was made."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_parse_dictionary_refuses_a_disallowed_override_without_calling_out"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_chunked_parse_refuses_a_disallowed_override_without_calling_out",
+  "name": "Data Analyzer: Long-dictionary parsing refuses an unapproved model without calling out",
+  "objective": "Shows the allow-list is enforced on the split-into-chunks route.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Force the long-dictionary path (2 chunks) and parse choosing 'not-listed'.",
+    "data": "deployment not-listed",
+    "expected": "An LLM call error is raised and no web call was made."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_chunked_parse_refuses_a_disallowed_override_without_calling_out"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_extract_fields_from_chunk_refuses_a_disallowed_override",
+  "name": "Data Analyzer: Reading a chunk refuses an unapproved model",
+  "objective": "Shows the allow-list is enforced at chunk level.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Extract fields from a chunk choosing 'not-listed'.",
+    "data": "deployment not-listed",
+    "expected": "An LLM call error is raised and no web call was made."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_extract_fields_from_chunk_refuses_a_disallowed_override"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_refusal_is_logged_once_as_llm_failure_without_leaking_control_characters",
+  "name": "Data Analyzer: A refused model is logged exactly once, with line breaks neutralised",
+  "objective": "Shows a malicious model name cannot forge extra log lines.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run extraction choosing a model name that contains a line break and fake log text.",
+    "data": "'evil' newline 'llm_failure operation=fake model=x'",
+    "expected": "An error is raised; exactly one log line contains 'llm_failure'; it has no line break and contains 'error_class=deployment_not_allowed'."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_refusal_is_logged_once_as_llm_failure_without_leaking_control_characters"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_override_on_the_allow_list_is_sent_to_the_api",
+  "name": "Data Analyzer: An allowed model is sent to the AI service",
+  "objective": "Shows approved models work. Runs once for each of 3 models.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run extraction choosing each allowed model in turn.",
+    "data": "gpt-5-nano; gpt-5.4-mini; gpt-5.5",
+    "expected": "Each time exactly one AI call is made and its request names that model."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_override_on_the_allow_list_is_sent_to_the_api"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_no_override_still_uses_the_configured_default",
+  "name": "Data Analyzer: With no model chosen, the configured default is used",
+  "objective": "Shows the allow-list does not stop the default being used.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Run extraction with no model chosen.",
+    "data": "No model",
+    "expected": "The request names gpt-5-nano."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_no_override_still_uses_the_configured_default"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_allow_list_follows_the_environment_at_call_time",
+  "name": "Data Analyzer: A newly added allowed model is honoured without restarting",
+  "objective": "Shows the allowed list is read when the call is made, so a settings change takes effect.",
+  "precondition": "AI client created with a made-up endpoint address, default model gpt-5-nano and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. The web call is replaced by a canned reply that records whether it was used. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "After the client exists, change the allowed list to 'gpt-5-nano,brand-new-model' and run extraction choosing 'brand-new-model'.",
+    "data": "deployment brand-new-model",
+    "expected": "The request names brand-new-model."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_allow_list_follows_the_environment_at_call_time"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestDeploymentAllowList.test_with_only_the_single_deployment_configured_other_models_are_refused",
+  "name": "Data Analyzer: With only one model configured, any other model is refused",
+  "objective": "Shows the allow-list is just the single configured model when no list is set.",
+  "precondition": "AI client created with a made-up endpoint address and only a single configured model (no list). The web call is replaced by a canned reply. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Set only AZURE_OPENAI_DEPLOYMENT = gpt-5-nano, create the client and request model 'gpt-5.5'.",
+    "data": "deployment gpt-5.5",
+    "expected": "An LLM call error is raised and no web call was made."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestDeploymentAllowList::test_with_only_the_single_deployment_configured_other_models_are_refused"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.test_output_budget_is_at_least_40000_for_every_listable_deployment",
+  "name": "Data Analyzer: Every offered model gets an output budget of at least 40,000",
+  "objective": "Shows reasoning models are never given so small a budget that they return empty answers. Runs once per model (13 models).",
+  "precondition": "Offline test harness; only the output-size lookup is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Look up the output-size limit for each model.",
+    "data": "gpt-5-nano, gpt-5.4-nano, gpt-5.4-mini, gpt-5.5, gpt-5.6-sol, gpt-5.6-luna, gpt-5.6-terra, grok-4-1-fast-reasoning, grok-4.3, Mistral-Large-3, Kimi-K2.6, DeepSeek-V4-Pro, DeepSeek-V4-Flash",
+    "expected": "Every limit is at least 40,000 tokens."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::test_output_budget_is_at_least_40000_for_every_listable_deployment"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.test_output_budget_floor_applies_to_names_not_in_the_limits_table_and_any_case",
+  "name": "Data Analyzer: The 40,000 minimum also applies to unknown model names and any capitalisation",
+  "objective": "Shows a new or oddly capitalised model name still gets the safe minimum. Runs once per name (4 names).",
+  "precondition": "Offline test harness; only the output-size lookup is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Look up the limit for each name.",
+    "data": "Mistral-Large-3, GROK-4.3, some-future-model, o4-mini",
+    "expected": "Every limit is at least 40,000."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::test_output_budget_floor_applies_to_names_not_in_the_limits_table_and_any_case"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.test_output_budget_floor_beats_a_low_limit_for_a_non_gpt_reasoning_model",
+  "name": "Data Analyzer: The 40,000 minimum overrides a low listed limit for a reasoning model",
+  "objective": "Shows that even if someone later lists a small limit for a reasoning model, the safe minimum still wins.",
+  "precondition": "Offline test harness; only the output-size lookup is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Temporarily set a limit of 8192 for deepseek-v4-pro in the limits table, then look up 'DeepSeek-V4-Pro'.",
+    "data": "limit 8192",
+    "expected": "The result is exactly 40,000."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::test_output_budget_floor_beats_a_low_limit_for_a_non_gpt_reasoning_model"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.test_documented_non_reasoning_limit_for_gpt_4o_mini_is_not_changed",
+  "name": "Data Analyzer: The ordinary model gpt-4o-mini keeps its documented 16,384 limit",
+  "objective": "Shows the new minimum does not wrongly raise the limit of a non-reasoning model.",
+  "precondition": "Offline test harness; only the output-size lookup is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Look up the limit for gpt-4o-mini.",
+    "data": "gpt-4o-mini",
+    "expected": "Exactly 16,384."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::test_documented_non_reasoning_limit_for_gpt_4o_mini_is_not_changed"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.test_existing_higher_limits_are_not_lowered",
+  "name": "Data Analyzer: Existing higher limits are not lowered",
+  "objective": "Shows the minimum only raises small limits and leaves large ones alone.",
+  "precondition": "Offline test harness; only the output-size lookup is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Look up the limit for gpt-5-nano and gpt-5.5.",
+    "data": "Two model names",
+    "expected": "Each is exactly 128,000."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::test_existing_higher_limits_are_not_lowered"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.test_the_request_sent_for_a_listed_model_carries_a_budget_of_at_least_40000",
+  "name": "Data Analyzer: The real request for a listed model carries a budget of at least 40,000",
+  "objective": "Shows the floor is actually applied to the request that would be sent, not only in the lookup.",
+  "precondition": "AI client with a made-up endpoint address and allowed list 'gpt-5-nano,Kimi-K2.6'. The web call is replaced by a canned reply. No real network and no AI model.",
+  "steps": [
+   {
+    "action": "Allow models 'gpt-5-nano,Kimi-K2.6' and run extraction choosing Kimi-K2.6.",
+    "data": "deployment Kimi-K2.6",
+    "expected": "The request's max_output_tokens is at least 40,000."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::test_the_request_sent_for_a_listed_model_carries_a_budget_of_at_least_40000"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestResolveDeploymentChoice.test_stale_value_no_longer_in_the_list_falls_back_to_the_first_entry",
+  "name": "Data Analyzer: A remembered model that is no longer offered falls back to the first choice",
+  "objective": "Shows a retired model name left over from an earlier session does not break the page.",
+  "precondition": "Offline test harness; only the model-choice helper function is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Resolve the choice 'retired-model' against the offered list.",
+    "data": "Choices offered: gpt-5-nano, gpt-5.4-mini, gpt-5.5. Remembered: retired-model",
+    "expected": "Result is 'gpt-5-nano' (the first choice)."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestResolveDeploymentChoice::test_stale_value_no_longer_in_the_list_falls_back_to_the_first_entry"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestResolveDeploymentChoice.test_missing_value_falls_back_to_the_first_entry",
+  "name": "Data Analyzer: A missing model choice falls back to the first choice",
+  "objective": "Shows a new session starts on the first model.",
+  "precondition": "Offline test harness; only the model-choice helper function is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Resolve nothing (None) and an empty text against the offered list.",
+    "data": "Choices offered: gpt-5-nano, gpt-5.4-mini, gpt-5.5.",
+    "expected": "Both give 'gpt-5-nano'."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestResolveDeploymentChoice::test_missing_value_falls_back_to_the_first_entry"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestResolveDeploymentChoice.test_valid_value_is_kept",
+  "name": "Data Analyzer: A still-offered model choice is kept",
+  "objective": "Shows the user's valid choice is not overridden.",
+  "precondition": "Offline test harness; only the model-choice helper function is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Resolve 'gpt-5.5' against the offered list.",
+    "data": "Choices offered: gpt-5-nano, gpt-5.4-mini, gpt-5.5.",
+    "expected": "Result is 'gpt-5.5'."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestResolveDeploymentChoice::test_valid_value_is_kept"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestResolveDeploymentChoice.test_empty_options_gives_none",
+  "name": "Data Analyzer: With no models offered the result is 'none'",
+  "objective": "Shows an empty list is handled without an error.",
+  "precondition": "Offline test harness; only the model-choice helper function is exercised. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Resolve 'gpt-5.5' against an empty list.",
+    "data": "Empty list",
+    "expected": "Result is None (nothing)."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestResolveDeploymentChoice::test_empty_options_gives_none"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestModelSelectboxInTheApp.test_default_is_the_first_entry_and_the_page_names_the_model_in_use",
+  "name": "Data Analyzer: The page's model drop-down defaults to the first model and names the model in use",
+  "objective": "Shows a user opening the page sees the allowed models, the first is chosen, and the page says which model is in use.",
+  "precondition": "Streamlit page tested headlessly (no browser window) with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Open the page with no earlier choice.",
+    "data": "No stored choice",
+    "expected": "The page runs without an error; the drop-down options are exactly gpt-5-nano, gpt-5.4-mini, gpt-5.5; its value is gpt-5-nano; a caption says 'Model in use' with gpt-5-nano; the stored selection is gpt-5-nano."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestModelSelectboxInTheApp::test_default_is_the_first_entry_and_the_page_names_the_model_in_use"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestModelSelectboxInTheApp.test_stale_session_value_falls_back_to_the_first_entry_without_error",
+  "name": "Data Analyzer: A stale stored model choice falls back to the first model without an error",
+  "objective": "Shows a leftover choice from an old session does not crash the page.",
+  "precondition": "Streamlit page tested headlessly (no browser window) with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Open the page with a stored choice of 'retired-model'.",
+    "data": "Stored choice retired-model",
+    "expected": "No error; the drop-down shows gpt-5-nano and the stored selection becomes gpt-5-nano."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestModelSelectboxInTheApp::test_stale_session_value_falls_back_to_the_first_entry_without_error"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.TestModelSelectboxInTheApp.test_a_still_listed_choice_is_kept_across_reruns",
+  "name": "Data Analyzer: A still-offered model choice is kept when the page reloads",
+  "objective": "Shows the user's pick is remembered.",
+  "precondition": "Streamlit page tested headlessly (no browser window) with a made-up endpoint address and allowed-model list 'gpt-5-nano, gpt-5.4-mini, gpt-5.5'. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Open the page with a stored choice of 'gpt-5.5'.",
+    "data": "Stored choice gpt-5.5",
+    "expected": "The drop-down shows gpt-5.5 and the 'Model in use' caption mentions gpt-5.5."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::TestModelSelectboxInTheApp::test_a_still_listed_choice_is_kept_across_reruns"
+ },
+ {
+  "id": "tests.test_llm_deployment_selection.test_manifest_template_lists_the_allowed_models_as_a_plain_value",
+  "name": "Data Analyzer: Deployment templates list the allowed models as a plain (non-secret) setting",
+  "objective": "Shows the cloud deployment files offer the six approved models and do not hide them as a secret. Runs for the API file and the UI file.",
+  "precondition": "Deployment template files in the repository are read as text. Nothing is deployed and there is no network.",
+  "steps": [
+   {
+    "action": "Read the allowed-models entry in deploy/aca/containerapp.yaml and containerapp-ui.yaml.",
+    "data": "Two template files",
+    "expected": "The value is exactly gpt-5-nano,gpt-5.4-mini,gpt-5.5,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol and the entry has no secret reference."
+   }
+  ],
+  "source": "tests/test_llm_deployment_selection.py::test_manifest_template_lists_the_allowed_models_as_a_plain_value"
+ }
+]

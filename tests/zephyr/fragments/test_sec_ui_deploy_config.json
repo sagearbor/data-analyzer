@@ -1,0 +1,227 @@
+[
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_xsrf_and_cors_protection_are_on_by_default",
+  "name": "Data Analyzer: Web page start script turns on cross-site request protections by default",
+  "objective": "Proves the start script enables XSRF and CORS protection (browser safeguards against forged or cross-site requests) when nothing is configured.",
+  "precondition": "The container start script entrypoint.sh is run in a temporary folder with fake 'python' and 'streamlit' programs; the fake streamlit just prints the options it was given.",
+  "steps": [
+   {
+    "action": "Run the start script with no settings",
+    "data": "empty environment",
+    "expected": "The streamlit options include --server.enableXsrfProtection=true and --server.enableCORS=true"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_xsrf_and_cors_protection_are_on_by_default"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_a_deployed_container_cannot_turn_the_protection_off",
+  "name": "Data Analyzer: A deployed container cannot switch the protections off",
+  "objective": "Proves the local-only override is ignored when the setup looks deployed.",
+  "precondition": "The container start script entrypoint.sh is run in a temporary folder with fake 'python' and 'streamlit' programs; the fake streamlit just prints the options it was given.",
+  "steps": [
+   {
+    "action": "Run the start script with STREAMLIT_INSECURE_LOCAL_ONLY=1 plus a deployed marker",
+    "data": "Two cases: CONTAINER_APP_NAME=ui, and APP_ENV=prod",
+    "expected": "In both cases the options still say XSRF protection and CORS are true, and the warning output says the override was 'ignored'"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_a_deployed_container_cannot_turn_the_protection_off"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_the_local_only_override_is_explicit_and_loud",
+  "name": "Data Analyzer: The local-only override works only in development and prints a loud warning",
+  "objective": "Proves a developer can deliberately turn the protections off locally, but the script warns about it.",
+  "precondition": "The container start script entrypoint.sh is run in a temporary folder with fake 'python' and 'streamlit' programs; the fake streamlit just prints the options it was given.",
+  "steps": [
+   {
+    "action": "Run the start script with STREAMLIT_INSECURE_LOCAL_ONLY=1 and APP_ENV=dev",
+    "data": "those two settings",
+    "expected": "The options show XSRF protection and CORS set to false, and the warning output contains 'OFF'"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_the_local_only_override_is_explicit_and_loud"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_the_old_secure_flag_is_not_needed_and_does_not_disable_anything",
+  "name": "Data Analyzer: The old STREAMLIT_SECURE=0 setting no longer disables protection",
+  "objective": "Proves a leftover legacy setting cannot weaken security.",
+  "precondition": "The container start script entrypoint.sh is run in a temporary folder with fake 'python' and 'streamlit' programs; the fake streamlit just prints the options it was given.",
+  "steps": [
+   {
+    "action": "Run the start script with STREAMLIT_SECURE=0",
+    "data": "STREAMLIT_SECURE=0",
+    "expected": "XSRF protection is still true"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_the_old_secure_flag_is_not_needed_and_does_not_disable_anything"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_streamlit_upload_limit_defaults_to_25_mb_and_is_configurable",
+  "name": "Data Analyzer: Web page upload limit defaults to 25 MB and can be changed with a valid number",
+  "objective": "Proves the upload size cap is applied, can be set to a sensible whole number, and falls back to 25 on bad values.",
+  "precondition": "The container start script entrypoint.sh is run in a temporary folder with fake 'python' and 'streamlit' programs; the fake streamlit just prints the options it was given.",
+  "steps": [
+   {
+    "action": "Run the start script with no limit set",
+    "data": "none",
+    "expected": "The option --server.maxUploadSize=25 is used"
+   },
+   {
+    "action": "Run it with a limit of 10",
+    "data": "UI_MAX_UPLOAD_MB=10",
+    "expected": "The option is --server.maxUploadSize=10"
+   },
+   {
+    "action": "Run it with invalid limits",
+    "data": "'abc', '0', '-3', '1.5'",
+    "expected": "Each falls back to --server.maxUploadSize=25"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_streamlit_upload_limit_defaults_to_25_mb_and_is_configurable"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_streamlit_config_file_has_protection_on_and_a_small_upload_limit",
+  "name": "Data Analyzer: Streamlit settings file has protections on and a modest upload limit",
+  "objective": "Proves the fixed settings file agrees with the start script.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Read the server section of .streamlit/config.toml",
+    "data": "config.toml",
+    "expected": "enableXsrfProtection and enableCORS are both true, and maxUploadSize is greater than 0 and at most 100 (MB)"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_streamlit_config_file_has_protection_on_and_a_small_upload_limit"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_run_app_sh_does_not_disable_protection_and_binds_to_loopback_by_default",
+  "name": "Data Analyzer: Local run script keeps protections on and listens on the local machine only",
+  "objective": "Proves the developer launch script does not weaken security or expose the page to the network.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Read run_app.sh",
+    "data": "run_app.sh",
+    "expected": "It contains neither 'enableXsrfProtection=false' nor 'enableCORS=false', and it mentions 127.0.0.1 (the local-only address)"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_run_app_sh_does_not_disable_protection_and_binds_to_loopback_by_default"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_published_ports_are_bound_to_loopback",
+  "name": "Data Analyzer: Docker Compose files publish ports on the local machine only",
+  "objective": "Proves none of the four Compose setups expose a port to the wider network.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Parse each Compose file and look at every service's published ports",
+    "data": "docker-compose.yml, docker-compose.fullstack.yml, docker-compose.api.yml, docker-compose.dev.yml",
+    "expected": "Every published port starts with '127.0.0.1:'"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_published_ports_are_bound_to_loopback"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_the_ui_container_gets_an_explicit_variable_list_not_the_whole_env_file",
+  "name": "Data Analyzer: Web page container receives an explicit list of settings, not the whole secrets file",
+  "objective": "Proves the page container sees only the settings it needs, so unrelated secrets such as the admin password are not passed in.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Parse docker-compose.yml, service data-analyzer",
+    "data": "docker-compose.yml",
+    "expected": "It has no env_file entry; its environment includes DATA_ANALYZER_API_URL, DATA_ANALYZER_API_KEY and APP_ENV; it does not include DATA_ANALYZER_ADMIN_PASSWORD"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_the_ui_container_gets_an_explicit_variable_list_not_the_whole_env_file"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_fullstack_rig_refuses_to_start_with_a_blank_api_key",
+  "name": "Data Analyzer: Full-stack Compose setup refuses to start without an API key",
+  "objective": "Proves the test rig cannot be started with an empty key, which would leave the service unprotected.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Read docker-compose.fullstack.yml as text",
+    "data": "docker-compose.fullstack.yml",
+    "expected": "The 'key required' form of the variable appears exactly twice and the plain no-check form does not appear"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_fullstack_rig_refuses_to_start_with_a_blank_api_key"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_legacy_nginx_8003_listener_is_loopback_only",
+  "name": "Data Analyzer: Old nginx example listens on port 8003 for the local machine only",
+  "objective": "Proves the legacy web-server configuration does not expose port 8003 to the network.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Read nginx-prefix-fix.conf",
+    "data": "nginx-prefix-fix.conf",
+    "expected": "A 'listen 127.0.0.1:8003;' line is present"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_legacy_nginx_8003_listener_is_loopback_only"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_diagram_renderer_contains_no_external_urls_or_scripts",
+  "name": "Data Analyzer: About-page diagram code makes no calls to outside websites",
+  "objective": "Proves the diagram code has no web addresses, embedded scripts or third-party diagram services.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Read mermaid_renderer.py as text",
+    "data": "mermaid_renderer.py",
+    "expected": "No 'http://' or 'https://'; no 'components.html' or '<script'; no 'mermaid.ink' or 'jsdelivr'"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_diagram_renderer_contains_no_external_urls_or_scripts"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_diagram_renderer_shows_the_local_image_then_the_source_as_text",
+  "name": "Data Analyzer: Diagram renderer shows the local picture, or falls back to showing the diagram as text",
+  "objective": "Proves the About-page diagram uses a local image when it exists and plain text when it does not.",
+  "precondition": "The page's display functions (image, text, caption, expander) are replaced by recorders; no browser involved.",
+  "steps": [
+   {
+    "action": "Render with the existing picture assets/data_flow_simple.png",
+    "data": "'graph LR; A-->B'",
+    "expected": "The first thing displayed is an image"
+   },
+   {
+    "action": "Render with a missing picture",
+    "data": "assets/missing.png",
+    "expected": "The diagram source text is displayed and no image is"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_diagram_renderer_shows_the_local_image_then_the_source_as_text"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_about_page_diagram_png_files_exist_for_both_views",
+  "name": "Data Analyzer: About-page diagram pictures exist for both views",
+  "objective": "Proves the two diagram pictures are present and not empty.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Check file sizes",
+    "data": "assets/data_flow_simple.png and assets/data_flow_diagram.png",
+    "expected": "Each file is larger than 1000 bytes"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_about_page_diagram_png_files_exist_for_both_views"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_inspect_cache_script_never_loads_pickle_files",
+  "name": "Data Analyzer: Cache inspection script never loads pickle files",
+  "objective": "Proves the helper script does not read pickle files, a format that can run attacker code when opened.",
+  "precondition": "Repository configuration files are present; they are only read.",
+  "steps": [
+   {
+    "action": "Read scripts/inspect_cache.py as text",
+    "data": "inspect_cache.py",
+    "expected": "It contains no 'import pickle', no 'pickle.load', and no '.pkl' (apart from one allowed comment about '*.pkl` left')"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_inspect_cache_script_never_loads_pickle_files"
+ }
+]

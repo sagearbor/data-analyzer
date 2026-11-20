@@ -1,0 +1,200 @@
+[
+ {
+  "id": "tests.test_sec_rules_coverage.test_unparseable_branching_logic_is_reported_as_unsupported_not_clean",
+  "name": "Data Analyzer: Unreadable conditional rule is reported as 'could not be checked', not as clean",
+  "objective": "Proves a rule whose condition cannot be understood is flagged as unsupported rather than silently passing.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Check the table against only the unreadable rule",
+    "data": "One rule built from unreadable text",
+    "expected": "No violations are returned"
+   },
+   {
+    "action": "Read the coverage report",
+    "data": "same",
+    "expected": "Coverage is marked incomplete; the unsupported list is exactly one entry for rule 'pregnant_show_if' with reason 'unsupported_condition'; 0 rules evaluated; the summary reads '1 of 1 rules could not be checked'"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_unparseable_branching_logic_is_reported_as_unsupported_not_clean"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_supported_and_unsupported_rule_together_give_an_explicit_partial_result",
+  "name": "Data Analyzer: A mix of good and unreadable rules gives an explicit partial result",
+  "objective": "Proves the good rule still runs and finds its problem while the unreadable rule is counted separately.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Check the table against the good rule and the unreadable rule",
+    "data": "2 rules",
+    "expected": "The only violation returned is from rule 'good'"
+   },
+   {
+    "action": "Read the coverage counts",
+    "data": "same",
+    "expected": "Totals are 2 rules, 1 evaluated, 1 unsupported, 0 failed"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_supported_and_unsupported_rule_together_give_an_explicit_partial_result"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_a_rule_that_errors_during_evaluation_is_listed_as_failed_and_others_still_run",
+  "name": "Data Analyzer: A rule that crashes while running is listed as failed and the other rules still run",
+  "objective": "Proves one broken rule cannot stop the rest and is visibly reported.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male. A deliberately broken rule is added that raises an error when evaluated.",
+  "steps": [
+   {
+    "action": "Check the table against the broken rule and the good rule",
+    "data": "2 rules",
+    "expected": "The only violation comes from rule 'good'"
+   },
+   {
+    "action": "Read the coverage report",
+    "data": "same",
+    "expected": "The failed list is exactly rule 'broken' with reason 'evaluation_error', and 1 rule was evaluated"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_a_rule_that_errors_during_evaluation_is_listed_as_failed_and_others_still_run"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_unknown_action_is_reported_as_unsupported",
+  "name": "Data Analyzer: A rule with an unknown action is reported as unsupported",
+  "objective": "Proves a rule asking for an action the checker does not know is flagged rather than ignored.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male. The rule uses the action 'value_in', which the checker does not support.",
+  "steps": [
+   {
+    "action": "Check the table against that rule",
+    "data": "rule 'va'",
+    "expected": "The unsupported list is exactly rule 'va' with reason 'unsupported_action'"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_unknown_action_is_reported_as_unsupported"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_fully_supported_rules_report_complete_coverage",
+  "name": "Data Analyzer: Fully supported rules report complete coverage",
+  "objective": "Proves that when every rule can be checked, coverage is reported as complete with no warning text.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Check the table against only the good rule",
+    "data": "1 rule",
+    "expected": "Coverage is complete, 1 rule evaluated, and the summary text is empty"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_fully_supported_rules_report_complete_coverage"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_validate_keeps_returning_a_plain_violation_list_and_exposes_coverage",
+  "name": "Data Analyzer: The older validation call still returns a plain list and also records coverage",
+  "objective": "Proves the earlier interface still works for existing callers while the new coverage information is available afterwards.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Call the older validate function with the good and unreadable rules",
+    "data": "2 rules",
+    "expected": "The result is a plain list containing exactly 1 violation"
+   },
+   {
+    "action": "Read the last coverage record kept by the validator",
+    "data": "same",
+    "expected": "It shows 1 rule not checked"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_validate_keeps_returning_a_plain_violation_list_and_exposes_coverage"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_unsupported_status_survives_a_save_and_reload_of_the_rule",
+  "name": "Data Analyzer: 'Unsupported' status survives saving and reloading a rule",
+  "objective": "Proves a rule that could not be understood is still flagged after it is stored and read back.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Convert the unreadable rule to its saved form, rebuild it, and check the table",
+    "data": "1 rebuilt rule",
+    "expected": "The reloaded rule appears in the unsupported list and no rule was evaluated"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_unsupported_status_survives_a_save_and_reload_of_the_rule"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_legacy_string_condition_is_reported_as_unsupported_and_never_executed",
+  "name": "Data Analyzer: Old-style text condition is flagged unsupported and never run as code",
+  "objective": "Proves a stored rule whose condition is a piece of program text (here an attempt to call a system function) is not executed and is reported as unsupported.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Rebuild a rule from saved data whose condition is the text \"__import__('os').getcwd()\" and check the table",
+    "data": "legacy-format rule 'legacy'",
+    "expected": "No violations are returned and rule 'legacy' is the first entry in the unsupported list. (The test shows the rule is flagged; it does not directly prove the text was not run.)"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_legacy_string_condition_is_reported_as_unsupported_and_never_executed"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_a_genuine_constant_false_rule_is_not_flagged_unsupported",
+  "name": "Data Analyzer: A rule that is genuinely always-false is not wrongly flagged as unsupported",
+  "objective": "Proves a deliberately constant 'False' condition counts as a normal, evaluated rule, so the unsupported flag is not a false alarm.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Check the table against a rule whose condition is the constant False",
+    "data": "rule 'c'",
+    "expected": "Coverage is complete and 1 rule was evaluated"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_a_genuine_constant_false_rule_is_not_flagged_unsupported"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_coverage_dict_lists_counts_and_codes_only",
+  "name": "Data Analyzer: Coverage report contains only counts and codes, not the rule text",
+  "objective": "Proves the report that may be shown or logged does not leak the original condition text.",
+  "precondition": "Offline; a made-up one-row table with a 'pregnant' column and the unreadable rule.",
+  "steps": [
+   {
+    "action": "Check the table and convert the coverage to a dictionary",
+    "data": "unreadable rule",
+    "expected": "rules_total is 1, rules_not_checked is 1, complete is false"
+   },
+   {
+    "action": "Search the dictionary text",
+    "data": "marker text 'zz_secret_marker_field'",
+    "expected": "The marker text does not appear anywhere in it"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_coverage_dict_lists_counts_and_codes_only"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_logs_never_contain_the_raw_expression_text",
+  "name": "Data Analyzer: Log messages never contain the raw rule text",
+  "objective": "Proves that while parsing and checking unreadable or broken rules, the log output (even at the most detailed level) never repeats the original expression, which could contain sensitive field names.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male. Log capture is turned on at the most detailed level.",
+  "steps": [
+   {
+    "action": "Parse the unreadable expression, build the unreadable rule, run checks with an unreadable and a broken rule, and rebuild a condition from text containing the marker",
+    "data": "text containing 'zz_secret_marker_field'",
+    "expected": "The captured log text does not contain the marker"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_logs_never_contain_the_raw_expression_text"
+ },
+ {
+  "id": "tests.test_sec_rules_coverage.test_one_bad_rule_does_not_hide_the_good_rules_violations_and_is_counted",
+  "name": "Data Analyzer: One bad rule neither hides the good rule's findings nor goes uncounted",
+  "objective": "Proves with the bad rule listed first that the good rule's finding is still reported and the bad rule is counted.",
+  "precondition": "Offline: no network and no AI. A small made-up table with a 'gender' column (Male, Female, Male) and a 'pregnant' column ('1', blank, blank). A 'bad' rule is built from the made-up unreadable condition text '[zz_secret_marker_field] ~~ not a valid expression'; the 'good' rule says pregnant must be blank when gender is Male.",
+  "steps": [
+   {
+    "action": "Check the table against the unreadable rule followed by the good rule",
+    "data": "2 rules",
+    "expected": "Exactly 1 violation, on row index 0"
+   },
+   {
+    "action": "Read the coverage",
+    "data": "same",
+    "expected": "1 rule not checked and 1 rule evaluated"
+   }
+  ],
+  "source": "tests/test_sec_rules_coverage.py::test_one_bad_rule_does_not_hide_the_good_rules_violations_and_is_counted"
+ }
+]

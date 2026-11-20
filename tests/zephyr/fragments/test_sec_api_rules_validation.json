@@ -1,0 +1,128 @@
+[
+ {
+  "id": "tests.test_sec_api_rules_validation.test_a_malformed_rule_is_refused_with_422_naming_the_column_and_key",
+  "name": "Data Analyzer: Malformed checking rules are refused with HTTP 422 and name the column and rule",
+  "objective": "Shows a mistyped rule is reported to the user instead of being silently ignored or causing a crash. Runs once per case per route (14 runs).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. The sample file is a made-up 3-row table (age: 10, 200, 30; colour: red, blue, green). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send the sample file with one badly formed rule at a time to each route.",
+    "data": "Each case is sent to both analyze routes (file upload and inline data): min='zz'; min=null; max=true; allowed=5; allowed=[an object]; the whole rule for a column is a plain text; an unknown rule key 'minimum'.",
+    "expected": "Every one gets HTTP 422 (unprocessable); the message names the column in quotes (age or colour) and, except for the 'plain text rule' case, the rule key in quotes (min, max, allowed or minimum)."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_a_malformed_rule_is_refused_with_422_naming_the_column_and_key"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_the_error_message_never_echoes_the_offending_value",
+  "name": "Data Analyzer: The rule error message does not repeat the bad value",
+  "objective": "Shows rejected input is not reflected back to the caller.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. The sample file is a made-up 3-row table (age: 10, 200, 30; colour: red, blue, green). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send a rule whose min is the text 'SECRET-VALUE-123'.",
+    "data": "age min = SECRET-VALUE-123",
+    "expected": "HTTP 422 and the reply text does not contain 'SECRET-VALUE-123'."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_the_error_message_never_echoes_the_offending_value"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_a_malformed_schema_is_refused_with_422",
+  "name": "Data Analyzer: Malformed column-type definitions are refused with HTTP 422",
+  "objective": "Shows a schema (column types) with the wrong shape is rejected rather than ignored. Runs 3 cases on both routes (6 runs).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. The sample file is a made-up 3-row table (age: 10, 200, 30; colour: red, blue, green). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send the sample file with a bad schema to each route.",
+    "data": "Schema age = 5; age = 'integer'; age = ['int']",
+    "expected": "HTTP 422 and the message names the column 'age' in quotes."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_a_malformed_schema_is_refused_with_422"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_well_formed_rules_and_schema_still_work_and_report_violations",
+  "name": "Data Analyzer: Correct rules and schema still work and report the expected problems",
+  "objective": "Shows the stricter checking did not break valid requests.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. The sample file is a made-up 3-row table (age: 10, 200, 30; colour: red, blue, green). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send the sample file with age in 0-120, colour in red/blue, and schema age=int, colour=str to both routes.",
+    "data": "Row with age 200 and colour 'green' break the rules",
+    "expected": "HTTP 200; the issues include a range violation on age and an invalid-category-value issue on colour."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_well_formed_rules_and_schema_still_work_and_report_violations"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_numeric_and_empty_rule_shapes_that_worked_before_are_accepted",
+  "name": "Data Analyzer: Decimal-number rules and empty rules are still accepted",
+  "objective": "Shows older valid rule shapes were not newly refused.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. The sample file is a made-up 3-row table (age: 10, 200, 30; colour: red, blue, green). No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send rules age min 1.5 / max 99, and colour {} (empty) to both routes.",
+    "data": "min 1.5, max 99, empty colour rule",
+    "expected": "HTTP 200 on both routes."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_numeric_and_empty_rule_shapes_that_worked_before_are_accepted"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_the_checker_reports_a_rule_it_cannot_apply_instead_of_dropping_it",
+  "name": "Data Analyzer: The quality checker reports a rule it cannot apply, rather than dropping it",
+  "objective": "Shows an unusable rule appears as a visible problem instead of a hidden gap in checking.",
+  "precondition": "Quality-check code run directly on a small made-up table; no server.",
+  "steps": [
+   {
+    "action": "Run the range check directly on a small table with age min='zz' and colour allowed=5.",
+    "data": "Table age [1,2], c ['a','b']",
+    "expected": "The check does not pass, and there are exactly two 'rule invalid' issues: (age, min, min_not_numeric) and (c, allowed, allowed_not_list)."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_the_checker_reports_a_rule_it_cannot_apply_instead_of_dropping_it"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_the_checker_still_applies_the_valid_part_of_a_partly_invalid_rule",
+  "name": "Data Analyzer: The checker still applies the valid half of a partly bad rule",
+  "objective": "Shows one bad key does not switch off the good checks beside it.",
+  "precondition": "Quality-check code run directly on a small made-up table; no server.",
+  "steps": [
+   {
+    "action": "Run the range check with age max=100 (good) and min=None (bad) on a table with values 1 and 200.",
+    "data": "age [1, 200]",
+    "expected": "The issues include the text 'max <= 100' and also a 'rule_invalid' issue."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_the_checker_still_applies_the_valid_part_of_a_partly_invalid_rule"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_the_checker_flags_a_non_object_rule_and_a_mixed_type_allowed_list_does_not_crash",
+  "name": "Data Analyzer: A non-object rule is flagged and a mixed-type allowed list does not crash",
+  "objective": "Shows odd rule shapes give a result rather than an error.",
+  "precondition": "Quality-check code run directly on a small made-up table; no server.",
+  "steps": [
+   {
+    "action": "Run the range check with column a rule = plain text 'x', and column b allowed = [1, 'x'].",
+    "data": "a: 'x'; b: allowed [1,'x']",
+    "expected": "An issue with reason 'rule_not_object' exists for column a, and an issue mentioning 'allowed_values' exists (so the check finished normally)."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_the_checker_flags_a_non_object_rule_and_a_mixed_type_allowed_list_does_not_crash"
+ },
+ {
+  "id": "tests.test_sec_api_rules_validation.test_the_report_surfaces_a_row_less_rule_invalid_issue",
+  "name": "Data Analyzer: The final report shows an unusable-rule problem even though it has no row",
+  "objective": "Shows the user is told a rule was NOT checked, in the report they actually read.",
+  "precondition": "Quality-check and report-building code run directly on a small made-up table; no server.",
+  "steps": [
+   {
+    "action": "Run the whole quality pipeline with age min='zz' and build the report.",
+    "data": "age [1, 2]; min 'zz'",
+    "expected": "The report contains exactly one 'rule_invalid' issue, for column age, and its message contains 'NOT checked'."
+   }
+  ],
+  "source": "tests/test_sec_api_rules_validation.py::test_the_report_surfaces_a_row_less_rule_invalid_issue"
+ }
+]

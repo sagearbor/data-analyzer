@@ -1,0 +1,73 @@
+[
+ {
+  "id": "tests.test_sec_build_docs.test_readme_does_not_advertise_a2a_routes_as_available",
+  "name": "Data Analyzer: README does not offer the agent-to-agent routes as available",
+  "objective": "Proves the main README does not tell readers they can call agent-to-agent (A2A) web routes that are not part of the released service.",
+  "precondition": "The project's own documentation files are present in the repository. Nothing is run; the test only reads the text of the files.",
+  "steps": [
+   {
+    "action": "Read the text of README.md",
+    "data": "README.md",
+    "expected": "The phrase for the A2A example request line (a POST to the data-analyzer agent route) does not appear anywhere"
+   },
+   {
+    "action": "Check for the explanatory note",
+    "data": "README.md",
+    "expected": "The sentence saying these routes are 'not copied into the released' service is present"
+   }
+  ],
+  "source": "tests/test_sec_build_docs.py::test_readme_does_not_advertise_a2a_routes_as_available"
+ },
+ {
+  "id": "tests.test_sec_build_docs.test_integration_guide_has_no_public_unauthenticated_deployment_instructions",
+  "name": "Data Analyzer: Integration guide has no instructions to expose the service without authentication",
+  "objective": "Proves the integration guide does not show an open, unauthenticated call to the agent-to-agent port and instead warns that the service must not be exposed without authentication.",
+  "precondition": "The project's own documentation files are present in the repository. Nothing is run; the test only reads the text of the files.",
+  "steps": [
+   {
+    "action": "Read docs/INTEGRATION.md",
+    "data": "docs/INTEGRATION.md",
+    "expected": "The example 'curl' command that posts to the agent route on port 8003 over plain HTTP does not appear"
+   },
+   {
+    "action": "Check for the warning, with line breaks ignored",
+    "data": "docs/INTEGRATION.md",
+    "expected": "The text says the service must never be exposed to a network without authentication"
+   }
+  ],
+  "source": "tests/test_sec_build_docs.py::test_integration_guide_has_no_public_unauthenticated_deployment_instructions"
+ },
+ {
+  "id": "tests.test_sec_build_docs.test_aca_readme_does_not_instruct_a_bare_update_yaml_and_points_to_the_guard",
+  "name": "Data Analyzer: Azure deployment README forbids unguarded update commands and names the guard script",
+  "objective": "Proves the Azure Container Apps deployment guide does not tell people to run raw create/update commands and directs them to the approved guard script instead.",
+  "precondition": "The project's own documentation files are present in the repository. Nothing is run; the test only reads the text of the files.",
+  "steps": [
+   {
+    "action": "Read deploy/aca/README.md",
+    "data": "deploy/aca/README.md",
+    "expected": "Neither a raw 'az containerapp update --name' nor a raw 'az containerapp create --name' command appears"
+   },
+   {
+    "action": "Check the guard script and the Deploy section",
+    "data": "deploy/aca/README.md, section '3. Deploy'",
+    "expected": "The guard script name 'aca-guard.sh' appears in the file, and the Deploy section contains no home-directory path (no '~/')"
+   }
+  ],
+  "source": "tests/test_sec_build_docs.py::test_aca_readme_does_not_instruct_a_bare_update_yaml_and_points_to_the_guard"
+ },
+ {
+  "id": "tests.test_sec_build_docs.test_docs_record_that_openapi_pages_are_open_by_design",
+  "name": "Data Analyzer: Docs state that the interactive API pages are open without an API key by design",
+  "objective": "Proves the README and integration guide both record the deliberate decision that the automatically generated API description pages need no API key.",
+  "precondition": "The project's own documentation files are present in the repository. Nothing is run; the test only reads the text of the files.",
+  "steps": [
+   {
+    "action": "Read README.md and docs/INTEGRATION.md",
+    "data": "README.md and docs/INTEGRATION.md",
+    "expected": "README.md contains the sentence 'open without an API key by design'; INTEGRATION.md contains the same wording (split across two lines)"
+   }
+  ],
+  "source": "tests/test_sec_build_docs.py::test_docs_record_that_openapi_pages_are_open_by_design"
+ }
+]

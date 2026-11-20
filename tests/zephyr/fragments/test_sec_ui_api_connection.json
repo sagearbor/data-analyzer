@@ -1,0 +1,119 @@
+[
+ {
+  "id": "tests.test_sec_ui_api_connection.test_api_call_with_the_key_disables_redirect_following",
+  "name": "Data Analyzer: Web page's call to the API sends the key and refuses redirects",
+  "objective": "Proves the web page's request to the analysis service carries the API key only to the intended address and does not follow redirects.",
+  "precondition": "Offline: the web request is replaced by a canned successful answer; a made-up API key 'secret-test-key' is configured; development mode.",
+  "steps": [
+   {
+    "action": "Run an analysis of a small made-up table (one column 'a' with values 1, 2)",
+    "data": "Key 'secret-test-key'",
+    "expected": "The request was made with redirect-following set to false, and its only header was X-API-Key with the made-up key"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_api_call_with_the_key_disables_redirect_following"
+ },
+ {
+  "id": "tests.test_sec_ui_api_connection.test_a_redirect_from_the_api_is_an_error_and_is_not_followed",
+  "name": "Data Analyzer: A redirect answer from the API is an error and is not followed",
+  "objective": "Proves that if the service answers with a redirect, the page stops with an error mentioning 'redirect' and makes no second request.",
+  "precondition": "Offline: the web request returns the canned redirect answer pointing to a made-up address; a made-up API key is configured.",
+  "steps": [
+   {
+    "action": "Run an analysis once for each redirect status code",
+    "data": "HTTP 301, 302, 303, 307, 308",
+    "expected": "A runtime error mentioning 'redirect' is raised each time, and exactly one request was made (no retry, no follow-up)"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_a_redirect_from_the_api_is_an_error_and_is_not_followed"
+ },
+ {
+  "id": "tests.test_sec_ui_api_connection.test_every_requests_call_in_the_ui_disables_redirects",
+  "name": "Data Analyzer: Every outgoing web request in the page code disables redirects",
+  "objective": "Proves by reading the page's source code that no outgoing request was missed.",
+  "precondition": "The page source file web_app.py is available; it is read but not run.",
+  "steps": [
+   {
+    "action": "Parse web_app.py and find every get/post/put/delete/request call made through the 'requests' library",
+    "data": "web_app.py",
+    "expected": "At least one such call exists, and each one explicitly sets allow_redirects to the literal value False"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_every_requests_call_in_the_ui_disables_redirects"
+ },
+ {
+  "id": "tests.test_sec_ui_api_connection.test_deployed_http_to_a_public_style_host_is_refused",
+  "name": "Data Analyzer: In a deployed setup, an unencrypted API address is refused",
+  "objective": "Proves production configuration rejects http:// for a normal host name.",
+  "precondition": "Production mode with a made-up API key; no network.",
+  "steps": [
+   {
+    "action": "Resolve the API address and run the startup configuration check",
+    "data": "http://api.example.invalid (made-up)",
+    "expected": "The resolver raises a configuration error mentioning 'https', and the startup check reports a problem mentioning 'https'"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_deployed_http_to_a_public_style_host_is_refused"
+ },
+ {
+  "id": "tests.test_sec_ui_api_connection.test_deployed_https_is_accepted",
+  "name": "Data Analyzer: In a deployed setup, an https API address is accepted",
+  "objective": "Proves a correct encrypted address passes and the trailing slash is tidied.",
+  "precondition": "Production mode with a made-up API key; no network.",
+  "steps": [
+   {
+    "action": "Resolve the API address and run the startup check",
+    "data": "https://api.example.invalid/ (made-up)",
+    "expected": "The address becomes 'https://api.example.invalid' (no trailing slash) and the check reports no problems"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_deployed_https_is_accepted"
+ },
+ {
+  "id": "tests.test_sec_ui_api_connection.test_http_stays_allowed_locally_and_for_a_compose_service_name",
+  "name": "Data Analyzer: Plain http stays allowed for local use and for an internal service name",
+  "objective": "Proves the https rule does not break legitimate local setups.",
+  "precondition": "No network; addresses are only parsed.",
+  "steps": [
+   {
+    "action": "Resolve addresses in development mode",
+    "data": "http://api.example.invalid:8000 and http://localhost:8000",
+    "expected": "Both are accepted and returned unchanged"
+   },
+   {
+    "action": "Resolve an address in production mode",
+    "data": "http://api:8000 (a bare internal service name)",
+    "expected": "Accepted and returned unchanged"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_http_stays_allowed_locally_and_for_a_compose_service_name"
+ },
+ {
+  "id": "tests.test_sec_ui_api_connection.test_a_malformed_api_url_fails_loudly_in_every_environment",
+  "name": "Data Analyzer: A malformed API address is rejected in both development and production",
+  "objective": "Proves bad addresses (wrong scheme, missing host, embedded password, query or fragment, bad port, spaces, file or script schemes) are refused everywhere.",
+  "precondition": "No network; addresses are only parsed.",
+  "steps": [
+   {
+    "action": "Resolve each bad address in development mode and in production mode",
+    "data": "10 bad addresses, e.g. ftp://..., https://, https://user:pw@..., https://...?token=1, ...#frag, ...:notaport, file:///etc/passwd, javascript:alert(1), https:/api... (20 combinations)",
+    "expected": "A configuration error is raised every time"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_a_malformed_api_url_fails_loudly_in_every_environment"
+ },
+ {
+  "id": "tests.test_sec_ui_api_connection.test_a_malformed_url_makes_the_startup_check_fail",
+  "name": "Data Analyzer: A malformed API address makes the startup check report a problem",
+  "objective": "Proves the page's startup self-check catches a bad address.",
+  "precondition": "Production mode with a made-up API key.",
+  "steps": [
+   {
+    "action": "Run the startup configuration check",
+    "data": "ftp://x.example.invalid (made-up)",
+    "expected": "At least one problem is reported"
+   }
+  ],
+  "source": "tests/test_sec_ui_api_connection.py::test_a_malformed_url_makes_the_startup_check_fail"
+ }
+]

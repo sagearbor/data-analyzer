@@ -1,0 +1,78 @@
+[
+ {
+  "id": "tests.test_sec_api_event_loop.test_health_answers_promptly_while_an_analysis_is_running",
+  "name": "Data Analyzer: Health check stays fast while a file analysis is running",
+  "objective": "Shows the server can still answer its health check quickly while a file analysis is in progress, so one heavy request does not freeze everyone else.",
+  "precondition": "Server application run inside the offline test harness with a made-up API key. A deliberately slow (1.5 second) stand-in replaces the real work, so no real network and no AI model are used.",
+  "steps": [
+   {
+    "action": "Start a file analysis upload (the work is replaced by a stand-in that blocks for 1.5 seconds).",
+    "data": "Tiny CSV file d.csv",
+    "expected": "The request is running in the background."
+   },
+   {
+    "action": "After 0.3 seconds, call the health check while that request is still in flight.",
+    "data": "GET /api/v1/health",
+    "expected": "Health returns HTTP 200 in under 0.7 seconds, and the slow request was still unfinished when health answered; when it finishes it returns HTTP 200."
+   }
+  ],
+  "source": "tests/test_sec_api_event_loop.py::test_health_answers_promptly_while_an_analysis_is_running"
+ },
+ {
+  "id": "tests.test_sec_api_event_loop.test_health_answers_promptly_while_inline_json_analysis_is_running",
+  "name": "Data Analyzer: Health check stays fast while an inline-data analysis is running",
+  "objective": "Shows the server can still answer its health check quickly while an inline-data analysis is in progress, so one heavy request does not freeze everyone else.",
+  "precondition": "Server application run inside the offline test harness with a made-up API key. A deliberately slow (1.5 second) stand-in replaces the real work, so no real network and no AI model are used.",
+  "steps": [
+   {
+    "action": "Start an inline-data analysis (the work is replaced by a stand-in that blocks for 1.5 seconds).",
+    "data": "Inline CSV text 'a / 1'",
+    "expected": "The request is running in the background."
+   },
+   {
+    "action": "After 0.3 seconds, call the health check while that request is still in flight.",
+    "data": "GET /api/v1/health",
+    "expected": "Health returns HTTP 200 in under 0.7 seconds, and the slow request was still unfinished when health answered; when it finishes it returns HTTP 200."
+   }
+  ],
+  "source": "tests/test_sec_api_event_loop.py::test_health_answers_promptly_while_inline_json_analysis_is_running"
+ },
+ {
+  "id": "tests.test_sec_api_event_loop.test_health_answers_promptly_while_a_dictionary_is_being_parsed",
+  "name": "Data Analyzer: Health check stays fast while a dictionary is being parsed",
+  "objective": "Shows the server can still answer its health check quickly while a dictionary parse is in progress, so one heavy request does not freeze everyone else.",
+  "precondition": "Server application run inside the offline test harness with a made-up API key. A deliberately slow (1.5 second) stand-in replaces the real work, so no real network and no AI model are used.",
+  "steps": [
+   {
+    "action": "Start a dictionary upload (standing in for the slow AI step) (the work is replaced by a stand-in that blocks for 1.5 seconds).",
+    "data": "Tiny dictionary file d.csv",
+    "expected": "The request is running in the background."
+   },
+   {
+    "action": "After 0.3 seconds, call the health check while that request is still in flight.",
+    "data": "GET /api/v1/health",
+    "expected": "Health returns HTTP 200 in under 0.7 seconds, and the slow request was still unfinished when health answered; when it finishes it returns HTTP 200."
+   }
+  ],
+  "source": "tests/test_sec_api_event_loop.py::test_health_answers_promptly_while_a_dictionary_is_being_parsed"
+ },
+ {
+  "id": "tests.test_sec_api_event_loop.test_health_answers_promptly_while_a_dictionary_lookup_is_running",
+  "name": "Data Analyzer: Health check stays fast while a dictionary lookup is running",
+  "objective": "Shows the server can still answer its health check quickly while a dictionary lookup is in progress, so one heavy request does not freeze everyone else.",
+  "precondition": "Server application run inside the offline test harness with a made-up API key. A deliberately slow (1.5 second) stand-in replaces the real work, so no real network and no AI model are used.",
+  "steps": [
+   {
+    "action": "Start a dictionary lookup (standing in for a slow database read) (the work is replaced by a stand-in that blocks for 1.5 seconds).",
+    "data": "Dictionary ID 'abc'; the store returns nothing",
+    "expected": "The request is running in the background."
+   },
+   {
+    "action": "After 0.3 seconds, call the health check while that request is still in flight.",
+    "data": "GET /api/v1/health",
+    "expected": "Health returns HTTP 200 in under 0.7 seconds, and the slow request was still unfinished when health answered; when it finishes it returns HTTP 404."
+   }
+  ],
+  "source": "tests/test_sec_api_event_loop.py::test_health_answers_promptly_while_a_dictionary_lookup_is_running"
+ }
+]
