@@ -54,14 +54,15 @@ def test_the_429_for_too_many_failures_tells_the_client_when_to_retry(client):
     assert resp.headers["Retry-After"] == "60"
 
 
-def test_a_locked_out_client_with_the_correct_key_is_still_served(client):
-    # Changed from "refused with 429": only failed attempts are throttled, so a
-    # bad caller sharing an address cannot lock legitimate users out.
+def test_a_locked_out_client_is_refused_even_with_the_correct_key(client):
+    # Identical 429 for a right or wrong key during a lockout: no guessing oracle.
     for i in range(5):
         _post(client, f"wrong-{i}")
 
-    assert _post(client, KEY).status_code == 200
-    assert _post(client, "wrong-again").status_code == 429
+    right, wrong = _post(client, KEY), _post(client, "wrong-again")
+    assert right.status_code == wrong.status_code == 429
+    assert right.json() == wrong.json() or right.json()["error"] == wrong.json()["error"]
+    assert right.headers["Retry-After"] == wrong.headers["Retry-After"] == "60"
 
 
 def test_correct_keys_never_count_as_failures(client):

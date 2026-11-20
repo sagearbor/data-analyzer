@@ -33,6 +33,7 @@ from pathlib import Path
 from demo_dictionaries import DEMO_DICTIONARIES, get_demo_dictionary
 from src.__version__ import __version__
 from src.runtime_env import ApiConfigError, resolve_api_base_url
+from src.schema_types import normalize_schema, normalize_schema_type
 
 logger = logging.getLogger("data_analyzer.ui")
 # NOTE: QualityPipeline/QualityChecker (mcp_server.py) are no longer imported
@@ -176,25 +177,108 @@ def force_text_cells(workbook) -> int:
 DEFAULT_PDF_MAX_PAGE_BYTES = 5_000_000
 
 
-def _page_content_bytes(page) -> int:
-    """Stored (raw, still-encoded) size of a page's content stream(s), WITHOUT
-    decoding them. Handles a missing /Contents, a single stream and an array."""
-    try:
-        contents = page.get("/Contents")
-        contents = contents.get_object() if contents is not None else None
-    except Exception:
-        return 0
-    if contents is None:
-        return 0
-    parts = list(contents) if isinstance(contents, (list, tuple)) else [contents]
-    total = 0
-    for part in parts:
+class _PageSizeError(Exception):
+    """A PDF page's decoded content could not be proven small (reason: too_large | unbounded | unreadable)."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+_PDF_FORM_DEPTH_LIMIT = 3
+
+
+def _bounded_stream_size(stream, budget: int) -> int:
+    """Decoded size of one content stream, never materialising more than
+    budget + 1 bytes. No filter: raw length. A single /FlateDecode: bounded
+    zlib inflate. Any other filter/chain: unbounded (refused)."""
+    import zlib
+
+    raw = getattr(stream, "_data", None)
+    if raw is None:
+        raise _PageSizeError("unreadable")
+    raw = bytes(raw)
+    filt = stream.get("/Filter")
+    filt = filt.get_object() if filt is not None and hasattr(filt, "get_object") else filt
+    if isinstance(filt, (list, tuple)):
+        names = [str(f.get_object() if hasattr(f, "get_object") else f) for f in filt]
+    elif filt is None:
+        names = []
+    else:
+        names = [str(filt)]
+    if not names:
+        size = len(raw)
+    elif names in (["/FlateDecode"], ["/Fl"]):
+        d = zlib.decompressobj()
+        size, data = 0, raw
         try:
-            obj = part.get_object() if hasattr(part, "get_object") else part
-            total += len(getattr(obj, "_data", b"") or b"")
-        except Exception:
+            while True:
+                chunk = d.decompress(data, max(1, budget + 1 - size))
+                size += len(chunk)
+                if size > budget:
+                    break
+                data = d.unconsumed_tail
+                if not data:
+                    break
+        except zlib.error:
+            raise _PageSizeError("unreadable")
+    else:
+        raise _PageSizeError("unbounded")
+    if size > budget:
+        raise _PageSizeError("too_large")
+    return size
+
+
+def _page_resources(page):
+    node = page
+    for _ in range(20):  # /Resources can be inherited from a parent /Pages node
+        res = node.get("/Resources") if hasattr(node, "get") else None
+        if res is not None:
+            return res.get_object()
+        parent = node.get("/Parent")
+        if parent is None:
+            return None
+        node = parent.get_object()
+    return None
+
+
+def _bounded_container_size(container, limit: int, used: int, depth: int, seen: set) -> int:
+    """Add up decoded content-stream sizes of a page or Form XObject (and of the
+    Form XObjects it references, to a depth limit). Returns the new running total."""
+    if depth > _PDF_FORM_DEPTH_LIMIT:
+        raise _PageSizeError("unbounded")
+    contents = container.get("/Contents") if depth == 0 else container
+    contents = contents.get_object() if contents is not None else None
+    if contents is not None:
+        parts = list(contents) if isinstance(contents, (list, tuple)) else [contents]
+        for part in parts:
+            used += _bounded_stream_size(part.get_object(), limit - used)
+    res = _page_resources(container) if depth == 0 else container.get("/Resources")
+    res = res.get_object() if res is not None and hasattr(res, "get_object") else res
+    xobjects = res.get("/XObject") if res is not None else None
+    xobjects = xobjects.get_object() if xobjects is not None else None
+    for ref in (xobjects.values() if xobjects else ()):
+        obj = ref.get_object()
+        if id(obj) in seen or obj.get("/Subtype") != "/Form":
             continue
-    return total
+        seen.add(id(obj))
+        # The recursion counts the form's own stream, then its nested forms.
+        used = _bounded_container_size(obj, limit, used, depth + 1, seen)
+    return used
+
+
+def _page_content_bytes(page, limit: int) -> int:
+    """Decoded size of everything extract_text() would have to decode for this
+    page, bounded by `limit`. Raises _PageSizeError (fail closed) when it is too
+    large, uses an encoding that cannot be bounded, or cannot be measured."""
+    if not hasattr(page, "get"):
+        return 0  # not a PDF page object at all (nothing to measure); real pages always have .get
+    try:
+        return _bounded_container_size(page, limit, 0, 0, set())
+    except _PageSizeError:
+        raise
+    except Exception:
+        raise _PageSizeError("unreadable")
 
 
 def extract_pdf_text(reader, max_pages: Optional[int] = None, max_chars: Optional[int] = None) -> str:
@@ -216,12 +300,20 @@ def extract_pdf_text(reader, max_pages: Optional[int] = None, max_chars: Optiona
     parts, total = [], 0
     for number, page in enumerate(pages, start=1):
         # Checked BEFORE extraction: extract_text() materialises the whole page.
-        if _page_content_bytes(page) > max_page_bytes:
-            raise DictionaryTooLargeError(
-                f"Page {number} of this PDF is too large to read safely "
-                f"(more than {max_page_bytes:,} bytes of page content). "
-                "Split or simplify the dictionary and upload it again."
-            )
+        try:
+            _page_content_bytes(page, max_page_bytes)
+        except _PageSizeError as e:
+            if e.reason == "too_large":
+                msg = (f"Page {number} of this PDF is too large to read safely "
+                       f"(more than {max_page_bytes:,} bytes of page content once decoded). "
+                       "Split or simplify the dictionary and upload it again.")
+            elif e.reason == "unbounded":
+                msg = (f"Page {number} of this PDF uses an encoding that cannot be size-checked, "
+                       "so it was not read. Re-save the PDF as a standard PDF and upload it again.")
+            else:
+                msg = (f"Page {number} of this PDF could not be size-checked, so it was not read. "
+                       "Re-save the PDF and upload it again.")
+            raise DictionaryTooLargeError(msg)
         text = (page.extract_text() or "") + "\n"
         total += len(text)
         if total > max_chars:
@@ -966,6 +1058,9 @@ class DataQualityAnalyzer:
         # HTTP request).
         schema = None
         rules = None
+        # Columns whose dictionary type has no checkable equivalent: NOT sent as
+        # schema and NOT a failure - reported on the page and in the exports.
+        types_not_checked: list = []
 
         if dictionary and isinstance(dictionary, dict):
             # Handle different dictionary formats
@@ -978,7 +1073,11 @@ class DataQualityAnalyzer:
                     if isinstance(field_spec, dict):
                         # Extract type for schema
                         if 'type' in field_spec:
-                            schema[field_name] = field_spec['type']
+                            canon = normalize_schema_type(field_spec['type'])
+                            if canon is None:
+                                types_not_checked.append(str(field_name))
+                            else:
+                                schema[field_name] = canon
 
                         # Extract validation rules
                         field_rules = {}
@@ -999,7 +1098,11 @@ class DataQualityAnalyzer:
                             rules[field_name] = field_rules
 
             elif 'schema' in dictionary:
-                schema = dictionary.get('schema')
+                raw_schema = dictionary.get('schema')
+                if isinstance(raw_schema, dict):
+                    schema, types_not_checked = normalize_schema(raw_schema)
+                else:
+                    schema = raw_schema
                 rules = dictionary.get('validation_rules', {})
 
         # Run the rule-based engine via the API (replaces the old in-process
@@ -1072,6 +1175,7 @@ class DataQualityAnalyzer:
             })
         summary["logic_violations_count"] = logic_violations_count
         summary["rules_not_checked"] = rule_coverage["rules_not_checked"] if rule_coverage else 0
+        summary["column_types_not_checked"] = list(types_not_checked)  # names; count = len()
 
         return {
             "summary": summary,
@@ -1494,7 +1598,8 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
     except Exception as e:
         st.caption(f"Issue map unavailable ({type(e).__name__})")
 
-def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list, rule_coverage: Optional[dict] = None) -> bytes:
+def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list, rule_coverage: Optional[dict] = None,
+                                      types_not_checked: Optional[list] = None) -> bytes:
     """Export data to Excel with error cells highlighted.
 
     Text that starts with = + - @ (also after whitespace/tab/CR) - in data
@@ -1512,7 +1617,8 @@ def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list, rule_cover
             issues_df.to_excel(writer, sheet_name='Issues', index=False)
 
         # Rule coverage: a partial result must be visible in the file too.
-        if rule_coverage:
+        if rule_coverage or types_not_checked:
+            rule_coverage = rule_coverage or {"complete": True}
             cov_rows = [
                 {"item": "Result", "rule_id": "",
                  "detail": "COMPLETE" if rule_coverage.get("complete") else
@@ -1525,6 +1631,9 @@ def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list, rule_cover
             for kind, label in (("unsupported_rules", "Unsupported"), ("failed_rules", "Failed")):
                 for r in rule_coverage.get(kind, []):
                     cov_rows.append({"item": label, "rule_id": r.get("rule_id", ""), "detail": r.get("reason", "")})
+            for name in (types_not_checked or []):
+                cov_rows.append({"item": "Column type not checked", "rule_id": name,
+                                 "detail": "type could not be mapped; type not checked"})
             pd.DataFrame(cov_rows).to_excel(writer, sheet_name='Rule coverage', index=False)
 
         # Get workbook and worksheet
@@ -2175,6 +2284,7 @@ if nav_choice == "Analyze":
                     st.session_state.data,
                     st.session_state.analysis_results['issues'],
                     st.session_state.analysis_results.get('rule_coverage'),
+                    st.session_state.analysis_results['summary'].get('column_types_not_checked'),
                 )
                 st.download_button(
                     label="📊 Download Excel",
@@ -2267,6 +2377,15 @@ if nav_choice == "Analyze":
 
         if st.session_state.analysis_results.get('logic_validation_error'):
             st.warning(f"⚠️ {md_escape(st.session_state.analysis_results['logic_validation_error'])}")
+
+        _untyped = summary.get('column_types_not_checked') or []
+        if _untyped:
+            st.warning(
+                f"⚠️ {len(_untyped)} column type(s) could not be checked: "
+                + ", ".join(md_escape(c) for c in _untyped[:20])
+                + (f" (and {len(_untyped) - 20} more)" if len(_untyped) > 20 else "")
+                + ". These columns were still checked for rules, but not for their type."
+            )
 
         _coverage = st.session_state.analysis_results.get('rule_coverage')
         if _coverage and _coverage.get('rules_not_checked'):

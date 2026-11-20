@@ -1085,7 +1085,7 @@ class AnalyzeJsonRequest(BaseModel):
     column_schema: Optional[Dict[str, Any]] = Field(
         default=None,
         alias="schema",
-        description="Optional column-type map. Supported types: int, float, str, bool, datetime."
+        description="Optional column-type map. Types: int, float, str, bool, datetime (case-insensitive). Aliases are accepted: integer/int64 -> int; number/numeric/decimal/double/float64 -> float; string/text/varchar/categorical/category -> str; boolean -> bool; date/time/timestamp/datetime64 -> datetime. Unknown names are rejected with 422."
     )
     rules: Optional[Dict[str, Any]] = Field(
         default=None,

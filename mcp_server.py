@@ -757,7 +757,7 @@ class QualityChecker:
                     if "min" in rule:
                         violations = numeric_data < rule["min"]
                         if violations.any():
-                            violating_rows = self.df[violations].index.tolist()
+                            violating_rows = numeric_data[violations].index.tolist()
                             range_issues.append({
                                 "column": column,
                                 "rule": f"min >= {rule['min']}",
@@ -768,7 +768,7 @@ class QualityChecker:
                     if "max" in rule:
                         violations = numeric_data > rule["max"]
                         if violations.any():
-                            violating_rows = self.df[violations].index.tolist()
+                            violating_rows = numeric_data[violations].index.tolist()
                             range_issues.append({
                                 "column": column,
                                 "rule": f"max <= {rule['max']}",

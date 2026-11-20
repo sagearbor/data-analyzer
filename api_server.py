@@ -23,6 +23,9 @@ import io
 import json
 import logging
 import os
+import time
+import threading
+import ipaddress
 import re
 import secrets
 import traceback
@@ -44,6 +47,7 @@ from limits.strategies import FixedWindowRateLimiter
 from starlette.concurrency import run_in_threadpool
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
+from src.schema_types import CANONICAL_TYPES, normalize_schema_type
 from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -482,8 +486,12 @@ admin_password_header = APIKeyHeader(name="X-Admin-Password", auto_error=False)
 # request until the window rolls over - even with the right key, otherwise the
 # lockout would not stop guessing.
 #
-# Only FAILED attempts are throttled: a request carrying the correct key is
-# never refused, so one bad client cannot lock legitimate users out.
+# Once a client id has used up its failures, EVERY request from it that presents
+# a credential gets the same 429 until the window rolls over (right or wrong key,
+# so a correct guess during a lockout is not an oracle). Missing credentials are
+# 401 and not counted. One caller cannot lock out others because the client id is
+# per caller (see DATA_ANALYZER_TRUSTED_PROXY_HOPS). A global failure counter only
+# logs a spike warning; it never blocks anyone.
 # Client identifier: get_client_id() (see below). Tune
 # DATA_ANALYZER_AUTH_FAIL_LIMIT / DATA_ANALYZER_AUTH_FAIL_WINDOW_SECONDS.
 # Counters live in the slowapi limiter's storage (in memory, per replica).
@@ -519,6 +527,37 @@ def _normalise_client_id(raw: str) -> str:
     return cleaned[:_CLIENT_ID_MAX_LEN]
 
 
+_cidr_warned = False
+
+
+def _trusted_proxy_networks():
+    """Networks from DATA_ANALYZER_TRUSTED_PROXY_CIDRS, or None when unset.
+    Invalid text yields an empty list (nothing matches) and one warning."""
+    global _cidr_warned
+    raw = os.getenv("DATA_ANALYZER_TRUSTED_PROXY_CIDRS", "").strip()
+    if not raw:
+        return None
+    nets = []
+    try:
+        for part in raw.split(","):
+            if part.strip():
+                nets.append(ipaddress.ip_network(part.strip(), strict=False))
+    except ValueError:
+        if not _cidr_warned:
+            _cidr_warned = True
+            logger.warning("trusted_proxy_cidrs_invalid: ignoring forwarded headers (using the peer address)")
+        return []
+    return nets
+
+
+def _peer_in_trusted_networks(peer: str, nets) -> bool:
+    try:
+        addr = ipaddress.ip_address(peer.split("%")[0])
+    except ValueError:
+        return False
+    return any(addr.version == n.version and addr in n for n in nets)
+
+
 def get_client_id(request: Optional[Request]) -> str:
     """The one client identifier used by BOTH the rate limiter and the
     failed-key throttle.
@@ -526,8 +565,11 @@ def get_client_id(request: Optional[Request]) -> str:
     Default: the TCP peer (request.client.host). When
     DATA_ANALYZER_TRUSTED_PROXY_HOPS=N (N >= 1) the Nth entry of
     X-Forwarded-For counted from the RIGHT is used (N=1: the address appended
-    by the nearest trusted proxy). The leftmost entry is client-controlled and
-    is never used; a missing/short header falls back to the peer address.
+    by the nearest trusted proxy); all X-Forwarded-For header lines are joined
+    first. If DATA_ANALYZER_TRUSTED_PROXY_CIDRS is set the header is honoured
+    only when the TCP peer is inside one of those networks. The leftmost entry
+    is client-controlled and is never used; a missing/short header falls back
+    to the peer address.
     """
     peer = ""
     if request is not None and request.client is not None and request.client.host:
@@ -535,12 +577,14 @@ def get_client_id(request: Optional[Request]) -> str:
         peer = "".join(ch for ch in str(request.client.host) if ch.isprintable() and not ch.isspace())[:_CLIENT_ID_MAX_LEN]
     hops = _trusted_proxy_hops()
     if hops > 0 and request is not None:
-        header = request.headers.get("x-forwarded-for", "")
-        entries = [e.strip() for e in header.split(",")] if header else []
-        if len(entries) >= hops:
-            candidate = _normalise_client_id(entries[-hops])
-            if candidate:
-                return candidate
+        nets = _trusted_proxy_networks()
+        if nets is None or _peer_in_trusted_networks(peer, nets):
+            header = ",".join(request.headers.getlist("x-forwarded-for"))
+            entries = [e.strip() for e in header.split(",")] if header else []
+            if len(entries) >= hops:
+                candidate = _normalise_client_id(entries[-hops])
+                if candidate:
+                    return candidate
     return peer or "unknown"
 
 
@@ -559,8 +603,31 @@ def _reject_if_auth_locked_out(kind: str, request: Optional[Request]) -> None:
         )
 
 
+DEFAULT_AUTH_FAIL_GLOBAL_ALERT = 100
+_auth_global = {"window": None, "count": 0, "logged": False}
+_auth_global_lock = threading.Lock()
+
+
+def _note_global_auth_failure(window_seconds: int) -> None:
+    """Count failed credentials from ALL clients; log ONE warning per window when
+    the count crosses DATA_ANALYZER_AUTH_FAIL_GLOBAL_ALERT. Never blocks anyone."""
+    alert = _limit_from_env("DATA_ANALYZER_AUTH_FAIL_GLOBAL_ALERT", DEFAULT_AUTH_FAIL_GLOBAL_ALERT)
+    window_id = int(time.time() // window_seconds)
+    with _auth_global_lock:
+        if _auth_global["window"] != window_id:
+            _auth_global.update(window=window_id, count=0, logged=False)
+        _auth_global["count"] += 1
+        spike = _auth_global["count"] >= alert and not _auth_global["logged"]
+        if spike:
+            _auth_global["logged"] = True
+            count = _auth_global["count"]
+    if spike:
+        logger.warning("auth_failure_spike failures=%d threshold=%d window_seconds=%d", count, alert, window_seconds)
+
+
 def _record_auth_failure(kind: str, request: Optional[Request]) -> None:
     item, _window = _auth_fail_item()
+    _note_global_auth_failure(_window)
     _auth_fail_strategy.hit(item, "auth-fail", kind, _auth_client_id(request))
     logger.warning("auth_failure kind=%s client=%s", kind, _log_safe(_auth_client_id(request)))
 
@@ -611,11 +678,14 @@ async def verify_api_key(
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Validate API key (constant-time comparison to avoid timing side-channels)
-    if not _secrets_equal(api_key, API_KEY):
-        # Only FAILED attempts are throttled: a correct key is never refused by
-        # another caller's lockout. Count and log (never the key itself).
-        _reject_if_auth_locked_out("api_key", request)
+    # Constant-time comparison (to avoid timing side-channels) - always performed,
+    # also for a locked-out client, so timing does not differ.
+    matches = _secrets_equal(api_key, API_KEY)
+    # A locked-out client gets the identical 429 whether the key is right or wrong
+    # (otherwise a correct guess during a lockout would be an oracle).
+    _reject_if_auth_locked_out("api_key", request)
+    if not matches:
+        # Count and log the failed attempt (never the key itself).
         _record_auth_failure("api_key", request)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -661,10 +731,11 @@ async def verify_admin_password(
             headers={"WWW-Authenticate": "AdminPassword"},
         )
 
-    # Validate admin password (constant-time comparison to avoid timing side-channels)
-    if not _secrets_equal(admin_password, ADMIN_PASSWORD):
-        # Only failed attempts are throttled (a correct password always works).
-        _reject_if_auth_locked_out("admin", request)
+    # Constant-time comparison, always performed (also when locked out).
+    matches = _secrets_equal(admin_password, ADMIN_PASSWORD)
+    # Locked-out client: identical 429 for a right or wrong password.
+    _reject_if_auth_locked_out("admin", request)
+    if not matches:
         _record_auth_failure("admin", request)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -799,7 +870,7 @@ def _max_issues_returned() -> int:
     return _limit_from_env("DATA_ANALYZER_MAX_ISSUES_RETURNED", DEFAULT_MAX_ISSUES_RETURNED)
 
 
-_SCHEMA_TYPES = ("int", "float", "str", "bool", "datetime")
+_SCHEMA_TYPES = CANONICAL_TYPES
 
 
 def _safe_label(value: Any, limit: int = 60) -> str:
@@ -808,11 +879,16 @@ def _safe_label(value: Any, limit: int = 60) -> str:
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
-def _validate_schema_and_rules(schema: Any, rules: Any) -> None:
+def _validate_schema_and_rules(schema: Any, rules: Any) -> Optional[Dict[str, str]]:
     """Reject malformed `schema` / `rules` with 422 and a stable message that
     names the offending column and key but never echoes the offending value.
 
-    Accepted: schema = {column: "int"|"float"|"str"|"bool"|"datetime"};
+    Returns the schema with every type normalised to a canonical type
+    (see src/schema_types.py for the accepted aliases), or None.
+
+    Accepted: schema = {column: a type name (case-insensitive) such as "int",
+    "float", "str", "bool", "datetime" or an alias like "integer", "number",
+    "string", "categorical", "boolean", "date", "timestamp"};
     rules = {column: {"min": number, "max": number, "allowed": [scalars]}}.
     """
     def fail(msg: str):
@@ -821,10 +897,14 @@ def _validate_schema_and_rules(schema: Any, rules: Any) -> None:
     if schema is not None:
         if not isinstance(schema, dict):
             fail("Invalid 'schema': it must be an object mapping column names to type names.")
+        normalised = {}
         for column, type_name in schema.items():
-            if not isinstance(type_name, str) or type_name not in _SCHEMA_TYPES:
-                fail(f"Invalid 'schema' for column '{_safe_label(column)}': the type must be one of "
-                     f"{', '.join(_SCHEMA_TYPES)}.")
+            canon = normalize_schema_type(type_name)
+            if canon is None:
+                fail(f"Invalid 'schema' for column '{_safe_label(column)}': unknown type; use one of "
+                     f"{', '.join(_SCHEMA_TYPES)} (or an alias such as integer, number, string, date).")
+            normalised[column] = canon
+        schema = normalised
     if rules is not None:
         if not isinstance(rules, dict):
             fail("Invalid 'rules': it must be an object mapping column names to rule objects.")
@@ -848,6 +928,7 @@ def _validate_schema_and_rules(schema: Any, rules: Any) -> None:
                     if not all(v is None or isinstance(v, (str, int, float, bool)) for v in value):
                         fail(f"Invalid 'rules' for column '{col}': every 'allowed' item must be a "
                              "string, number or boolean.")
+    return schema
 
 
 def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[str, Any]:
@@ -1254,7 +1335,7 @@ async def analyze_data(
         None,
         alias="schema",
         description='Optional JSON-encoded column-type map, e.g. \'{"age": "int"}\'. '
-                     'Supported types: int, float, str, bool, datetime.'
+                     'Supported types: int, float, str, bool, datetime (case-insensitive; aliases such as integer, number, decimal, string, text, categorical, boolean, date, timestamp are accepted).'
     ),
     rules: Optional[str] = Form(
         None,
@@ -1339,7 +1420,7 @@ async def analyze_data(
                 detail="Invalid 'rules' JSON: it must be a JSON object."
             )
 
-    _validate_schema_and_rules(schema_dict, rules_dict)
+    schema_dict = _validate_schema_and_rules(schema_dict, rules_dict)
 
     # The file name is caller-controlled (may carry identifiers, CR/LF): log
     # only its extension and, after reading, size + hash.
@@ -1405,7 +1486,7 @@ async def analyze_data_json(
             detail="Analysis engine not available (mcp_server failed to import)."
         )
 
-    _validate_schema_and_rules(body.column_schema, body.rules)
+    schema_for_check = _validate_schema_and_rules(body.column_schema, body.rules)
 
     label = f"inline {body.format}"
     logger.info(
@@ -1427,7 +1508,7 @@ async def analyze_data_json(
         return _run_quality_analysis(
             content_bytes,
             _JSON_ROUTE_EXTENSIONS[body.format],
-            body.column_schema,
+            schema_for_check,
             body.rules,
             body.min_rows,
             label=label,

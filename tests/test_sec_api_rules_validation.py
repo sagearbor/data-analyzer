@@ -74,7 +74,7 @@ def test_the_error_message_never_echoes_the_offending_value(client):
     assert "SECRET-VALUE-123" not in resp.text
 
 
-@pytest.mark.parametrize("schema", [{"age": 5}, {"age": "integer"}, {"age": ["int"]}])
+@pytest.mark.parametrize("schema", [{"age": 5}, {"age": "blobtype"}, {"age": ["int"]}])
 @pytest.mark.parametrize("route", [_multipart, _json])
 def test_a_malformed_schema_is_refused_with_422(client, route, schema):
     resp = route(client, schema=schema)

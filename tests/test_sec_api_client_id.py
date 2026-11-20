@@ -118,21 +118,29 @@ def test_the_rate_limiter_uses_the_same_client_id_as_the_throttle(api, monkeypat
     assert api.limiter._key_func(req) == api.get_client_id(req) == "203.0.113.5"
 
 
-def test_after_the_limit_a_wrong_key_gets_429_but_the_correct_key_from_the_same_client_succeeds(client):
+def test_after_the_limit_both_wrong_and_correct_keys_from_that_client_get_the_same_429(client):
     for i in range(3):
         assert _post(client, f"w{i}").status_code == 403
-    wrong = _post(client, "w-more")
-    assert wrong.status_code == 429 and wrong.headers["Retry-After"] == "60"
-    assert _post(client, KEY).status_code == 200
+    wrong, right = _post(client, "w-more"), _post(client, KEY)
+    assert wrong.status_code == right.status_code == 429
+    assert wrong.headers["Retry-After"] == right.headers["Retry-After"] == "60"
 
 
-def test_a_missing_key_is_still_401_during_a_lockout(client):
+def test_a_locked_out_client_does_not_affect_a_different_client_id(client, monkeypatch):
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    for i in range(3):
+        _post(client, f"w{i}", xff="203.0.113.1")
+    assert _post(client, KEY, xff="203.0.113.1").status_code == 429
+    assert _post(client, KEY, xff="203.0.113.2").status_code == 200
+
+
+def test_a_missing_key_is_still_401_during_a_lockout_and_is_not_counted(client):
     for i in range(3):
         _post(client, f"w{i}")
     assert _post(client, None).status_code == 401
 
 
-def test_admin_password_wrong_attempts_are_throttled_but_the_correct_password_still_works(api, monkeypatch):
+def test_admin_password_lockout_gives_the_same_429_for_right_and_wrong_passwords(api, monkeypatch):
     from fastapi import HTTPException
     import asyncio
 
@@ -146,10 +154,53 @@ def test_admin_password_wrong_attempts_are_throttled_but_the_correct_password_st
         with pytest.raises(HTTPException) as e:
             call("wrong")
         assert e.value.status_code == 403
-    with pytest.raises(HTTPException) as e:
-        call("wrong")
-    assert e.value.status_code == 429 and e.value.headers["Retry-After"] == "60"
-    assert call("sec-test-admin") == "sec-test-admin"
+    for pw in ("wrong", "sec-test-admin"):
+        with pytest.raises(HTTPException) as e:
+            call(pw)
+        assert e.value.status_code == 429 and e.value.headers["Retry-After"] == "60"
     with pytest.raises(HTTPException) as e:
         call(None)
     assert e.value.status_code == 401
+
+
+def test_the_global_failure_alert_logs_once_per_window_and_blocks_nobody(api, client, monkeypatch, caplog):
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    monkeypatch.setenv("DATA_ANALYZER_AUTH_FAIL_GLOBAL_ALERT", "4")
+    monkeypatch.setenv("DATA_ANALYZER_AUTH_FAIL_LIMIT", "2")
+    api._auth_global.update(window=None, count=0, logged=False)
+    with caplog.at_level("WARNING"):
+        for n in range(8):  # 8 different callers, 1 failure each: nobody reaches the per-client limit
+            assert _post(client, "SECRET-GUESS-XYZ", xff=f"203.0.113.{n}").status_code == 403
+    spikes = [r.getMessage() for r in caplog.records if "auth_failure_spike" in r.getMessage()]
+    assert len(spikes) == 1
+    assert "SECRET-GUESS-XYZ" not in spikes[0] and "203.0.113" not in spikes[0]
+    assert _post(client, KEY, xff="203.0.113.99").status_code == 200
+
+
+def test_two_forwarded_for_header_lines_are_joined_so_they_cannot_shift_the_position(api, monkeypatch):
+    from starlette.requests import Request
+
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    headers = [(b"x-forwarded-for", b"6.6.6.6, 7.7.7.7"), (b"x-forwarded-for", b"203.0.113.5")]
+    req = Request({"type": "http", "headers": headers, "client": ("198.51.100.7", 1), "method": "GET", "path": "/"})
+    assert api.get_client_id(req) == "203.0.113.5"
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "2")
+    assert api.get_client_id(req) == "7.7.7.7"
+
+
+def test_a_peer_outside_the_trusted_cidr_ignores_the_forwarded_header(api, monkeypatch):
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_CIDRS", "10.0.0.0/8, fd00::/8")
+    assert api.get_client_id(_req(api, "6.6.6.6, 203.0.113.5", host="198.51.100.7")) == "198.51.100.7"
+
+
+def test_a_peer_inside_the_trusted_cidr_has_its_forwarded_header_honoured(api, monkeypatch):
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_CIDRS", "10.0.0.0/8")
+    assert api.get_client_id(_req(api, "6.6.6.6, 203.0.113.5", host="10.1.2.3")) == "203.0.113.5"
+
+
+def test_a_malformed_cidr_falls_back_to_the_peer_address(api, monkeypatch):
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "1")
+    monkeypatch.setenv("DATA_ANALYZER_TRUSTED_PROXY_CIDRS", "not-a-network")
+    assert api.get_client_id(_req(api, "6.6.6.6, 203.0.113.5", host="10.1.2.3")) == "10.1.2.3"
