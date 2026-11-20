@@ -1,0 +1,44 @@
+[
+ {
+  "id": "tests.test_sec_ui_no_usage_stats.test_streamlit_config_file_turns_usage_statistics_off",
+  "name": "Data Analyzer: page settings file turns off usage statistics sent to an outside service",
+  "objective": "Shows that the page's settings file tells the page framework (Streamlit) not to send usage statistics from users' browsers to an outside service. This is a check of the settings file, not of a running page.",
+  "precondition": "The repository's page settings file (.streamlit/config.toml) is present. No network.",
+  "steps": [
+   {
+    "action": "Read the page settings file and look up the usage statistics setting in its browser section.",
+    "data": "The tracked settings file",
+    "expected": "The setting gatherUsageStats is present and is false."
+   }
+  ],
+  "source": "tests/test_sec_ui_no_usage_stats.py::test_streamlit_config_file_turns_usage_statistics_off"
+ },
+ {
+  "id": "tests.test_sec_ui_no_usage_stats.test_every_streamlit_start_command_in_the_entrypoint_turns_usage_statistics_off",
+  "name": "Data Analyzer: every page start command turns off usage statistics",
+  "objective": "Shows that both ways the container starts the page (with and without a base address path) pass the option that turns usage statistics off. This is a check of the start script's text, not of a running container.",
+  "precondition": "The container start script (entrypoint.sh) is present. No network.",
+  "steps": [
+   {
+    "action": "Read the start script and find every command that starts the page.",
+    "data": "The tracked start script",
+    "expected": "At least two start commands are found, and each one contains the option --browser.gatherUsageStats=false."
+   }
+  ],
+  "source": "tests/test_sec_ui_no_usage_stats.py::test_every_streamlit_start_command_in_the_entrypoint_turns_usage_statistics_off"
+ },
+ {
+  "id": "tests.test_sec_ui_no_usage_stats.test_page_deployment_template_turns_usage_statistics_off",
+  "name": "Data Analyzer: page deployment template turns off usage statistics",
+  "objective": "Shows that the deployment template for the page sets the environment setting that turns usage statistics off, so a deployed page does not depend on the settings file alone.",
+  "precondition": "The page's deployment template (deploy/aca/containerapp-ui.yaml) is present. No network.",
+  "steps": [
+   {
+    "action": "Read the deployment template and collect the environment settings of the page container.",
+    "data": "The tracked deployment template",
+    "expected": "STREAMLIT_BROWSER_GATHER_USAGE_STATS is set to the text false."
+   }
+  ],
+  "source": "tests/test_sec_ui_no_usage_stats.py::test_page_deployment_template_turns_usage_statistics_off"
+ }
+]

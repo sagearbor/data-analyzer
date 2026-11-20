@@ -89,10 +89,13 @@ properties:
             value: prod
           - name: DATA_ANALYZER_API_KEY
             secretRef: data-analyzer-api-key
-          # The ingress appends the caller's address to X-Forwarded-For; take that last entry
-          # as the client id so rate limits and the wrong-key throttle are per caller.
+          # Per-caller identification is OFF. Tested on the dev environment on 20 Nov 2026:
+          # with a value of "1" the caller id came out as the ingress's own internal
+          # address (shared by every caller), which would let a few wrong keys from one
+          # person lock everybody out. Leave at "0" (a correct key is never refused) until
+          # the forwarded-address layout of the ingress is confirmed. See ADP-85.
           - name: DATA_ANALYZER_TRUSTED_PROXY_HOPS
-            value: "1"
+            value: "0"
           - name: AZURE_OPENAI_ENDPOINT
             value: "<AZURE_OPENAI_ENDPOINT>"
           # Models offered in the UI AND the only ones the code will call (server-side

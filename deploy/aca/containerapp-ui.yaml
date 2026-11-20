@@ -79,6 +79,9 @@ properties:
           # Turns Streamlit's XSRF + CORS guards ON (entrypoint.sh reads this).
           - name: STREAMLIT_SECURE
             value: "1"
+          # No usage statistics to an outside service (also set in .streamlit/config.toml).
+          - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+            value: "false"
           # --- UI -> API connection (required) -----------------------------
           - name: DATA_ANALYZER_API_URL
             value: "https://<DATA_ANALYZER_API_FQDN>"

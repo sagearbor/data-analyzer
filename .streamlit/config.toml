@@ -20,6 +20,12 @@ enableWebsocketCompression = false
 # Base URL path will be set via --server.baseUrlPath CLI arg
 # This is configured dynamically in entrypoint.sh based on BASE_URL_PATH env var
 
+[browser]
+# Do not send Streamlit's usage statistics from users' browsers to an outside
+# service. An internal tool makes no outside calls. (Found on the deployed site,
+# 20 Nov 2026: requests to webhooks.fivetran.com.)
+gatherUsageStats = false
+
 [theme]
 # Restrained, single-accent design system (matches the custom CSS in
 # web_app.py's fixed navbar/card styling). Navy anchor + one blue accent -

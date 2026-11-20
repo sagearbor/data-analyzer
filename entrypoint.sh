@@ -63,7 +63,8 @@ if [ -z "$BASE_URL_PATH" ]; then
         --server.port=8002 \
         --server.address=0.0.0.0 \
         $SEC_FLAGS \
-        --server.enableWebsocketCompression=false
+        --server.enableWebsocketCompression=false \
+        --browser.gatherUsageStats=false
 else
     # With base path - for reverse proxy
     # Note: baseUrlPath tells Streamlit what external path clients use,
@@ -73,5 +74,6 @@ else
         --server.address=0.0.0.0 \
         --server.baseUrlPath="$BASE_URL_PATH" \
         $SEC_FLAGS \
-        --server.enableWebsocketCompression=false
+        --server.enableWebsocketCompression=false \
+        --browser.gatherUsageStats=false
 fi
