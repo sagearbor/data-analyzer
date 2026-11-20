@@ -430,9 +430,9 @@
  },
  {
   "id": "tests.test_program_cache.TestProgramDatabase.test_verify_admin_env_variable",
-  "name": "Data Analyzer: The administrator password is read from the ADMIN_PW setting",
-  "objective": "Proves that the password check accepts the password configured in the ADMIN_PW environment setting and rejects any other.",
-  "precondition": "Offline test harness; ADMIN_PW is set to a made-up value for this test.",
+  "name": "Data Analyzer: The administrator password is read from the DATA_ANALYZER_ADMIN_PASSWORD setting",
+  "objective": "Proves that the password check accepts the password configured in the DATA_ANALYZER_ADMIN_PASSWORD environment setting and rejects any other.",
+  "precondition": "Offline test harness; DATA_ANALYZER_ADMIN_PASSWORD is set to a made-up value for this test.",
   "steps": [
    {
     "action": "Check the configured password and an incorrect one.",
@@ -441,20 +441,6 @@
    }
   ],
   "source": "tests/test_program_cache.py::TestProgramDatabase::test_verify_admin_env_variable"
- },
- {
-  "id": "tests.test_program_cache.TestProgramDatabase.test_verify_admin_default_password",
-  "name": "Data Analyzer: A built-in default administrator password applies when none is configured",
-  "objective": "Proves the fallback behaviour: with no ADMIN_PW setting, the password check accepts the built-in default and rejects others. (A reviewer should note that a fixed default password exists in the product; production should set ADMIN_PW.)",
-  "precondition": "Offline test harness; the ADMIN_PW setting is removed for this test.",
-  "steps": [
-   {
-    "action": "Check the built-in default password and a wrong one.",
-    "data": "The default password string and 'wrong-password'",
-    "expected": "The default is accepted (True); the wrong one is rejected (False)."
-   }
-  ],
-  "source": "tests/test_program_cache.py::TestProgramDatabase::test_verify_admin_default_password"
  },
  {
   "id": "tests.test_program_cache.TestProgramManager.test_generate_name_format",
@@ -760,5 +746,19 @@
    }
   ],
   "source": "tests/test_program_cache.py::TestIntegration::test_execution_history_tracking"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_verify_admin_refuses_everything_when_password_not_configured",
+  "name": "Data Analyzer: With no administrator password configured, every password attempt is refused",
+  "objective": "Proves there is no built-in default administrator password: when none is configured, no attempt (including the former default, a wrong one or a blank one) is accepted.",
+  "precondition": "Offline test harness; both administrator-password settings (the documented DATA_ANALYZER_ADMIN_PASSWORD and the old ADMIN_PW) are removed for this test.",
+  "steps": [
+   {
+    "action": "Check three password attempts against the program database's admin check.",
+    "data": "The former built-in default password text, 'wrong-password', and an empty text",
+    "expected": "All three are rejected (False)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_verify_admin_refuses_everything_when_password_not_configured"
  }
 ]

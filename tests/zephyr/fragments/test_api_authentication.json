@@ -113,14 +113,14 @@
  },
  {
   "id": "tests.test_api_authentication.TestAdminPasswordAuthentication.test_no_admin_auth_configured",
-  "name": "Data Analyzer: With no admin password configured, the admin check lets everything through",
-  "objective": "Shows the designed behaviour that admin protection is switched off when no password is configured.",
+  "name": "Data Analyzer: With no admin password configured, admin access is refused with HTTP 503",
+  "objective": "Shows the product fails safe: if no admin password has been configured, admin actions are denied rather than silently allowed (an earlier version let everything through).",
   "precondition": "Server application reloaded with all environment settings cleared.",
   "steps": [
    {
     "action": "Run the admin check with no password.",
     "data": "Password = none.",
-    "expected": "The check returns the label 'unauthenticated'."
+    "expected": "The check is refused with an HTTP 503 (service unavailable) error. Returning any value would fail the test."
    }
   ],
   "source": "tests/test_api_authentication.py::TestAdminPasswordAuthentication::test_no_admin_auth_configured"
@@ -128,13 +128,13 @@
  {
   "id": "tests.test_api_authentication.TestSecurityHeaders.test_api_key_401_header",
   "name": "Data Analyzer: Missing-key refusal carries the 'ApiKey' challenge header",
-  "objective": "Shows that when a key is missing, the refusal tells the caller which kind of credential is needed. Note: the test passes silently if no refusal is raised.",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured (this check calls the key-checking routine directly, not through a web request).",
+  "objective": "Shows that when a key is missing, the refusal is HTTP 401 and tells the caller which kind of credential is needed.",
+  "precondition": "Server application loaded in the offline test harness; the configured API key is set to a made-up value for this test (this check calls the key-checking routine directly, not through a web request).",
   "steps": [
    {
     "action": "Run the key check with no key and inspect the refusal.",
     "data": "Key = none.",
-    "expected": "If a refusal is raised: status 401 and a WWW-Authenticate header equal to 'ApiKey'."
+    "expected": "A refusal IS raised (if none were raised the test now fails), with status 401 and a WWW-Authenticate header equal to 'ApiKey'."
    }
   ],
   "source": "tests/test_api_authentication.py::TestSecurityHeaders::test_api_key_401_header"
@@ -142,13 +142,13 @@
  {
   "id": "tests.test_api_authentication.TestSecurityHeaders.test_admin_password_401_header",
   "name": "Data Analyzer: Missing-password refusal carries the 'AdminPassword' challenge header",
-  "objective": "Shows that the admin refusal names the credential type. Note: the test passes silently if no refusal is raised.",
-  "precondition": "Server application loaded offline with a made-up admin password configured (direct call).",
+  "objective": "Shows that when the admin password is missing, the refusal is HTTP 401 and names the credential type.",
+  "precondition": "Server application loaded offline; the configured admin password is set to a made-up value for this test (direct call, not a web request).",
   "steps": [
    {
     "action": "Run the admin check with no password and inspect the refusal.",
     "data": "Password = none.",
-    "expected": "If a refusal is raised: status 401 and a WWW-Authenticate header equal to 'AdminPassword'."
+    "expected": "A refusal IS raised (if none were raised the test now fails), with status 401 and a WWW-Authenticate header equal to 'AdminPassword'."
    }
   ],
   "source": "tests/test_api_authentication.py::TestSecurityHeaders::test_admin_password_401_header"

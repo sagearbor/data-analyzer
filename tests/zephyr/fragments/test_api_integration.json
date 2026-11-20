@@ -160,14 +160,14 @@
  },
  {
   "id": "tests.test_api_integration.TestFileSizeLimits.test_empty_dictionary_file",
-  "name": "Data Analyzer: An empty dictionary file produces an error status",
-  "objective": "Shows that an empty dictionary is not accepted as valid. Storage is set to fail.",
+  "name": "Data Analyzer: An empty dictionary file gives HTTP 500 with a fixed error message",
+  "objective": "Shows that when processing an empty dictionary fails, the API returns a controlled error with a generic message rather than success.",
   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is set to fail with 'No fields could be extracted'.",
   "steps": [
    {
     "action": "Upload an empty dictionary file.",
     "data": "Empty text.",
-    "expected": "HTTP status is 400, 500 or 503."
+    "expected": "HTTP 500 exactly, and the error text is exactly 'Dictionary parsing failed.'. The failure comes from the stand-in, so this tests error handling, not the real parser."
    }
   ],
   "source": "tests/test_api_integration.py::TestFileSizeLimits::test_empty_dictionary_file"

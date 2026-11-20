@@ -113,14 +113,14 @@
  },
  {
   "id": "tests.test_upload.TestResponseMapping.test_returns_expected_top_level_keys",
-  "name": "Data Analyzer: UI result has the six sections the dashboard needs",
-  "objective": "Shows the analysis result handed to the dashboard has the agreed layout.",
+  "name": "Data Analyzer: UI result has the seven sections the dashboard needs",
+  "objective": "Shows the analysis result handed to the dashboard has the agreed layout, including the rule-coverage section.",
   "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
   "steps": [
    {
     "action": "Run an analysis against a canned API reply.",
-    "data": "Canned reply with five sections.",
-    "expected": "Result keys are exactly summary, issues, recommendations, quality_checks, summary_stats and logic_validation_error."
+    "data": "Canned reply with five sections (summary, issues, recommendations, quality_checks, summary_stats).",
+    "expected": "Result keys are exactly seven: summary, issues, recommendations, quality_checks, summary_stats, logic_validation_error and rule_coverage (the last two are added by the UI itself)."
    }
   ],
   "source": "tests/test_upload.py::TestResponseMapping::test_returns_expected_top_level_keys"

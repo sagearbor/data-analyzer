@@ -86,13 +86,13 @@
  {
   "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_valid_csv_with_rules",
   "name": "Data Analyzer: Data with out-of-range and blank values is reported with the right issue types",
-  "objective": "Shows that the main data check finds range violations and missing values and returns a report in the agreed layout.",
+  "objective": "Shows that the main data check finds range violations and missing values and returns a report in the agreed layout, including the issue-count fields added for long issue lists.",
   "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
   "steps": [
    {
     "action": "Upload the made-up data file together with rules: age between 0 and 120, gender allowed values 1, 2, 3.",
     "data": "Made-up 5-row data file (columns record_id, age, gender, weight_kg) with deliberate errors: ages 150 and -5, gender 4 and one blank gender.",
-    "expected": "HTTP 200. The report has exactly five parts: summary, issues, recommendations, quality_checks, summary_stats."
+    "expected": "HTTP 200. The report has exactly eight parts, no more and no fewer: summary, issues, recommendations, quality_checks, summary_stats, issues_total, issues_returned and issues_truncated (the last three say how many issues were found, how many are listed, and whether the list was cut short)."
    },
    {
     "action": "Read the summary counts.",
@@ -436,42 +436,42 @@
  },
  {
   "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_custom_name",
-  "name": "Data Analyzer: Dictionary upload with a custom program name is accepted (weak check: status only)",
-  "objective": "Shows only that supplying a custom name does not cause an error. It does not check the name is used.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "name": "Data Analyzer: Dictionary upload with a custom program name succeeds and passes that name on",
+  "objective": "Shows that a custom program name typed by the user is accepted (HTTP 200) and is actually handed to the program-creation step.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in, so no AI model is called. The stand-in returns a canned, made-up program record named 'my-custom-program'.",
   "steps": [
    {
     "action": "Upload the dictionary CSV with save_program = true and program_name 'my-custom-program'.",
     "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
-    "expected": "HTTP status is 200 or 503. Nothing else is checked."
+    "expected": "HTTP 200 (exactly; 503 would now fail), and the program-creation step was called with program_name equal to 'my-custom-program'."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_custom_name"
  },
  {
   "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_empty_file",
-  "name": "Data Analyzer: An empty dictionary file produces an error status, not success",
-  "objective": "Shows that an empty dictionary is not accepted as valid. The storage component is made to fail with 'No fields could be extracted'.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that is set to fail, so no AI model is called.",
+  "name": "Data Analyzer: When reading an empty dictionary file fails, the API returns HTTP 500 with a fixed message",
+  "objective": "Shows that a failure while processing an empty dictionary is reported as a controlled error with a generic message, not as success and not with internal wording.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in, so no AI model is called. The stand-in is set to fail with the error 'No fields could be extracted from empty dictionary content'.",
   "steps": [
    {
     "action": "Upload an empty dictionary file empty.csv.",
     "data": "0 bytes.",
-    "expected": "HTTP status is 400, 500 or 503 (any error). Success (200) would fail the test."
+    "expected": "HTTP 500 exactly, and the reply's error text is exactly 'Dictionary parsing failed.' (the internal error wording is not shown). Note the failure is supplied by the stand-in, so this tests the error handling, not the real parser."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_empty_file"
  },
  {
   "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_malformed_csv",
-  "name": "Data Analyzer: A malformed dictionary CSV produces an error status, not success",
-  "objective": "Shows that a broken dictionary is not accepted as valid. The storage component is made to fail with 'Failed to parse'.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that is set to fail, so no AI model is called.",
+  "name": "Data Analyzer: When reading a malformed dictionary CSV fails, the API returns HTTP 500 with a fixed message",
+  "objective": "Shows that a failure while processing a broken dictionary is reported as a controlled error with a generic message.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in, so no AI model is called. The stand-in is set to fail with the error 'Failed to parse malformed CSV dictionary'.",
   "steps": [
    {
     "action": "Upload a malformed CSV dictionary (rows with differing numbers of values).",
-    "data": "Made-up text.",
-    "expected": "HTTP status is 400, 500 or 503."
+    "data": "Made-up text: 'incomplete,header / row1,value1,extra_value / row2'.",
+    "expected": "HTTP 500 exactly, and the reply's error text is exactly 'Dictionary parsing failed.'. The failure is supplied by the stand-in, so this tests the error handling, not the real parser."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_malformed_csv"

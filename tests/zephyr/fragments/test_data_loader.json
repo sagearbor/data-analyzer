@@ -29,12 +29,12 @@
  },
  {
   "id": "tests.test_data_loader.TestDataLoader.test_load_csv_from_file",
-  "name": "Data Analyzer: A CSV file loads from a file path with the right rows and columns",
-  "objective": "Shows a CSV file on disk is read into a table with the expected 10 rows and 7 named columns.",
+  "name": "Data Analyzer: A CSV file loads through the trusted local-file loader with the right rows and columns",
+  "objective": "Shows a CSV file on disk is read, via the loader meant for local files (command line and app), into a table with the expected 10 rows and 7 named columns.",
   "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly. Made-up employee CSV saved to a temporary file.",
   "steps": [
    {
-    "action": "Load the CSV from its file path",
+    "action": "Load the CSV from its file path using the local-file loader, format csv",
     "data": "Made-up employee file: id, name, age, department, salary, hire_date, is_active",
     "expected": "Result is a data table with 10 rows and exactly the 7 expected column names in order"
    }
@@ -141,12 +141,12 @@
  },
  {
   "id": "tests.test_data_loader.TestDataLoader.test_load_csv_different_delimiters",
-  "name": "Data Analyzer: A semicolon-separated file loads correctly when the separator is given",
-  "objective": "Shows files that use semicolons instead of commas are split into the right columns.",
+  "name": "Data Analyzer: A semicolon-separated file loads through the local-file loader when the separator is given",
+  "objective": "Shows files that use semicolons instead of commas are split into the right columns when read with the local-file loader.",
   "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly. A temporary semicolon-separated file is written.",
   "steps": [
    {
-    "action": "Load the file specifying the semicolon separator",
+    "action": "Load the file with the local-file loader, format csv, specifying the semicolon separator",
     "data": "3 columns name;age;city with rows Alice/30/Boston and Bob/25/NYC (made-up)",
     "expected": "2 rows and columns name, age, city"
    }
