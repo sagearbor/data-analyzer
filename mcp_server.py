@@ -674,6 +674,52 @@ class QualityChecker:
             
         return result
     
+    _RANGE_RULE_KEYS = ("min", "max", "allowed")
+
+    @staticmethod
+    def _is_finite_number(value: Any) -> bool:
+        return (isinstance(value, (int, float, np.integer, np.floating))
+                and not isinstance(value, (bool, np.bool_))
+                and bool(np.isfinite(value)))
+
+    @staticmethod
+    def _sorted_for_display(values: Any) -> list:
+        """Sorted copy for the rule text; falls back to string order for mixed types."""
+        try:
+            return sorted(values)
+        except TypeError:
+            return sorted(values, key=str)
+
+    def _normalise_range_rule(self, raw_rule: Any):
+        """Split one column's rule into (applicable_rule, problems).
+
+        problems is a list of (key, reason) with stable reason codes
+        (rule_not_object, unknown_key, min_not_numeric, max_not_numeric,
+        allowed_not_list, allowed_item_not_scalar). Only the keys that are
+        well-formed are returned in applicable_rule.
+        """
+        if not isinstance(raw_rule, dict):
+            return {}, [(None, "rule_not_object")]
+        rule: Dict[str, Any] = {}
+        problems = []
+        for key, value in raw_rule.items():
+            if key not in self._RANGE_RULE_KEYS:
+                problems.append((str(key)[:60], "unknown_key"))
+            elif key in ("min", "max"):
+                if self._is_finite_number(value):
+                    rule[key] = value
+                else:
+                    problems.append((key, f"{key}_not_numeric"))
+            else:  # allowed
+                if not isinstance(value, (list, tuple, set, frozenset)):
+                    problems.append((key, "allowed_not_list"))
+                elif not all(v is None or isinstance(v, (str, int, float, bool, np.integer, np.floating))
+                             for v in value):
+                    problems.append((key, "allowed_item_not_scalar"))
+                else:
+                    rule[key] = list(value)
+        return rule, problems
+
     def check_value_ranges(self) -> Dict[str, Any]:
         """Check if values fall within specified ranges/sets"""
         if not self.rules:
@@ -685,7 +731,19 @@ class QualityChecker:
         
         range_issues = []
         
-        for column, rule in self.rules.items():
+        for column, raw_rule in self.rules.items():
+            # A rule that cannot be applied is reported, never silently dropped.
+            rule, rule_problems = self._normalise_range_rule(raw_rule)
+            for key, reason in rule_problems:
+                range_issues.append({
+                    "column": column,
+                    "rule": "rule_invalid",
+                    "issue": "rule_invalid",
+                    "key": key,
+                    "reason": reason,
+                    "violation_count": 0,
+                })
+
             if column not in self.df.columns:
                 continue
                 
@@ -717,12 +775,16 @@ class QualityChecker:
                                 "violation_count": violations.sum(),
                                 "violating_rows": violating_rows[:10]  # First 10
                             })
-                except:
+                except (TypeError, ValueError):
+                    # The bounds were validated above, so this is not expected;
+                    # if it ever happens the rule must still be visible.
                     range_issues.append({
                         "column": column,
-                        "rule": "numeric_range",
-                        "issue": "column_not_numeric",
-                        "sample_values": col_data.head(3).tolist()
+                        "rule": "rule_invalid",
+                        "issue": "rule_invalid",
+                        "key": "min/max",
+                        "reason": "comparison_failed",
+                        "violation_count": 0,
                     })
             
             # Check allowed values
@@ -771,7 +833,7 @@ class QualityChecker:
 
                     range_issues.append({
                         "column": column,
-                        "rule": f"allowed_values: {sorted(rule['allowed'])}",
+                        "rule": f"allowed_values: {self._sorted_for_display(rule['allowed'])}",
                         "invalid_values": sorted([str(v) for v in invalid_values]),
                         "violation_count": invalid_mask.sum(),
                         "violating_rows": violating_rows[:10]  # First 10

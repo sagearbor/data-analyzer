@@ -3,7 +3,10 @@
 # Streamlit's internal DOM structure, which has changed across minor
 # versions (e.g. .stTabs [data-baseweb="tab-list"] no longer matches the
 # pre-1.30 layout). Bump deliberately and re-verify the navbar when upgrading.
-streamlit==1.59.2
+streamlit==1.66.1
+# Pillow 13.0.0 fixes five critical advisories found in the 12.3.0 that
+# Streamlit <=1.65 forced (pillow<13). Streamlit 1.66.1 allows it.
+pillow>=13.0.0
 pandas>=2.0.0
 numpy>=1.24.0
 plotly>=5.15.0

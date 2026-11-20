@@ -428,5 +428,5 @@ def test_manifest_template_lists_the_allowed_models_as_a_plain_value(manifest):
     env = {e["name"]: e for c in doc["properties"]["template"]["containers"] for e in c["env"]}
 
     entry = env["AZURE_OPENAI_DEPLOYMENTS"]
-    assert entry["value"] == "gpt-5-nano,gpt-5.4-mini,gpt-5.5"
+    assert entry["value"] == "gpt-5-nano,gpt-5.4-mini,gpt-5.5,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol"
     assert "secretRef" not in entry

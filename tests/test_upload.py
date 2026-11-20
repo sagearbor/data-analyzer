@@ -243,7 +243,7 @@ class TestResponseMapping:
 
         assert set(results.keys()) == {
             "summary", "issues", "recommendations", "quality_checks", "summary_stats",
-            "logic_validation_error",
+            "logic_validation_error", "rule_coverage",
         }
 
     @pytest.mark.asyncio

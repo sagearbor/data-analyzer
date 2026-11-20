@@ -412,15 +412,11 @@ app.add_middleware(RequestIdMiddleware)
 
 # Rate limiting
 #
-# get_remote_address (slowapi) keys on request.client.host and does NOT parse
-# X-Forwarded-For, so it cannot be spoofed via that header. Note however that
-# behind Azure Container Apps ingress / any reverse proxy, request.client.host
-# will be the proxy's address for every request unless the proxy is configured
-# to preserve the real client IP - in that case all clients share one rate
-# limit bucket. Verify the ingress forwards a trustworthy client IP (or accept
-# that rate limiting is effectively global) before relying on it for abuse
-# prevention.
-limiter = Limiter(key_func=get_remote_address)
+# Keyed by get_client_id() (defined with the auth throttle below): the TCP peer
+# by default; behind a trusted proxy (DATA_ANALYZER_TRUSTED_PROXY_HOPS=N) the
+# Nth X-Forwarded-For entry from the right. Without that setting every caller
+# behind a shared ingress is ONE bucket.
+limiter = Limiter(key_func=lambda request: get_client_id(request))
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -486,12 +482,10 @@ admin_password_header = APIKeyHeader(name="X-Admin-Password", auto_error=False)
 # request until the window rolls over - even with the right key, otherwise the
 # lockout would not stop guessing.
 #
-# Client identifier: request.client.host (the TCP peer address). It is NOT read
-# from X-Forwarded-For (a client can forge that header). Limitation: behind a
-# shared ingress / the Streamlit UI every user shares one peer address, so a
-# burst of bad keys from anyone locks that shared address out for the window.
-# Tune DATA_ANALYZER_AUTH_FAIL_LIMIT / DATA_ANALYZER_AUTH_FAIL_WINDOW_SECONDS,
-# and see the in-code note on the rate limiter about proxy headers.
+# Only FAILED attempts are throttled: a request carrying the correct key is
+# never refused, so one bad client cannot lock legitimate users out.
+# Client identifier: get_client_id() (see below). Tune
+# DATA_ANALYZER_AUTH_FAIL_LIMIT / DATA_ANALYZER_AUTH_FAIL_WINDOW_SECONDS.
 # Counters live in the slowapi limiter's storage (in memory, per replica).
 # ---------------------------------------------------------------------------
 DEFAULT_AUTH_FAIL_LIMIT = 10
@@ -506,10 +500,52 @@ def _auth_fail_item():
     return parse_rate_limit(f"{limit} per {window} second"), window
 
 
-def _auth_client_id(request: Optional[Request]) -> str:
+_CLIENT_ID_CHARS = re.compile(r"[^0-9A-Fa-f:.\[\]%]")
+_CLIENT_ID_MAX_LEN = 64
+
+
+def _trusted_proxy_hops() -> int:
+    """DATA_ANALYZER_TRUSTED_PROXY_HOPS as a positive int, else 0 (disabled). Read per call."""
+    try:
+        return max(0, int(os.getenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "0").strip()))
+    except ValueError:
+        return 0
+
+
+def _normalise_client_id(raw: str) -> str:
+    """Strip, cap and restrict to characters valid in an IP address/port so the
+    value cannot inject into log lines or limiter storage keys ('' if nothing valid)."""
+    cleaned = _CLIENT_ID_CHARS.sub("", str(raw).strip())
+    return cleaned[:_CLIENT_ID_MAX_LEN]
+
+
+def get_client_id(request: Optional[Request]) -> str:
+    """The one client identifier used by BOTH the rate limiter and the
+    failed-key throttle.
+
+    Default: the TCP peer (request.client.host). When
+    DATA_ANALYZER_TRUSTED_PROXY_HOPS=N (N >= 1) the Nth entry of
+    X-Forwarded-For counted from the RIGHT is used (N=1: the address appended
+    by the nearest trusted proxy). The leftmost entry is client-controlled and
+    is never used; a missing/short header falls back to the peer address.
+    """
+    peer = ""
     if request is not None and request.client is not None and request.client.host:
-        return request.client.host
-    return "unknown"
+        # The socket peer is not caller-controlled; only make it log/key safe.
+        peer = "".join(ch for ch in str(request.client.host) if ch.isprintable() and not ch.isspace())[:_CLIENT_ID_MAX_LEN]
+    hops = _trusted_proxy_hops()
+    if hops > 0 and request is not None:
+        header = request.headers.get("x-forwarded-for", "")
+        entries = [e.strip() for e in header.split(",")] if header else []
+        if len(entries) >= hops:
+            candidate = _normalise_client_id(entries[-hops])
+            if candidate:
+                return candidate
+    return peer or "unknown"
+
+
+def _auth_client_id(request: Optional[Request]) -> str:
+    return get_client_id(request)
 
 
 def _reject_if_auth_locked_out(kind: str, request: Optional[Request]) -> None:
@@ -567,8 +603,6 @@ async def verify_api_key(
         logger.warning("API_KEY not configured - authentication disabled")
         return "unauthenticated"
 
-    _reject_if_auth_locked_out("api_key", request)
-
     # Check if API key is provided
     if not api_key:
         raise HTTPException(
@@ -579,7 +613,9 @@ async def verify_api_key(
 
     # Validate API key (constant-time comparison to avoid timing side-channels)
     if not _secrets_equal(api_key, API_KEY):
-        # Count and log the failed attempt (never the key itself)
+        # Only FAILED attempts are throttled: a correct key is never refused by
+        # another caller's lockout. Count and log (never the key itself).
+        _reject_if_auth_locked_out("api_key", request)
         _record_auth_failure("api_key", request)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -617,8 +653,6 @@ async def verify_admin_password(
             detail="Admin operations are not configured on the server.",
         )
 
-    _reject_if_auth_locked_out("admin", request)
-
     # Check if admin password is provided
     if not admin_password:
         raise HTTPException(
@@ -629,6 +663,8 @@ async def verify_admin_password(
 
     # Validate admin password (constant-time comparison to avoid timing side-channels)
     if not _secrets_equal(admin_password, ADMIN_PASSWORD):
+        # Only failed attempts are throttled (a correct password always works).
+        _reject_if_auth_locked_out("admin", request)
         _record_auth_failure("admin", request)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -763,6 +799,57 @@ def _max_issues_returned() -> int:
     return _limit_from_env("DATA_ANALYZER_MAX_ISSUES_RETURNED", DEFAULT_MAX_ISSUES_RETURNED)
 
 
+_SCHEMA_TYPES = ("int", "float", "str", "bool", "datetime")
+
+
+def _safe_label(value: Any, limit: int = 60) -> str:
+    """Printable, length-capped rendering of a caller-supplied column/key name."""
+    text = "".join(ch if ch.isprintable() else "?" for ch in str(value))
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def _validate_schema_and_rules(schema: Any, rules: Any) -> None:
+    """Reject malformed `schema` / `rules` with 422 and a stable message that
+    names the offending column and key but never echoes the offending value.
+
+    Accepted: schema = {column: "int"|"float"|"str"|"bool"|"datetime"};
+    rules = {column: {"min": number, "max": number, "allowed": [scalars]}}.
+    """
+    def fail(msg: str):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=msg)
+
+    if schema is not None:
+        if not isinstance(schema, dict):
+            fail("Invalid 'schema': it must be an object mapping column names to type names.")
+        for column, type_name in schema.items():
+            if not isinstance(type_name, str) or type_name not in _SCHEMA_TYPES:
+                fail(f"Invalid 'schema' for column '{_safe_label(column)}': the type must be one of "
+                     f"{', '.join(_SCHEMA_TYPES)}.")
+    if rules is not None:
+        if not isinstance(rules, dict):
+            fail("Invalid 'rules': it must be an object mapping column names to rule objects.")
+        checker = mcp_server.QualityChecker if mcp_server is not None else None
+        for column, rule in rules.items():
+            if not isinstance(rule, dict):
+                fail(f"Invalid 'rules' for column '{_safe_label(column)}': the rule must be an object "
+                     'such as {"min": 0, "max": 10} or {"allowed": ["a", "b"]}.')
+            for key, value in rule.items():
+                col, k = _safe_label(column), _safe_label(key)
+                if key not in ("min", "max", "allowed"):
+                    fail(f"Invalid 'rules' for column '{col}': unknown key '{k}' (allowed keys: min, max, allowed).")
+                if key in ("min", "max"):
+                    ok = checker._is_finite_number(value) if checker else (
+                        isinstance(value, (int, float)) and not isinstance(value, bool))
+                    if not ok:
+                        fail(f"Invalid 'rules' for column '{col}': '{k}' must be a finite number.")
+                else:
+                    if not isinstance(value, list):
+                        fail(f"Invalid 'rules' for column '{col}': 'allowed' must be a list.")
+                    if not all(v is None or isinstance(v, (str, int, float, bool)) for v in value):
+                        fail(f"Invalid 'rules' for column '{col}': every 'allowed' item must be a "
+                             "string, number or boolean.")
+
+
 def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[str, Any]:
     """Shape a raw QualityPipeline.run_all_checks() result into the
     dashboard-friendly report the web UI expects.
@@ -803,6 +890,20 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
         else:
             issue_type = qp_issue.get('issue', 'validation_error')
             severity = "error"
+
+        if qp_issue.get('issue') == 'rule_invalid':
+            # A rule that could not be applied has no rows; it must still be
+            # visible, otherwise a broken rule looks like a clean result.
+            key = qp_issue.get('key')
+            where = f"column '{_safe_label(column)}'" + (f", key '{_safe_label(key)}'" if key else "")
+            issues.append({
+                "type": "rule_invalid",
+                "severity": "error",
+                "column": column,
+                "message": f"Rule could not be applied ({where}): {qp_issue.get('reason', 'invalid')}. "
+                           "This rule was NOT checked.",
+            })
+            continue
 
         for row_idx in violating_rows:
             issues_total += 1
@@ -1238,6 +1339,8 @@ async def analyze_data(
                 detail="Invalid 'rules' JSON: it must be a JSON object."
             )
 
+    _validate_schema_and_rules(schema_dict, rules_dict)
+
     # The file name is caller-controlled (may carry identifiers, CR/LF): log
     # only its extension and, after reading, size + hash.
     logger.info(
@@ -1301,6 +1404,8 @@ async def analyze_data_json(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Analysis engine not available (mcp_server failed to import)."
         )
+
+    _validate_schema_and_rules(body.column_schema, body.rules)
 
     label = f"inline {body.format}"
     logger.info(

@@ -23,6 +23,7 @@ import plotly.express as px
 import hashlib
 import os
 import tempfile
+import stat as stat_module
 import time
 import logging
 import traceback
@@ -172,6 +173,30 @@ def force_text_cells(workbook) -> int:
 
 
 # --- Dictionary text limits (B-04) -----------------------------------------
+DEFAULT_PDF_MAX_PAGE_BYTES = 5_000_000
+
+
+def _page_content_bytes(page) -> int:
+    """Stored (raw, still-encoded) size of a page's content stream(s), WITHOUT
+    decoding them. Handles a missing /Contents, a single stream and an array."""
+    try:
+        contents = page.get("/Contents")
+        contents = contents.get_object() if contents is not None else None
+    except Exception:
+        return 0
+    if contents is None:
+        return 0
+    parts = list(contents) if isinstance(contents, (list, tuple)) else [contents]
+    total = 0
+    for part in parts:
+        try:
+            obj = part.get_object() if hasattr(part, "get_object") else part
+            total += len(getattr(obj, "_data", b"") or b"")
+        except Exception:
+            continue
+    return total
+
+
 def extract_pdf_text(reader, max_pages: Optional[int] = None, max_chars: Optional[int] = None) -> str:
     """Concatenate page text from a pypdf reader, refusing oversized input.
 
@@ -187,8 +212,16 @@ def extract_pdf_text(reader, max_pages: Optional[int] = None, max_chars: Optiona
             f"This PDF has {len(pages)} pages; the limit is {max_pages}. "
             "Split the dictionary into smaller files and upload them separately."
         )
+    max_page_bytes = _env_int("UI_PDF_MAX_PAGE_BYTES", DEFAULT_PDF_MAX_PAGE_BYTES)
     parts, total = [], 0
-    for page in pages:
+    for number, page in enumerate(pages, start=1):
+        # Checked BEFORE extraction: extract_text() materialises the whole page.
+        if _page_content_bytes(page) > max_page_bytes:
+            raise DictionaryTooLargeError(
+                f"Page {number} of this PDF is too large to read safely "
+                f"(more than {max_page_bytes:,} bytes of page content). "
+                "Split or simplify the dictionary and upload it again."
+            )
         text = (page.extract_text() or "") + "\n"
         total += len(text)
         if total > max_chars:
@@ -321,8 +354,60 @@ class DictionaryCache:
         self.ttl = ttl_seconds if ttl_seconds is not None else _env_int(
             "UI_CACHE_TTL_HOURS", DEFAULT_CACHE_TTL_HOURS) * 3600
         self.dir = self.base / session_id
-        self.base.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.dir.mkdir(exist_ok=True, mode=0o700)
+        if not self._prepare_dirs():
+            # The configured location is not a private directory we own (e.g. a
+            # pre-created or symlinked folder in the shared temp dir): use a fresh
+            # private one for this process instead.
+            self.base = self._fallback_base()
+            self.dir = self.base / session_id
+            self.dir.mkdir(exist_ok=True, mode=0o700)
+
+    # One private fallback directory per process, created on first need.
+    _fallback_dir: Optional[Path] = None
+
+    @staticmethod
+    def _is_private_dir(path) -> bool:
+        """A real directory (not a symlink), owned by us, with no group/other bits."""
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return False
+        if not stat_module.S_ISDIR(st.st_mode) or (st.st_mode & 0o077):
+            return False
+        getuid = getattr(os, "getuid", None)
+        return getuid is None or st.st_uid == getuid()
+
+    def _prepare_dirs(self) -> bool:
+        try:
+            self.base.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if not self._is_private_dir(self.base):
+                raise OSError("cache base is not a private directory")
+            self.dir.mkdir(exist_ok=True, mode=0o700)
+            if not self._is_private_dir(self.dir):
+                raise OSError("cache session directory is not a private directory")
+            return True
+        except OSError:
+            return False
+
+    @classmethod
+    def _fallback_base(cls) -> Path:
+        if cls._fallback_dir is None or not cls._is_private_dir(cls._fallback_dir):
+            cls._fallback_dir = Path(tempfile.mkdtemp(prefix="data_analyzer_ui_cache_"))
+            logger.warning("dictionary_cache_base_unsafe: using a private per-process cache directory instead")
+        return cls._fallback_dir
+
+    @staticmethod
+    def _open_regular(path: Path, flags: int, mode: int = 0o600) -> int:
+        """os.open that refuses symlinks and anything that is not a regular file."""
+        # O_NONBLOCK: opening a FIFO planted as an entry must fail, not hang.
+        fd = os.open(path, flags | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0), mode)
+        try:
+            if not stat_module.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError("cache entry is not a regular file")
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
 
     @staticmethod
     def key_for(content: bytes, llm: bool = False) -> str:
@@ -342,13 +427,17 @@ class DictionaryCache:
 
     def get(self, key: str) -> Optional[dict]:
         path = self._path(key)
+        if path.is_symlink():
+            path.unlink(missing_ok=True)  # removes the link only, never its target
+            return None
         if not path.exists():
             return None
         if self._expired(path):
             path.unlink(missing_ok=True)
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            fd = self._open_regular(path, os.O_RDONLY)
+            with os.fdopen(fd, "r", encoding="utf-8") as f:
                 value = json.load(f)
         except (OSError, ValueError):
             return None
@@ -357,14 +446,20 @@ class DictionaryCache:
     def put(self, key: str, value: dict) -> None:
         path = self._path(key)
         self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        if path.is_symlink():
+            path.unlink(missing_ok=True)
+        try:
+            fd = self._open_regular(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+        except OSError:
+            logger.warning("dictionary_cache_entry_refused")
+            return
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(value, f)
         self.prune()
 
     def count(self) -> int:
         """Number of live entries in THIS session only."""
-        return sum(1 for p in self.dir.glob("*.json") if not self._expired(p))
+        return sum(1 for p in self.dir.glob("*.json") if not p.is_symlink() and not self._expired(p))
 
     def clear(self) -> int:
         """Delete this session's entries only; returns how many were removed."""
@@ -926,6 +1021,7 @@ class DataQualityAnalyzer:
         # dictionary 'fields' extracted via RuleExtractor, not schema/rules),
         # so it stays local and its results are merged in after the API call.
         logic_violations_count = 0
+        rule_coverage = None  # RuleCoverage.to_dict() once conditional rules were checked
         if PROGRAM_CACHE_AVAILABLE and dictionary and 'fields' in dictionary:
             try:
                 # Extract conditional rules from dictionary fields
@@ -938,7 +1034,11 @@ class DataQualityAnalyzer:
                 if conditional_rules:
                     # Run logic validation
                     validator = LogicValidator()
-                    logic_violations = validator.validate(conditional_rules, data)
+                    logic_violations, coverage = validator.validate_with_coverage(conditional_rules, data)
+                    rule_coverage = coverage.to_dict()
+                    if not coverage.complete:
+                        # Never let an unchecked rule look like a clean one.
+                        logger.warning("logic_rule_coverage_incomplete %s", coverage.summary())
 
                     # Add logic violations to issues list
                     for violation in logic_violations:
@@ -971,6 +1071,7 @@ class DataQualityAnalyzer:
                 "message": "Conditional logic violations detected. Review field dependencies and branching rules in data dictionary"
             })
         summary["logic_violations_count"] = logic_violations_count
+        summary["rules_not_checked"] = rule_coverage["rules_not_checked"] if rule_coverage else 0
 
         return {
             "summary": summary,
@@ -979,6 +1080,7 @@ class DataQualityAnalyzer:
             "quality_checks": result["quality_checks"],
             "summary_stats": result["summary_stats"],
             "logic_validation_error": logic_validation_error,
+            "rule_coverage": rule_coverage,
         }
 
     def _notify(self, message: str) -> None:
@@ -1392,7 +1494,7 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
     except Exception as e:
         st.caption(f"Issue map unavailable ({type(e).__name__})")
 
-def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
+def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list, rule_coverage: Optional[dict] = None) -> bytes:
     """Export data to Excel with error cells highlighted.
 
     Text that starts with = + - @ (also after whitespace/tab/CR) - in data
@@ -1408,6 +1510,22 @@ def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
         issues_df = pd.DataFrame(issues)
         if not issues_df.empty:
             issues_df.to_excel(writer, sheet_name='Issues', index=False)
+
+        # Rule coverage: a partial result must be visible in the file too.
+        if rule_coverage:
+            cov_rows = [
+                {"item": "Result", "rule_id": "",
+                 "detail": "COMPLETE" if rule_coverage.get("complete") else
+                           f"PARTIAL - {rule_coverage.get('rules_not_checked', 0)} of "
+                           f"{rule_coverage.get('rules_total', 0)} rules could not be checked"},
+                {"item": "Rules total", "rule_id": "", "detail": rule_coverage.get("rules_total", 0)},
+                {"item": "Rules evaluated", "rule_id": "", "detail": rule_coverage.get("rules_evaluated", 0)},
+                {"item": "Rules not checked", "rule_id": "", "detail": rule_coverage.get("rules_not_checked", 0)},
+            ]
+            for kind, label in (("unsupported_rules", "Unsupported"), ("failed_rules", "Failed")):
+                for r in rule_coverage.get(kind, []):
+                    cov_rows.append({"item": label, "rule_id": r.get("rule_id", ""), "detail": r.get("reason", "")})
+            pd.DataFrame(cov_rows).to_excel(writer, sheet_name='Rule coverage', index=False)
 
         # Get workbook and worksheet
         workbook = writer.book
@@ -2055,7 +2173,8 @@ if nav_choice == "Analyze":
             if export_format == "Excel with highlighting":
                 excel_data = export_to_excel_with_highlighting(
                     st.session_state.data,
-                    st.session_state.analysis_results['issues']
+                    st.session_state.analysis_results['issues'],
+                    st.session_state.analysis_results.get('rule_coverage'),
                 )
                 st.download_button(
                     label="📊 Download Excel",
@@ -2148,6 +2267,18 @@ if nav_choice == "Analyze":
 
         if st.session_state.analysis_results.get('logic_validation_error'):
             st.warning(f"⚠️ {md_escape(st.session_state.analysis_results['logic_validation_error'])}")
+
+        _coverage = st.session_state.analysis_results.get('rule_coverage')
+        if _coverage and _coverage.get('rules_not_checked'):
+            st.warning(
+                f"⚠️ **Partial result: {_coverage['rules_not_checked']} of {_coverage['rules_total']} "
+                "conditional rules could not be checked.** Their absence from the issues below does "
+                "NOT mean the data passed them."
+            )
+            with st.expander("Rules that could not be checked"):
+                for _kind, _label in (("unsupported_rules", "Unsupported"), ("failed_rules", "Failed during evaluation")):
+                    for _r in _coverage.get(_kind, []):
+                        st.markdown(f"- {_label}: `{md_escape(_r.get('rule_id'))}` ({md_escape(_r.get('reason'))})")
 
         # Create columns with space for heatmap
         col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1.2, 1, 1, 1.5])

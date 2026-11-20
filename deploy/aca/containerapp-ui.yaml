@@ -9,7 +9,7 @@
 # Every <PLACEHOLDER> is filled from the gitignored `azure-environment.md`.
 # Copy this file to `containerapp-ui.local.yaml` (gitignored), fill it in there,
 # and deploy from the local copy THROUGH THE GUARD:
-#   ~/dcri/aca-guard.sh deploy data-analyzer-ui deploy/aca/containerapp-ui.local.yaml
+#   aca-guard.sh deploy data-analyzer-ui deploy/aca/containerapp-ui.local.yaml
 #
 # UI -> API CONNECTION (both REQUIRED; the container refuses to start without
 # them — see entrypoint.sh / src/runtime_env.py):
@@ -20,7 +20,7 @@
 #                          the SAME value as the API app's secret of that name.
 #                          Set it separately (never in this file), from
 #                          DATA_ANALYZER_API_KEY in the gitignored .env:
-#     ~/dcri/aca-guard.sh put-secret data-analyzer-ui data-analyzer-api-key DATA_ANALYZER_API_KEY
+#     aca-guard.sh put-secret data-analyzer-ui data-analyzer-api-key DATA_ANALYZER_API_KEY
 #
 # Azure OpenAI is KEYLESS (managed identity via src/dcri_llm.py, LLM_AUTH=identity).
 # ============================================================================
@@ -54,8 +54,8 @@ properties:
     #     REPLACES the whole list (drops secrets).
     #   * Set/rotate secret `data-analyzer-api-key` out of band, value from the
     #     gitignored .env, never on a command line:
-    #       ~/dcri/aca-guard.sh put-secret <APP> data-analyzer-api-key DATA_ANALYZER_API_KEY
-    #   * Deploy only through the guard:  ~/dcri/aca-guard.sh deploy <APP> <this file>
+    #       aca-guard.sh put-secret <APP> data-analyzer-api-key DATA_ANALYZER_API_KEY
+    #   * Deploy only through the guard:  aca-guard.sh deploy <APP> <this file>
     #   * Target pattern (once IT grants Key Vault Secrets User to the managed
     #     identity): replace this comment with a list of ALL the app's secrets,
     #     each ONLY name + keyVaultUrl + identity (no value), e.g.
@@ -93,7 +93,7 @@ properties:
           # allow-list, ADP-52); the first entry is the default. List ONLY models
           # verified to answer on the deployed endpoint. Comma-separated, no spaces needed.
           - name: AZURE_OPENAI_DEPLOYMENTS
-            value: "gpt-5-nano,gpt-5.4-mini,gpt-5.5"
+            value: "gpt-5-nano,gpt-5.4-mini,gpt-5.5,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol"   # each verified to answer on 20 Nov 2026
           - name: LLM_AUTH
             value: identity
           - name: SOLUTION_NAME
