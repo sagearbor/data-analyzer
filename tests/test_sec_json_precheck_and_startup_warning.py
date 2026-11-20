@@ -91,7 +91,7 @@ def test_deeply_nested_json_is_refused_cleanly_not_a_500(client, route, depth, p
 @pytest.mark.parametrize("text", ["5", '"x"', "null"])
 def test_json_that_is_not_a_list_or_object_is_a_400_with_a_stable_message(client, route, text, pandas_must_not_run):
     resp = route(client, text)
-    assert resp.status_code == 400 and "list of records or an object of columns" in resp.json()["detail"]
+    assert resp.status_code == 400 and "list of records" in resp.json()["detail"] and "object of columns" in resp.json()["detail"]
 
 
 @pytest.mark.parametrize("route", ROUTES)
@@ -148,3 +148,103 @@ def test_the_startup_event_calls_the_check_and_does_not_refuse_to_start(api, mon
     with caplog.at_level("WARNING"):
         asyncio.run(api.startup_event())
     assert any("client_id_shared_mode" in r.getMessage() for r in caplog.records)
+
+
+# ---- exactly two accepted shapes; counting equals building -------------------------
+REFUSED_SHAPES = {
+    "list_of_lists": [[1, 2], [3, 4]],
+    "list_with_a_non_object": [{"a": 1}, 5],
+    "dict_of_dicts": {"a": {"0": 1}, "b": {"0": 2}},
+    "split_orientation_with_unequal_lengths": {"columns": ["a", "b"], "data": [[1, 2]]},
+    "ragged_columns": {"a": [1, 2, 3], "b": [1]},
+    "column_that_is_a_scalar": {"a": [1, 2], "b": 5},
+}
+
+
+@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize("name", list(REFUSED_SHAPES))
+def test_every_shape_other_than_the_two_accepted_ones_is_a_400_on_both_routes(client, route, name, pandas_must_not_run):
+    resp = route(client, json.dumps(REFUSED_SHAPES[name]))
+    assert resp.status_code == 400
+    assert "list of records" in resp.json()["detail"] and "object of columns" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("name", list(REFUSED_SHAPES))
+def test_the_library_loader_refuses_the_same_shapes(name):
+    from mcp_server import DataLoader
+
+    with pytest.raises(ValueError, match="list of records"):
+        DataLoader.load_json(json.dumps(REFUSED_SHAPES[name]))
+
+
+def test_nested_records_whose_flattened_leaf_count_exceeds_the_column_limit_are_413_before_any_dataframe(monkeypatch, pandas_must_not_run):
+    from mcp_server import DataLoader, DataTooLargeError
+
+    monkeypatch.setenv("DATA_ANALYZER_MAX_COLUMNS", "5")
+    records = [{"id": 1, "p": {"a": 1, "b": 2, "c": {"d": 3, "e": 4}}}]  # leaves: id, p.a, p.b, p.c.d, p.c.e = 5
+    DataLoader.check_json_shape(records, 5)  # exactly at the limit: fine
+    records[0]["p"]["c"]["f"] = 5             # 6 leaves
+    with pytest.raises(DataTooLargeError, match="columns"):
+        DataLoader.check_json_shape(records, 5)
+    with pytest.raises(DataTooLargeError):
+        DataLoader.load_json(json.dumps(records))
+
+
+def test_the_leaf_path_count_matches_what_json_normalize_builds_and_never_undercounts():
+    from mcp_server import DataLoader
+
+    samples = [
+        [{"a": 1}],
+        [{"a": {"b": 1, "c": {"d": 2}}}, {"a": {"e": 3}, "z": [1, 2]}],
+        [{"a": {}}, {"a": {"b": {"c": {"d": {"e": 1}}}}}],
+        [{"x": None, "y": {"z": None}}],
+    ]
+    for level in (0, 1, 2, 5):
+        for recs in samples:
+            built = len(pd.json_normalize(recs, max_level=level).columns)
+            counted = DataLoader._count_columns(recs, level, 10**6)
+            assert counted >= built                      # never an undercount
+            if not any(v == {} for r in recs for v in r.values()):
+                assert counted == built                  # exact (an empty object is the one conservative case)
+
+
+def test_the_cells_limit_is_enforced_for_json_and_csv(client, monkeypatch):
+    monkeypatch.setenv("DATA_ANALYZER_MAX_CELLS", "10")
+    resp = _multipart(client, json.dumps([{"a": i, "b": i, "c": i} for i in range(4)]))  # 12 cells
+    assert resp.status_code == 413 and "DATA_ANALYZER_MAX_CELLS" in resp.json()["detail"]
+    csv = client.post("/api/v1/analyze", files={"data_file": ("d.csv", b"a,b,c\n" + b"1,2,3\n" * 4, "text/csv")}, headers=H)
+    assert csv.status_code == 413 and "DATA_ANALYZER_MAX_CELLS" in csv.json()["detail"]
+    ok = client.post("/api/v1/analyze", files={"data_file": ("d.csv", b"a,b,c\n1,2,3\n", "text/csv")}, headers=H)
+    assert ok.status_code == 200
+
+
+def test_pandas_read_json_is_not_called_at_all_on_the_valid_paths(client, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("read_json must not be used")
+
+    monkeypatch.setattr(pd, "read_json", boom)
+    for route in ROUTES:
+        assert route(client, json.dumps([{"a": 1}, {"a": 2}])).status_code == 200
+        assert route(client, json.dumps({"a": [1, 2]})).status_code == 200
+
+
+@pytest.mark.parametrize("obj", [
+    [{"i": 1, "f": 1.5, "s": "a", "n": None, "b": True, "num_str": "12"},
+     {"i": 2, "f": 2.0, "s": "b", "n": None, "b": False, "num_str": "13"}],
+    {"i": [1, 2], "f": [1.5, 2.0], "s": ["a", "b"], "n": [None, None], "num_str": ["12", "13"]},
+    [{"a": 1}, {"a": None}],
+    [{"visit_date": "2026-01-05"}, {"visit_date": "not-a-date"}],
+    [{"date": "2026-01-05"}, {"date": "2026-01-06"}],
+    [{"created_at": "2026-01-05T10:00:00"}, {"created_at": "2026-01-06T11:30:00"}],
+])
+def test_built_tables_have_the_same_dtypes_and_values_as_pd_read_json(obj):
+    import warnings
+
+    from mcp_server import DataLoader
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        expected = pd.read_json(io.BytesIO(json.dumps(obj).encode()))
+    built = DataLoader.build_json_dataframe(DataLoader.precheck_json(json.dumps(obj)))
+    assert [str(t) for t in built.dtypes] == [str(t) for t in expected.dtypes]
+    assert built.astype(str).values.tolist() == expected.astype(str).values.tolist()

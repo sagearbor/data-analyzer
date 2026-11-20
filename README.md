@@ -43,7 +43,7 @@ Both analyze routes run the same rule-based analysis (no LLM) and return the sam
 | Field | Required | Meaning |
 |---|---|---|
 | `data_content` | yes | The dataset as CSV/TSV/JSON text, or base64 when `encoding` is `"base64"` |
-| `format` | no | `csv` (default), `tsv` or `json` |
+| `format` | no | `csv` (default), `tsv` or `json`. JSON must be a list of records (every item an object) or an object of columns (every value a list, all the same length); anything else is a 400. Limits: `DATA_ANALYZER_MAX_JSON_BYTES`, `_MAX_ROWS`, `_MAX_COLUMNS`, `_MAX_CELLS` (413) |
 | `encoding` | no | `text` (default) or `base64` |
 | `schema` | no | Object mapping column to type: `int`, `float`, `str`, `bool`, `datetime` |
 | `rules` | no | Object mapping column to `{"min", "max"}` or `{"allowed": [...]}` |

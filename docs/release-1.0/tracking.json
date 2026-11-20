@@ -98,6 +98,11 @@
    "id": "6260031563",
    "title": "DRAFT INT.Data Analyzer 1.0_VRRAF",
    "template": "4439736480"
+  },
+  "TSRA": {
+   "id": "6259998790",
+   "title": "DRAFT Data Analyzer 1.0_TSRA",
+   "template": "4771020831"
   }
  }
 }

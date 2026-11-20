@@ -62,6 +62,9 @@ def _env_int(name: str, default: int) -> int:
 DEFAULT_MAX_ROWS = 1_000_000
 DEFAULT_MAX_JSON_BYTES = 25 * 1024 * 1024  # 26214400
 JSON_MAX_DEPTH = 20
+DEFAULT_MAX_CELLS = 50_000_000
+JSON_SHAPES_MESSAGE = ("JSON data must be a list of records (every item an object) or an object of "
+                       "columns (every value a list, all the same length).")
 DEFAULT_MAX_COLUMNS = 2_000
 DEFAULT_MAX_EXCEL_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 DEFAULT_MAX_EXCEL_SHEETS = 50
@@ -123,7 +126,22 @@ class DataLoader:
                 f"Dataset has {len(df.columns)} columns; the allowed maximum is "
                 f"{max_cols} (DATA_ANALYZER_MAX_COLUMNS)."
             )
+        DataLoader.check_cells(len(df), len(df.columns))
         return df
+
+    @staticmethod
+    def max_cells() -> int:
+        """Total-cells cap (DATA_ANALYZER_MAX_CELLS, default 50,000,000) = rows x columns."""
+        return _env_int("DATA_ANALYZER_MAX_CELLS", DEFAULT_MAX_CELLS)
+
+    @staticmethod
+    def check_cells(rows: int, cols: int) -> None:
+        """Raise DataTooLargeError when rows x columns exceeds the cells cap."""
+        if rows * cols > DataLoader.max_cells():
+            raise DataTooLargeError(
+                f"Dataset has {rows} rows x {cols} columns, more than the allowed "
+                f"{DataLoader.max_cells()} cells (DATA_ANALYZER_MAX_CELLS)."
+            )
 
     # ------------------------------------------------------------------
     # JSON: bound BEFORE pandas builds a DataFrame
@@ -150,58 +168,140 @@ class DataLoader:
         return True
 
     @staticmethod
-    def check_json_shape(obj: Any) -> None:
-        """Refuse a parsed JSON object that would build too many rows/columns, or
-        that is too deeply nested, without building any DataFrame.
+    def _count_columns(records: list, flatten_level: Optional[int], max_cols: int) -> int:
+        """Columns the build will produce for a list of records, counted as the
+        build names them and stopping as soon as `max_cols` is passed.
 
-        list of records -> rows = len, columns = union of keys (counting stops once
-        over the limit); dict -> columns = number of keys, rows = longest column
-        (list or dict value); anything else -> JsonShapeError. Raises
-        DataTooLargeError (413 material) or JsonShapeError (400 material).
+        flatten_level None: pd.DataFrame(records) -> distinct top-level keys.
+        flatten_level N: pd.json_normalize(records, max_level=N) -> distinct LEAF
+        PATHS: nested objects are walked while their nesting level < N (an empty
+        object, a list or a scalar is a leaf). Paths are kept as tuples, so the
+        count can only equal or exceed pandas' (names that collide after joining
+        with "." are one column for pandas, still two paths here).
         """
+        paths: set = set()
+        for rec in records:
+            stack = [((), rec, 0)]
+            while stack:
+                prefix, node, level = stack.pop()
+                for key, value in node.items():
+                    path = prefix + (key,)
+                    if flatten_level is not None and isinstance(value, dict) and value and level < flatten_level:
+                        stack.append((path, value, level + 1))
+                    else:
+                        paths.add(path)
+                        if len(paths) > max_cols:
+                            raise DataTooLargeError(
+                                f"Dataset has more than the allowed {max_cols} columns (DATA_ANALYZER_MAX_COLUMNS).")
+        return len(paths)
+
+    @staticmethod
+    def check_json_shape(obj: Any, flatten_level: Optional[int] = None) -> None:
+        """Check a parsed JSON object BEFORE any DataFrame is built. Exactly two
+        shapes are accepted: (a) a list of records (every item an object) and
+        (b) an object of columns (every value a list, all the same length);
+        everything else is a JsonShapeError (400). Rows, columns (counted as the
+        build will name them, see _count_columns), total cells and nesting depth
+        are bounded -> DataTooLargeError (413). `flatten_level` is the
+        json_normalize max_level used by the build, or None when the build is
+        pd.DataFrame(obj)."""
         max_rows, max_cols = DataLoader.max_rows(), DataLoader.max_columns()
+        shape_error = JsonShapeError(JSON_SHAPES_MESSAGE)
         if not DataLoader._json_depth_ok(obj):
             raise JsonShapeError(f"JSON is nested more than {JSON_MAX_DEPTH} levels deep.")
         if isinstance(obj, list):
-            if len(obj) > max_rows:
+            if not all(isinstance(item, dict) for item in obj):
+                raise shape_error
+            rows = len(obj)
+            if rows > max_rows:
                 raise DataTooLargeError(
                     f"Dataset has more than the allowed {max_rows} rows (DATA_ANALYZER_MAX_ROWS).")
-            keys: set = set()
-            for item in obj:
-                if isinstance(item, dict):
-                    keys.update(item.keys())
-                    if len(keys) > max_cols:
-                        raise DataTooLargeError(
-                            f"Dataset has more than the allowed {max_cols} columns (DATA_ANALYZER_MAX_COLUMNS).")
+            cols = DataLoader._count_columns(obj, flatten_level, max_cols)
         elif isinstance(obj, dict):
-            if len(obj) > max_cols:
+            if not all(isinstance(v, list) for v in obj.values()):
+                raise shape_error
+            lengths = {len(v) for v in obj.values()}
+            if len(lengths) > 1:
+                raise shape_error
+            rows, cols = (lengths.pop() if lengths else 0), len(obj)
+            if cols > max_cols:
                 raise DataTooLargeError(
-                    f"Dataset has {len(obj)} columns; the allowed maximum is {max_cols} (DATA_ANALYZER_MAX_COLUMNS).")
-            longest = max((len(v) for v in obj.values() if isinstance(v, (list, dict))), default=0)
-            if longest > max_rows:
+                    f"Dataset has {cols} columns; the allowed maximum is {max_cols} (DATA_ANALYZER_MAX_COLUMNS).")
+            if rows > max_rows:
                 raise DataTooLargeError(
                     f"Dataset has more than the allowed {max_rows} rows (DATA_ANALYZER_MAX_ROWS).")
         else:
-            raise JsonShapeError("JSON data must be a list of records or an object of columns.")
+            raise shape_error
+        DataLoader.check_cells(rows, cols)
 
     @staticmethod
-    def precheck_json(content: Union[str, bytes], overall_limit: Optional[int] = None) -> Any:
-        """Bound JSON text/bytes before pandas: byte cap, safe parse (nesting that
-        overflows the parser is a clean error, never a RecursionError), then
-        check_json_shape. Returns the parsed object. One implementation for the
-        multipart route, the JSON route and DataLoader.load_json."""
+    def build_json_dataframe(obj: Any, flatten_level: Optional[int] = None) -> pd.DataFrame:
+        """Build the DataFrame from an object that passed check_json_shape (no second
+        parse). Dtypes follow pd.read_json for the common cases (numeric strings ->
+        numbers, all-null columns -> float NaN, date-named columns -> datetimes when
+        they parse) so downstream type checks see what they saw before."""
+        if isinstance(obj, list) and flatten_level is not None:
+            df = pd.json_normalize(obj, max_level=flatten_level)
+        else:
+            df = pd.DataFrame(obj)
+        for col in df.columns:
+            series = df[col]
+            if series.dtype != object and str(series.dtype) != "str":
+                continue
+            try:
+                if series.isna().all():
+                    df[col] = pd.to_numeric(series, errors="raise").astype("float64")
+                    continue
+                if series.map(lambda v: isinstance(v, (str, int, float)) and not isinstance(v, bool)).all():
+                    num = series.astype("float64")  # numeric strings; raises for text
+                    df[col] = num.astype("int64") if num.notna().all() and (num == num.round()).all() else num
+                    continue
+            except (ValueError, TypeError, OverflowError):
+                pass
+            if isinstance(col, str) and (col in ("modified", "date", "datetime") or col.endswith(("_at", "_time"))
+                                         or col.startswith("timestamp")):
+                try:
+                    df[col] = pd.to_datetime(series, errors="raise")
+                except (ValueError, TypeError, OverflowError):
+                    pass
+        return df
+
+    @staticmethod
+    def parse_json_bounded(content: Union[str, bytes], overall_limit: Optional[int] = None) -> Any:
+        """Byte cap, then ONE safe parse (nesting that overflows the parser is a clean
+        JsonShapeError, never a RecursionError). No shape checks."""
         limit = DataLoader.max_json_bytes(overall_limit)
         if len(content) > limit:
             raise DataTooLargeError(
                 f"JSON content is larger than the allowed {limit} bytes (DATA_ANALYZER_MAX_JSON_BYTES).")
         try:
-            obj = json.loads(content.decode("utf-8") if isinstance(content, bytes) else content)
+            return json.loads(content.decode("utf-8") if isinstance(content, bytes) else content)
         except RecursionError:
             raise JsonShapeError(f"JSON is nested more than {JSON_MAX_DEPTH} levels deep.")
         except (ValueError, UnicodeDecodeError):
             raise JsonShapeError("The JSON could not be parsed.")
-        DataLoader.check_json_shape(obj)
+
+    @staticmethod
+    def precheck_json(content: Union[str, bytes], overall_limit: Optional[int] = None,
+                      flatten_level: Optional[int] = None) -> Any:
+        """parse_json_bounded + check_json_shape. Returns the parsed, checked object
+        that the caller must build the table from (no second parse). One
+        implementation for the multipart route, the JSON route and load_json."""
+        obj = DataLoader.parse_json_bounded(content, overall_limit)
+        DataLoader.check_json_shape(obj, flatten_level)
         return obj
+
+    @staticmethod
+    def unwrap_nested_records(obj: Any, level: int):
+        """Library/MCP-only third shape (kept because DataLoader.load_json has always
+        accepted it): an object holding a list of records under a key. The FIRST
+        top-level key whose value is a non-empty list of objects is the table
+        (flattened one level less, as before). Returns (object, flatten_level)."""
+        if isinstance(obj, dict):
+            for value in obj.values():
+                if isinstance(value, list) and value and all(isinstance(i, dict) for i in value):
+                    return value, max(level - 1, 0)
+        return obj, level
 
     @staticmethod
     def check_excel_archive(content: bytes) -> None:
@@ -326,41 +426,25 @@ class DataLoader:
         try:
             if isinstance(file_path_or_content, (bytes, str)):
                 DataLoader._check_size(file_path_or_content)
-            # Parse JSON data (bounded: byte cap, depth, rows/columns - before pandas)
+            # Parse ONCE, bound it (bytes, depth, shape, rows, columns, cells) and
+            # build the table from that same checked object.
+            level = max_depth
             if isinstance(file_path_or_content, dict):
                 json_data = file_path_or_content
-                DataLoader.check_json_shape(json_data)
             elif isinstance(file_path_or_content, bytes):
-                json_data = DataLoader.precheck_json(file_path_or_content)
+                json_data = DataLoader.parse_json_bounded(file_path_or_content)
             elif isinstance(file_path_or_content, str):
                 if allow_paths and os.path.exists(file_path_or_content):
                     with open(file_path_or_content, 'r', encoding='utf-8') as f:
-                        json_data = DataLoader.precheck_json(f.read())
+                        json_data = DataLoader.parse_json_bounded(f.read())
                 else:
-                    json_data = DataLoader.precheck_json(file_path_or_content)
+                    json_data = DataLoader.parse_json_bounded(file_path_or_content)
             else:
                 raise ValueError("Invalid JSON input type")
+            json_data, level = DataLoader.unwrap_nested_records(json_data, level)
+            DataLoader.check_json_shape(json_data, level)
 
-            # Handle different JSON structures
-            if isinstance(json_data, list):
-                # Array of objects - direct conversion
-                df = pd.json_normalize(json_data, max_level=max_depth)
-            elif isinstance(json_data, dict):
-                # Nested object - normalize with depth control
-                df = pd.json_normalize(json_data, max_level=max_depth)
-
-                # If result is a single row, try to extract nested arrays
-                if len(df) == 1 and df.shape[1] > 0:
-                    # Look for columns with list values that could be expanded
-                    for col in df.columns:
-                        if isinstance(df.iloc[0][col], list) and len(df.iloc[0][col]) > 0:
-                            if all(isinstance(item, dict) for item in df.iloc[0][col]):
-                                # Found nested array of objects, use that as main data
-                                df = pd.json_normalize(df.iloc[0][col], max_level=max_depth-1)
-                                break
-            else:
-                # Single value - wrap in dataframe
-                df = pd.DataFrame([json_data])
+            df = DataLoader.build_json_dataframe(json_data, level)
 
             return DataLoader.check_dataframe_limits(df)
         except DataTooLargeError:

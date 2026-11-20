@@ -1115,6 +1115,19 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
 
 
 
+def _delimited_row_cap(content_bytes: bytes, sep: Optional[str]) -> int:
+    """Rows to read from CSV/TSV: at most max_rows + 1 (so an over-long file is
+    detected), and at most the rows the total-cells cap allows for this header's
+    column count (+1, so exceeding it is detected after the read)."""
+    max_rows = mcp_server.DataLoader.max_rows()
+    try:
+        header = pd.read_csv(io.BytesIO(content_bytes), sep=sep or ",", nrows=0)
+        cols = max(len(header.columns), 1)
+    except Exception:
+        return max_rows + 1
+    return min(max_rows + 1, mcp_server.DataLoader.max_cells() // cols + 1)
+
+
 def _run_quality_analysis(
     content_bytes: bytes,
     file_extension: str,
@@ -1169,21 +1182,24 @@ def _run_quality_analysis(
         # combination, size checks, etc.) from one place.
         try:
             if file_extension == '.csv':
-                # nrows bounds memory: stop reading after max_rows + 1 rows
+                # nrows bounds memory: stop reading after max_rows + 1 rows, and
+                # after as many rows as the cells cap allows for this many columns
                 df = pd.read_csv(
-                    io.BytesIO(content_bytes), nrows=mcp_server.DataLoader.max_rows() + 1
+                    io.BytesIO(content_bytes),
+                    nrows=_delimited_row_cap(content_bytes, None),
                 )
             elif file_extension == '.json':
                 # Bound it BEFORE pandas builds anything (bytes, depth, rows, columns).
-                # pd.read_json is kept for the build so dtype inference is unchanged.
-                mcp_server.DataLoader.precheck_json(content_bytes, overall_limit=limit)
-                df = pd.read_json(io.BytesIO(content_bytes))
+                                # One parse; the table is built from that checked object (no read_json).
+                parsed = mcp_server.DataLoader.precheck_json(content_bytes, overall_limit=limit)
+                df = mcp_server.DataLoader.build_json_dataframe(parsed)
+                del parsed
             elif file_extension in ('.xlsx', '.xls'):
                 df = mcp_server.DataLoader.load_excel(content_bytes)
             else:  # .txt / .tsv
                 df = pd.read_csv(
                     io.BytesIO(content_bytes), sep='\t',
-                    nrows=mcp_server.DataLoader.max_rows() + 1,
+                    nrows=_delimited_row_cap(content_bytes, '\t'),
                 )
             mcp_server.DataLoader.check_dataframe_limits(df)
         except mcp_server.DataTooLargeError as e:
