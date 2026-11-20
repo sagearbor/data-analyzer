@@ -1,0 +1,44 @@
+[
+ {
+  "id": "tests.test_aca_manifests.test_repo_manifest_has_no_secret_values",
+  "name": "Data Analyzer: Every deployment template in the repository passes the secret-safety check",
+  "objective": "Proves that each deployment template file (including private local copies when present) has no secret values or secrets lists that could wipe live secrets. Runs once per template file found.",
+  "precondition": "Offline; the checker runs over every template in deploy/aca (private local copies only if present on the machine).",
+  "steps": [
+   {
+    "action": "Run the safety check on each template's text.",
+    "data": "Each file in deploy/aca",
+    "expected": "The checker returns no problems for every file."
+   }
+  ],
+  "source": "tests/test_aca_manifests.py::test_repo_manifest_has_no_secret_values"
+ },
+ {
+  "id": "tests.test_aca_manifests.test_unsafe_snippets_are_refused",
+  "name": "Data Analyzer: The safety check rejects five unsafe template patterns",
+  "objective": "Proves that the checker raises a problem for: a placeholder secret value, an empty secrets list, an empty secrets section followed by registries, a name-only secret, and a Key Vault secret without an identity. Runs over 5 snippets.",
+  "precondition": "Offline; text checker for cloud deployment templates, no cloud access.",
+  "steps": [
+   {
+    "action": "Run the checker on each unsafe snippet.",
+    "data": "5 made-up template snippets",
+    "expected": "For each snippet the checker returns at least one problem."
+   }
+  ],
+  "source": "tests/test_aca_manifests.py::test_unsafe_snippets_are_refused"
+ },
+ {
+  "id": "tests.test_aca_manifests.test_safe_snippets_pass",
+  "name": "Data Analyzer: The safety check accepts four safe template patterns",
+  "objective": "Proves that the checker does not wrongly flag: no secrets section with secretRef env, Key Vault references with identity, a commented-out secrets example, and volume secrets. Runs over 4 snippets.",
+  "precondition": "Offline; text checker for cloud deployment templates, no cloud access.",
+  "steps": [
+   {
+    "action": "Run the checker on each safe snippet.",
+    "data": "4 made-up template snippets",
+    "expected": "For each snippet the checker returns no problems."
+   }
+  ],
+  "source": "tests/test_aca_manifests.py::test_safe_snippets_pass"
+ }
+]

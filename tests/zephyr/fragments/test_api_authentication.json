@@ -1,0 +1,175 @@
+[
+ {
+  "id": "tests.test_api_authentication.TestHealthEndpoint.test_health_no_auth_required",
+  "name": "Data Analyzer: Health check needs no API key",
+  "objective": "Shows that the health check can be used without credentials even when a key is configured.",
+  "precondition": "Server application loaded offline with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Request the health check with no key.",
+    "data": "No key.",
+    "expected": "HTTP 200; reply contains status, version and services."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestHealthEndpoint::test_health_no_auth_required"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAPIKeyAuthentication.test_missing_api_key",
+  "name": "Data Analyzer: Key check refuses a missing key",
+  "objective": "Shows that the key-checking routine rejects a call with no key. It is called directly rather than through a web request.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured (this check calls the key-checking routine directly, not through a web request).",
+  "steps": [
+   {
+    "action": "Run the key check with no key.",
+    "data": "Key = none.",
+    "expected": "The check raises an error whose text contains '401' or 'Authentication required'."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAPIKeyAuthentication::test_missing_api_key"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAPIKeyAuthentication.test_invalid_api_key",
+  "name": "Data Analyzer: Key check refuses a wrong key",
+  "objective": "Shows that the key-checking routine rejects a wrong key (called directly).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured (this check calls the key-checking routine directly, not through a web request).",
+  "steps": [
+   {
+    "action": "Run the key check with the key 'wrong-key'.",
+    "data": "Wrong key.",
+    "expected": "The check raises an error whose text contains '403' or 'Invalid credentials'."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAPIKeyAuthentication::test_invalid_api_key"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAPIKeyAuthentication.test_valid_api_key",
+  "name": "Data Analyzer: Key check accepts the correct key",
+  "objective": "Shows that the correct key is accepted (called directly).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured (this check calls the key-checking routine directly, not through a web request).",
+  "steps": [
+   {
+    "action": "Run the key check with the configured made-up key.",
+    "data": "Correct key.",
+    "expected": "The check returns that same key."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAPIKeyAuthentication::test_valid_api_key"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAPIKeyAuthentication.test_no_auth_configured",
+  "name": "Data Analyzer: With no key configured, the key check lets everything through",
+  "objective": "Shows the designed behaviour that authentication is switched off when no key is configured (so an unconfigured deployment is open).",
+  "precondition": "Server application reloaded with all environment settings cleared, so no API key exists.",
+  "steps": [
+   {
+    "action": "Run the key check with no key.",
+    "data": "Key = none.",
+    "expected": "The check returns the label 'unauthenticated' (access allowed)."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAPIKeyAuthentication::test_no_auth_configured"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAdminPasswordAuthentication.test_missing_admin_password",
+  "name": "Data Analyzer: Admin check refuses a missing password",
+  "objective": "Shows that the administrator check rejects a call with no password (called directly).",
+  "precondition": "Server application reloaded with a made-up admin password configured.",
+  "steps": [
+   {
+    "action": "Run the admin check with no password.",
+    "data": "Password = none.",
+    "expected": "The check raises an error whose text contains '401' or 'Admin authentication required'."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAdminPasswordAuthentication::test_missing_admin_password"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAdminPasswordAuthentication.test_invalid_admin_password",
+  "name": "Data Analyzer: Admin check refuses a wrong password",
+  "objective": "Shows that a wrong administrator password is rejected (called directly).",
+  "precondition": "Server application reloaded with a made-up admin password configured.",
+  "steps": [
+   {
+    "action": "Run the admin check with 'wrong-password'.",
+    "data": "Wrong password.",
+    "expected": "The check raises an error whose text contains '403' or 'Invalid admin credentials'."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAdminPasswordAuthentication::test_invalid_admin_password"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAdminPasswordAuthentication.test_valid_admin_password",
+  "name": "Data Analyzer: Admin check accepts the correct password",
+  "objective": "Shows that the correct administrator password is accepted (called directly).",
+  "precondition": "Server application reloaded with a made-up admin password configured.",
+  "steps": [
+   {
+    "action": "Run the admin check with the configured made-up password.",
+    "data": "Correct password.",
+    "expected": "The check returns that same password."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAdminPasswordAuthentication::test_valid_admin_password"
+ },
+ {
+  "id": "tests.test_api_authentication.TestAdminPasswordAuthentication.test_no_admin_auth_configured",
+  "name": "Data Analyzer: With no admin password configured, the admin check lets everything through",
+  "objective": "Shows the designed behaviour that admin protection is switched off when no password is configured.",
+  "precondition": "Server application reloaded with all environment settings cleared.",
+  "steps": [
+   {
+    "action": "Run the admin check with no password.",
+    "data": "Password = none.",
+    "expected": "The check returns the label 'unauthenticated'."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestAdminPasswordAuthentication::test_no_admin_auth_configured"
+ },
+ {
+  "id": "tests.test_api_authentication.TestSecurityHeaders.test_api_key_401_header",
+  "name": "Data Analyzer: Missing-key refusal carries the 'ApiKey' challenge header",
+  "objective": "Shows that when a key is missing, the refusal tells the caller which kind of credential is needed. Note: the test passes silently if no refusal is raised.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured (this check calls the key-checking routine directly, not through a web request).",
+  "steps": [
+   {
+    "action": "Run the key check with no key and inspect the refusal.",
+    "data": "Key = none.",
+    "expected": "If a refusal is raised: status 401 and a WWW-Authenticate header equal to 'ApiKey'."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestSecurityHeaders::test_api_key_401_header"
+ },
+ {
+  "id": "tests.test_api_authentication.TestSecurityHeaders.test_admin_password_401_header",
+  "name": "Data Analyzer: Missing-password refusal carries the 'AdminPassword' challenge header",
+  "objective": "Shows that the admin refusal names the credential type. Note: the test passes silently if no refusal is raised.",
+  "precondition": "Server application loaded offline with a made-up admin password configured (direct call).",
+  "steps": [
+   {
+    "action": "Run the admin check with no password and inspect the refusal.",
+    "data": "Password = none.",
+    "expected": "If a refusal is raised: status 401 and a WWW-Authenticate header equal to 'AdminPassword'."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestSecurityHeaders::test_admin_password_401_header"
+ },
+ {
+  "id": "tests.test_api_authentication.TestErrorMessages.test_generic_error_messages",
+  "name": "Data Analyzer: Refusal messages are generic and do not reveal the key or its setting name",
+  "objective": "Shows that error text does not leak secrets. Note: each part passes silently if no refusal is raised.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured (this check calls the key-checking routine directly, not through a web request).",
+  "steps": [
+   {
+    "action": "Run the key check with no key.",
+    "data": "Key = none.",
+    "expected": "If refused: message includes 'Authentication required' and does not include 'API_KEY' or the real key."
+   },
+   {
+    "action": "Run the key check with the wrong key 'wrong'.",
+    "data": "Wrong key.",
+    "expected": "If refused: message includes 'Invalid credentials' and does not include the real key or the wrong key typed."
+   }
+  ],
+  "source": "tests/test_api_authentication.py::TestErrorMessages::test_generic_error_messages"
+ }
+]

@@ -1,0 +1,49 @@
+{
+ "epic": "ADP-48",
+ "epic_id": "219584",
+ "issues": {
+  "security-review": {
+   "key": "ADP-49",
+   "id": "219585",
+   "type": "Story",
+   "summary": "Security review before release (two independent reviews)"
+  },
+  "api-json": {
+   "key": "ADP-50",
+   "id": "219586",
+   "type": "Story",
+   "summary": "Programmatic JSON API merged into the release (from ST-358)"
+  },
+  "about-api": {
+   "key": "ADP-51",
+   "id": "219587",
+   "type": "Story",
+   "summary": "About page: copy-and-paste blocks for calling the tool from code"
+  },
+  "model-choice": {
+   "key": "ADP-52",
+   "id": "219588",
+   "type": "Story",
+   "summary": "Let the user choose a stronger AI model"
+  },
+  "site-test": {
+   "key": "ADP-53",
+   "id": "219589",
+   "type": "Story",
+   "summary": "Full test of the site, recorded in Zephyr"
+  },
+  "sdlc-docs": {
+   "key": "ADP-54",
+   "id": "219590",
+   "type": "Documentation",
+   "summary": "SDLC release documents for Data Analyzer 1.0"
+  },
+  "deploy": {
+   "key": "ADP-55",
+   "id": "219591",
+   "type": "Task",
+   "summary": "Deploy release 1.0 to the development environment and verify"
+  }
+ },
+ "pages": {}
+}

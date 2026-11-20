@@ -1,0 +1,268 @@
+[
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_posts_to_configured_base_url",
+  "name": "Data Analyzer: UI sends the analysis request to the configured API address with the key",
+  "objective": "Shows the UI calls the API address it is configured with and sends the key as a header.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Configure address 'http://data-analyzer-api.internal:8000' and key 'secret-key', then run an analysis.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "The call goes to <address>/api/v1/analyze and its headers are exactly X-API-Key = secret-key."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_posts_to_configured_base_url"
+ },
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_defaults_to_localhost_when_env_unset",
+  "name": "Data Analyzer: UI defaults to the local address and sends no key when nothing is configured",
+  "objective": "Shows the developer default (local machine, port 8000) is used and no key header is sent.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used. Address and key settings are removed.",
+  "steps": [
+   {
+    "action": "Run an analysis with no address or key configured.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "The call goes to http://localhost:8000/api/v1/analyze and the headers are empty."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_defaults_to_localhost_when_env_unset"
+ },
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_sends_dataframe_as_csv_upload",
+  "name": "Data Analyzer: UI uploads the table as a CSV file named data.csv",
+  "objective": "Shows the data is sent as a CSV file the API can read back intact.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis and inspect the uploaded file.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "File name is data.csv, type text/csv, and re-reading the content gives the same column names and row count."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_sends_dataframe_as_csv_upload"
+ },
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_sends_schema_and_rules_as_json_form_fields",
+  "name": "Data Analyzer: UI sends the dictionary's schema and rules as JSON form fields",
+  "objective": "Shows the expected column types and the validation rules reach the API unchanged.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis with a made-up dictionary holding a schema and validation rules (age, salary, department).",
+    "data": "1-row table; made-up schema and rules.",
+    "expected": "The sent 'schema' field decodes to the same schema, and the 'rules' field to the same rules."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_sends_schema_and_rules_as_json_form_fields"
+ },
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_omits_schema_and_rules_when_no_dictionary",
+  "name": "Data Analyzer: UI sends no schema or rules when no dictionary is loaded",
+  "objective": "Shows the optional fields are left out when not available.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis with no dictionary.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "The form data contains neither 'schema' nor 'rules'."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_omits_schema_and_rules_when_no_dictionary"
+ },
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_sends_xlsx_upload_with_excel_content_type",
+  "name": "Data Analyzer: UI re-sends an Excel upload as a real .xlsx file",
+  "objective": "Shows files originally uploaded as Excel are sent as Excel so the API reads them with the Excel reader.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis with source format 'xlsx'.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "File name data.xlsx, content type 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', and it reads back as Excel with the same columns and row count."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_sends_xlsx_upload_with_excel_content_type"
+ },
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_sends_xls_upload_with_legacy_excel_content_type",
+  "name": "Data Analyzer: UI labels a legacy Excel upload as .xls",
+  "objective": "Shows the older Excel format gets the matching file name and type. Only the name and type are checked, not the content.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis with source format 'xls'.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "File name data.xls and content type 'application/vnd.ms-excel'."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_sends_xls_upload_with_legacy_excel_content_type"
+ },
+ {
+  "id": "tests.test_upload.TestApiRequestConstruction.test_source_format_none_defaults_to_csv",
+  "name": "Data Analyzer: UI sends CSV when the original file format is not set",
+  "objective": "Shows the default upload is CSV.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis with source format none.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "File name data.csv and content type text/csv."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiRequestConstruction::test_source_format_none_defaults_to_csv"
+ },
+ {
+  "id": "tests.test_upload.TestResponseMapping.test_returns_expected_top_level_keys",
+  "name": "Data Analyzer: UI result has the six sections the dashboard needs",
+  "objective": "Shows the analysis result handed to the dashboard has the agreed layout.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis against a canned API reply.",
+    "data": "Canned reply with five sections.",
+    "expected": "Result keys are exactly summary, issues, recommendations, quality_checks, summary_stats and logic_validation_error."
+   }
+  ],
+  "source": "tests/test_upload.py::TestResponseMapping::test_returns_expected_top_level_keys"
+ },
+ {
+  "id": "tests.test_upload.TestResponseMapping.test_summary_row_and_column_counts_pass_through",
+  "name": "Data Analyzer: UI shows the API's row and column counts unchanged",
+  "objective": "Shows the counts in the API reply reach the dashboard unchanged.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis against a canned reply giving 10 rows and 7 columns.",
+    "data": "Canned counts.",
+    "expected": "summary total_rows and total_columns equal those counts."
+   }
+  ],
+  "source": "tests/test_upload.py::TestResponseMapping::test_summary_row_and_column_counts_pass_through"
+ },
+ {
+  "id": "tests.test_upload.TestResponseMapping.test_issues_pass_through_unchanged",
+  "name": "Data Analyzer: UI shows the API's list of issues unchanged",
+  "objective": "Shows issues are not altered, dropped or re-counted by the UI.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis against a canned reply with two issues: a salary range error and a name missing-values warning.",
+    "data": "Two canned issues.",
+    "expected": "The issues list is identical to what the API sent; issues_found is 2, critical_issues 1, warnings 1."
+   }
+  ],
+  "source": "tests/test_upload.py::TestResponseMapping::test_issues_pass_through_unchanged"
+ },
+ {
+  "id": "tests.test_upload.TestResponseMapping.test_quality_checks_and_summary_stats_pass_through",
+  "name": "Data Analyzer: UI passes the detailed check results and statistics through unchanged",
+  "objective": "Shows the detailed sections reach the dashboard unchanged.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis against a canned reply with a row-count check and a shape statistic.",
+    "data": "Canned values.",
+    "expected": "quality_checks and summary_stats equal what the API sent."
+   }
+  ],
+  "source": "tests/test_upload.py::TestResponseMapping::test_quality_checks_and_summary_stats_pass_through"
+ },
+ {
+  "id": "tests.test_upload.TestResponseMapping.test_clean_data_has_no_issues",
+  "name": "Data Analyzer: UI shows 'no issues' when the API reports none",
+  "objective": "Shows a clean report is displayed as clean. The result comes from the canned reply, so this tests the UI's mapping only.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis against a canned reply with no issues.",
+    "data": "3-row table; canned clean reply.",
+    "expected": "issues is empty, issues_found is 0 and completeness is 100.0."
+   }
+  ],
+  "source": "tests/test_upload.py::TestResponseMapping::test_clean_data_has_no_issues"
+ },
+ {
+  "id": "tests.test_upload.TestLogicValidationMerge.test_logic_violations_count_present_without_fields",
+  "name": "Data Analyzer: Logic-rule violation count is 0 when the dictionary has no fields",
+  "objective": "Shows the local conditional-logic check is skipped safely and reports zero when there are no dictionary fields.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis with a dictionary that has rules but no field list.",
+    "data": "Made-up 10-row employee table (id, name, age, department, salary, hire_date, is_active) with a few deliberate errors.",
+    "expected": "summary logic_violations_count equals 0."
+   }
+  ],
+  "source": "tests/test_upload.py::TestLogicValidationMerge::test_logic_violations_count_present_without_fields"
+ },
+ {
+  "id": "tests.test_upload.TestApiErrorHandling.test_non_200_response_raises_runtime_error",
+  "name": "Data Analyzer: UI turns an API error reply (400) into a readable error",
+  "objective": "Shows failures are reported as a clear error and do not crash the page.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis where the API answers HTTP 400 'Invalid input'.",
+    "data": "Canned 400 reply.",
+    "expected": "A runtime error is raised whose text mentions '400'."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiErrorHandling::test_non_200_response_raises_runtime_error"
+ },
+ {
+  "id": "tests.test_upload.TestApiErrorHandling.test_connection_error_raises_runtime_error",
+  "name": "Data Analyzer: UI turns 'cannot connect' into a readable error",
+  "objective": "Shows an unreachable API produces a clear message.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis where the connection is refused.",
+    "data": "Simulated connection failure.",
+    "expected": "A runtime error is raised whose text contains 'Could not connect'."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiErrorHandling::test_connection_error_raises_runtime_error"
+ },
+ {
+  "id": "tests.test_upload.TestApiErrorHandling.test_timeout_raises_runtime_error",
+  "name": "Data Analyzer: UI turns a timeout into a readable error",
+  "objective": "Shows a slow API produces a clear message.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis where the call times out.",
+    "data": "Simulated timeout.",
+    "expected": "A runtime error is raised whose text contains 'timed out'."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiErrorHandling::test_timeout_raises_runtime_error"
+ },
+ {
+  "id": "tests.test_upload.TestApiErrorHandling.test_non_json_response_raises_runtime_error",
+  "name": "Data Analyzer: UI turns an unreadable reply into a readable error",
+  "objective": "Shows a reply that is not valid JSON is reported clearly.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Run an analysis where the API answers 200 but the body is not JSON.",
+    "data": "Simulated bad body.",
+    "expected": "A runtime error is raised whose text contains 'non-JSON'."
+   }
+  ],
+  "source": "tests/test_upload.py::TestApiErrorHandling::test_non_json_response_raises_runtime_error"
+ },
+ {
+  "id": "tests.test_upload.TestAnalyzeFromFile.test_analyze_csv_loaded_from_disk",
+  "name": "Data Analyzer: A CSV read from a file can be analysed through the UI client (light check)",
+  "objective": "Shows the file-to-analysis path runs end to end with the canned reply. Assertions are light.",
+  "precondition": "Web-page component (the UI's data-analysis client) loaded in the offline test harness. The network call to the API is replaced by a canned reply, so no server and no AI model are used.",
+  "steps": [
+   {
+    "action": "Read a made-up CSV from a temporary file and run an analysis.",
+    "data": "Made-up 10-row CSV file.",
+    "expected": "Result total_rows equals the file's row count and issues is a list."
+   }
+  ],
+  "source": "tests/test_upload.py::TestAnalyzeFromFile::test_analyze_csv_loaded_from_disk"
+ }
+]

@@ -1,0 +1,218 @@
+[
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_one_call_emits_one_schema_v1_event_without_text",
+  "name": "Data Analyzer: One AI call records exactly one usage event and no prompt or answer text",
+  "objective": "Proves that a single AI call produces one usage record (version 1) with model, token counts and outcome, and that neither the question text nor the AI's answer text appears in the record or on screen output. Also proves sign-in uses a bearer token, not an api-key header.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Extract fields from a made-up dictionary text containing a marker string, with the canned reply defining one field.",
+    "data": "Marker prompt text; reply with field secret_completion_marker_field; 1234 input and 567 output tokens",
+    "expected": "One field with the expected name is returned."
+   },
+   {
+    "action": "Inspect the recorded usage event.",
+    "data": "",
+    "expected": "Exactly one event: type llm_call, version 1, solution data-analyzer-api, operation api_parse_dictionary, Responses interface, expected endpoint host and model, 1234 / 567 / 320 input / output / reasoning tokens, output limit at least 32000, not below minimum, finished 'stop' with outcome ok, no empty output, no truncation."
+   },
+   {
+    "action": "Search the event and screen output for the prompt and answer text.",
+    "data": "",
+    "expected": "Neither the prompt marker, the column name, nor the answer field name appears."
+   },
+   {
+    "action": "Inspect the request headers.",
+    "data": "",
+    "expected": "Authorization is 'Bearer fake-token' and there is no api-key header."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_one_call_emits_one_schema_v1_event_without_text"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_llm_auth_key_sends_api_key_header",
+  "name": "Data Analyzer: Key-based sign-in sends an api-key header instead of a bearer token",
+  "objective": "Proves that when the setting LLM_AUTH=key (local use) is selected, the request carries the key in an api-key header, has no Authorization header, and the key does not appear in the usage event.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model. LLM_AUTH set to key and a made-up key.",
+  "steps": [
+   {
+    "action": "Make one AI call with key sign-in.",
+    "data": "LLM_AUTH key; made-up key value",
+    "expected": "The api-key header equals the made-up key, there is no Authorization header, and the key value is not in the recorded event."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_llm_auth_key_sends_api_key_header"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_finish_length_raises_and_is_recorded",
+  "name": "Data Analyzer: A truncated AI answer is reported as an error and recorded",
+  "objective": "Proves that an AI answer cut off at the length limit is not accepted: an error mentioning 'truncated' is raised and the usage event marks truncation and an error outcome.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Call with a canned incomplete reply cut off by the output limit.",
+    "data": "status incomplete, reason max_output_tokens, partial text",
+    "expected": "An LLMCallError (AI call error) with 'truncated' in its message is raised; one event is recorded with truncation true and outcome 'error'."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_finish_length_raises_and_is_recorded"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_empty_output_raises",
+  "name": "Data Analyzer: An empty AI answer is reported as an error",
+  "objective": "Proves that an AI reply with no text is treated as failure, not as 'nothing found'.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Parse a short dictionary with a canned reply holding empty text.",
+    "data": "Empty reply",
+    "expected": "An LLMCallError containing 'no text' is raised and the event marks empty output true."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_empty_output_raises"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_http_error_raises_and_is_recorded",
+  "name": "Data Analyzer: An AI service HTTP error is reported and recorded",
+  "objective": "Proves that an HTTP 403 (forbidden) from the AI service raises an error with the code and is recorded.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Call with the canned service answering 403 Forbidden.",
+    "data": "HTTP 403",
+    "expected": "An LLMCallError mentioning 403 is raised; the event records http status 403 and outcome 'error'."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_http_error_raises_and_is_recorded"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_invalid_json_raises_instead_of_zero_fields",
+  "name": "Data Analyzer: An AI answer that is not valid JSON is an error, not zero fields",
+  "objective": "Proves that garbled answer text raises an error instead of quietly returning no fields.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Extract fields from a canned reply 'this is not json {{{'.",
+    "data": "Invalid JSON text",
+    "expected": "An LLMCallError is raised. (Its message is not checked.)"
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_invalid_json_raises_instead_of_zero_fields"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_reasoning_budget_never_below_floor",
+  "name": "Data Analyzer: AI output allowance is at least 32,000 for reasoning models",
+  "objective": "Proves the company rule: reasoning models (gpt-5-nano, gpt-5-mini, gpt-5.4-nano, o4-mini) always get an output allowance of at least 32,000 tokens, and gpt-4o-mini keeps its documented 16,384.",
+  "precondition": "Offline; calculation only, no AI call.",
+  "steps": [
+   {
+    "action": "Ask for the output allowance for five model names.",
+    "data": "gpt-5-nano, gpt-5-mini, gpt-5.4-nano, o4-mini; gpt-4o-mini",
+    "expected": "Each of the first four is 32000 or more; gpt-4o-mini is exactly 16384."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_reasoning_budget_never_below_floor"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_validate_data_with_llm_uses_full_budget",
+  "name": "Data Analyzer: AI data validation requests the full output allowance",
+  "objective": "Proves that when the AI validates a data sample, the request asks for at least 32,000 output tokens and the reply content is returned.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Validate a tiny data sample with a canned reply of no issues, summary 'ok'.",
+    "data": "Data 'a,b / 1,2'; schema a int",
+    "expected": "Result summary is 'ok'; the request's output limit is 32000 or more; one event recorded."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_validate_data_with_llm_uses_full_budget"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_unparseable_validation_result_raises_not_empty",
+  "name": "Data Analyzer: Unreadable AI validation results are an error, not 'no issues'",
+  "objective": "Proves a past defect stays fixed: previously an unreadable reply returned an empty issues list that looked like a clean pass. Now an error is raised and one log line records operation, model and error class without any data text.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model. Log lines are captured.",
+  "steps": [
+   {
+    "action": "Validate data with a canned reply that is not JSON.",
+    "data": "Reply 'not json ...'",
+    "expected": "LLMCallError 'Could not parse LLM validation results' with operation validate_data and model gpt-5-nano."
+   },
+   {
+    "action": "Check the captured error log and its contents.",
+    "data": "",
+    "expected": "Exactly one line: llm_failure operation=validate_data model=gpt-5-nano error_class=JSONDecodeError finish_reason=None, and no marker text in the log."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_unparseable_validation_result_raises_not_empty"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_validation_result_without_issues_key_raises",
+  "name": "Data Analyzer: A validation reply missing the 'issues' list is an error",
+  "objective": "Proves that a reply with valid JSON but no issues list is rejected as an unexpected shape.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Validate data with a canned reply {'summary': 'fine'}.",
+    "data": "JSON with no 'issues'",
+    "expected": "LLMCallError containing 'unexpected shape' is raised."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_validation_result_without_issues_key_raises"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_unexpected_json_shape_raises_instead_of_zero_fields",
+  "name": "Data Analyzer: A field-extraction reply of the wrong shape is an error",
+  "objective": "Proves that valid JSON without a 'fields' list (here a 'columns' list) is an error and is logged as unexpected_json_shape.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model. Log lines are captured.",
+  "steps": [
+   {
+    "action": "Extract fields with canned reply {'columns': ['a']}.",
+    "data": "Wrong-shape JSON",
+    "expected": "LLMCallError containing 'unexpected shape' is raised and a failure log line contains error_class=unexpected_json_shape."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_unexpected_json_shape_raises_instead_of_zero_fields"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_zero_fields_extracted_is_a_failure",
+  "name": "Data Analyzer: Finding no fields in a dictionary is a failure",
+  "objective": "Proves that an AI reply with an empty field list is raised as an error and logged as no_fields_extracted, not treated as success.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model. Log lines are captured.",
+  "steps": [
+   {
+    "action": "Parse a short dictionary with canned reply {'fields': []}.",
+    "data": "Empty field list",
+    "expected": "LLMCallError containing 'extracted no field definitions' is raised; a log line has operation=parse_dictionary and error_class=no_fields_extracted."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_zero_fields_extracted_is_a_failure"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_truncation_log_line_carries_finish_reason",
+  "name": "Data Analyzer: A truncation failure log line names the finish reason",
+  "objective": "Proves that when an answer is cut off, the error carries finish reason 'length' and the log line says finish_reason=length and error_class=finish_length.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model. Log lines are captured.",
+  "steps": [
+   {
+    "action": "Extract fields with a canned truncated reply.",
+    "data": "status incomplete, reason max_output_tokens",
+    "expected": "The error's finish_reason is 'length' and a log line contains finish_reason=length and error_class=finish_length."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_truncation_log_line_carries_finish_reason"
+ },
+ {
+  "id": "tests.test_dcri_llm_telemetry.test_no_output_text_in_response_raises",
+  "name": "Data Analyzer: A reply with no text part at all is an error",
+  "objective": "Proves that a reply containing only a reasoning step and no message text is rejected.",
+  "precondition": "Offline test harness: AI service call replaced by a canned reply, sign-in token replaced by a fake one, made-up endpoint name. No network, no real AI model.",
+  "steps": [
+   {
+    "action": "Extract fields with a canned reply holding only a reasoning item.",
+    "data": "No message entry",
+    "expected": "LLMCallError containing 'no text' is raised."
+   }
+  ],
+  "source": "tests/test_dcri_llm_telemetry.py::test_no_output_text_in_response_raises"
+ }
+]
