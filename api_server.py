@@ -15,6 +15,8 @@ Usage:
     uvicorn api_server:app --reload --host 0.0.0.0 --port 8000
 """
 
+import base64
+import binascii
 import io
 import json
 import logging
@@ -28,6 +30,8 @@ from pathlib import Path
 import pandas as pd
 
 from fastapi import FastAPI, HTTPException, Request, status, Depends, UploadFile, File, Form
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
@@ -58,11 +62,13 @@ from src.api_models import (
     DataFormatEnum,
     ReturnFormatEnum,
     QualityAnalysisResponse,
+    AnalyzeJsonRequest,
 )
 
 # Shared DCRI LLM telemetry (vendored; stdlib-only at import time).
 from src.dcri_llm import asgi_middleware, llm_action
 from src.runtime_env import is_deployed_env
+from src.__version__ import __version__
 
 # Optional service modules - each is independently best-effort. A missing/broken
 # module here degrades the corresponding feature (endpoints return 503) instead
@@ -128,11 +134,15 @@ app = FastAPI(
     - Health endpoint: 60 requests/minute
     - Other endpoints: 10 requests/minute (configurable per endpoint)
     """,
-    version="1.0.0",
+    version=__version__,
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
     openapi_url="/api/v1/openapi.json",
 )
+
+# Route paths referenced from more than one place (handlers, middleware).
+ANALYZE_PATH = "/api/v1/analyze"
+ANALYZE_JSON_PATH = "/api/v1/analyze/json"
 
 # ============================================================================
 # Middleware Configuration
@@ -171,6 +181,119 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Maximum request size for the analyze routes.
+#
+# Same setting and 100MB default as mcp_server.DataLoader.MAX_CONTENT_BYTES
+# (DATA_ANALYZER_MAX_UPLOAD_BYTES). Read per request rather than once at
+# import so the limit can be changed without re-importing this module.
+DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+
+
+def _max_request_bytes() -> int:
+    """Return the configured maximum request size in bytes."""
+    try:
+        limit = int(os.getenv("DATA_ANALYZER_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES))
+    except ValueError:
+        return DEFAULT_MAX_UPLOAD_BYTES
+    return limit if limit > 0 else DEFAULT_MAX_UPLOAD_BYTES
+
+
+def _too_large_detail(limit: int) -> str:
+    return (
+        f"Request too large: the limit is {limit} bytes "
+        "(DATA_ANALYZER_MAX_UPLOAD_BYTES)."
+    )
+
+
+class MaxRequestSizeMiddleware:
+    """Enforce the request size limit on the analyze routes while the body
+    is being received.
+
+    Pure ASGI middleware (not @app.middleware("http"), which only sees the
+    request after the body has been handed over): it wraps `receive` and
+    counts the bytes of every `http.request` message, so an oversize body is
+    refused as soon as the running total passes the limit - whether the
+    Content-Length header is truthful, wrong, or absent (chunked upload).
+    A truthful oversize Content-Length is rejected up front, before any of
+    the body is read.
+
+    Registered ahead of add_security_headers so that middleware still wraps
+    the 413 response.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or scope["path"] not in (ANALYZE_PATH, ANALYZE_JSON_PATH)
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        limit = _max_request_bytes()
+        headers = dict(scope.get("headers") or [])
+        request_id = headers.get(b"x-request-id", b"").decode("latin-1") or None
+
+        async def send_too_large(detail: str):
+            response = JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content=ErrorResponse(
+                    error=_too_large_detail(limit),
+                    detail=detail,
+                    timestamp=datetime.now().isoformat(),
+                    request_id=request_id,
+                ).dict(),
+            )
+            await response(scope, receive, send)
+
+        # Fast path: the client says up front that the body is too big.
+        try:
+            declared = int(headers.get(b"content-length", b"").decode("latin-1"))
+        except ValueError:
+            declared = None
+        if declared is not None and declared > limit:
+            await send_too_large(f"Content-Length was {declared} bytes.")
+            return
+
+        received = 0
+        rejected = False
+        response_started = False
+
+        async def counting_receive():
+            nonlocal received, rejected
+            if rejected:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # Answer now and stop feeding the body to the app: it
+                    # sees a disconnect, and anything it then tries to send
+                    # is dropped by guarded_send below.
+                    rejected = True
+                    if not response_started:
+                        await send_too_large(
+                            f"Stopped reading after {received} bytes."
+                        )
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            nonlocal response_started
+            if rejected:
+                return
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        await self.app(scope, counting_receive, guarded_send)
+
+
+app.add_middleware(MaxRequestSizeMiddleware)
 
 # Baseline security response headers (defense-in-depth for browser-based clients
 # and for any reverse proxy that forwards these responses as-is).
@@ -334,6 +457,11 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: str
     services: Dict[str, bool]
+
+class VersionResponse(BaseModel):
+    """Version response"""
+    name: str
+    version: str
 
 class ErrorResponse(BaseModel):
     """Standard error response"""
@@ -528,6 +656,97 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
     # pydantic can't serialize on its own - sanitize the whole tree.
     return _json_safe_deep(report)
 
+
+
+def _run_quality_analysis(
+    content_bytes: bytes,
+    file_extension: str,
+    schema_dict: Optional[Dict[str, Any]],
+    rules_dict: Optional[Dict[str, Any]],
+    min_rows: int,
+    label: str,
+) -> Dict[str, Any]:
+    """Parse dataset bytes and run the shared quality analysis.
+
+    Single code path behind both POST /api/v1/analyze (multipart upload) and
+    POST /api/v1/analyze/json (inline content), so the two routes cannot
+    drift apart.
+
+    Parameters:
+        content_bytes: Raw dataset bytes.
+        file_extension: Lower-case extension selecting the parser
+            ('.csv', '.json', '.txt', '.tsv', '.xlsx', '.xls').
+        schema_dict: Optional column-type map.
+        rules_dict: Optional validation rules.
+        min_rows: Minimum required row count.
+        label: Name used in log lines (file name or "inline <format>").
+
+    Returns:
+        The report dict from _build_quality_report().
+
+    Raises:
+        HTTPException: 413 for content over the size limit, 400 for
+            empty/unparseable content, 500 otherwise.
+    """
+    limit = _max_request_bytes()
+    if len(content_bytes) > limit:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=_too_large_detail(limit)
+        )
+
+    try:
+        if not content_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty."
+            )
+
+        # Mirror web_app.py's file_uploader parsing (pandas, by extension) so
+        # the engine sees the same DataFrame whether loaded via the UI or
+        # posted directly to this endpoint. Excel (.xlsx/.xls) is dispatched
+        # through mcp_server.DataLoader.load_excel - the same shared loader
+        # web_app.py uses locally for Excel parsing/previewing - so CSV/API/
+        # UI callers all get identical Excel-handling behavior (sheet
+        # combination, size checks, etc.) from one place.
+        try:
+            if file_extension == '.csv':
+                df = pd.read_csv(io.BytesIO(content_bytes))
+            elif file_extension == '.json':
+                df = pd.read_json(io.BytesIO(content_bytes))
+            elif file_extension in ('.xlsx', '.xls'):
+                df = mcp_server.DataLoader.load_excel(content_bytes)
+            else:  # .txt / .tsv
+                df = pd.read_csv(io.BytesIO(content_bytes), sep='\t')
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to parse {file_extension} file: {str(e)}"
+            )
+
+        # Run the shared validation engine - single source of truth for all
+        # quality-check logic (row count, type, and range/allowed-value checks).
+        pipeline = mcp_server.QualityPipeline(df, schema=schema_dict, rules=rules_dict)
+        results = pipeline.run_all_checks(min_rows=min_rows)
+
+        report = _build_quality_report(df, results)
+
+        logger.info(
+            f"Analysis complete for {label}: {report['summary']['issues_found']} issues "
+            f"({report['summary']['critical_issues']} critical, {report['summary']['warnings']} warnings)"
+        )
+        return report
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error analyzing data: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}"
+        )
+
 # ============================================================================
 # Error Handlers
 # ============================================================================
@@ -577,6 +796,30 @@ async def value_error_handler(request: Request, exc: ValueError):
         ).dict(),
     )
 
+@app.exception_handler(RequestValidationError)
+async def json_route_validation_handler(request: Request, exc: RequestValidationError):
+    """Return the standardized error format for a bad /api/v1/analyze/json body.
+
+    Scoped to that route so every other endpoint keeps FastAPI's default 422
+    body. Only loc/msg are reported: the raw errors() also echo the caller's
+    input back, which may be the dataset itself.
+    """
+    if request.url.path != ANALYZE_JSON_PATH:
+        return await request_validation_exception_handler(request, exc)
+    problems = "; ".join(
+        f"{'.'.join(str(p) for p in err.get('loc', ()))}: {err.get('msg', 'invalid')}"
+        for err in exc.errors()
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse(
+            error="Invalid request body",
+            detail=problems,
+            timestamp=datetime.now().isoformat(),
+            request_id=request.headers.get("X-Request-ID"),
+        ).dict(),
+    )
+
 # ============================================================================
 # API Endpoints
 # ============================================================================
@@ -586,10 +829,12 @@ async def root():
     """Root endpoint - redirect to API docs"""
     return {
         "message": "Data Analyzer REST API",
-        "version": "1.0.0",
+        "version": __version__,
         "docs": "/api/v1/docs",
         "health": "/api/v1/health",
-        "analyze": "/api/v1/analyze",
+        "version_info": "/api/v1/version",
+        "analyze": ANALYZE_PATH,
+        "analyze_json": ANALYZE_JSON_PATH,
     }
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -618,16 +863,33 @@ async def health_check(request: Request):
 
     return HealthResponse(
         status=overall_status,
-        version="1.0.0",
+        version=__version__,
         timestamp=datetime.now().isoformat(),
         services=services_status,
     )
+
+@app.get("/api/v1/version", response_model=VersionResponse)
+@limiter.limit("60/minute")
+async def get_version(request: Request):
+    """
+    Version endpoint (ST-360)
+
+    Returns the package version from `src/__version__.py` - the same value
+    `/api/v1/health` and the web UI report. No authentication required.
+
+    **Rate Limit**: 60 requests per minute
+    """
+    return VersionResponse(name="data-analyzer", version=__version__)
 
 # ============================================================================
 # Data Analysis Endpoints
 # ============================================================================
 
-@app.post("/api/v1/analyze", response_model=QualityAnalysisResponse)
+@app.post(
+    ANALYZE_PATH,
+    response_model=QualityAnalysisResponse,
+    responses={413: {"model": ErrorResponse, "description": "Request larger than DATA_ANALYZER_MAX_UPLOAD_BYTES"}},
+)
 @limiter.limit("30/minute")
 async def analyze_data(
     request: Request,
@@ -726,58 +988,83 @@ async def analyze_data(
 
     logger.info(f"Analyzing data file: {filename} (schema={'yes' if schema_dict else 'no'}, rules={'yes' if rules_dict else 'no'})")
 
-    try:
-        content_bytes = await data_file.read()
-        if not content_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded file is empty."
-            )
+    content_bytes = await data_file.read()
+    return _run_quality_analysis(
+        content_bytes, file_extension, schema_dict, rules_dict, min_rows, label=filename
+    )
 
-        # Mirror web_app.py's file_uploader parsing (pandas, by extension) so
-        # the engine sees the same DataFrame whether loaded via the UI or
-        # posted directly to this endpoint. Excel (.xlsx/.xls) is dispatched
-        # through mcp_server.DataLoader.load_excel - the same shared loader
-        # web_app.py uses locally for Excel parsing/previewing - so CSV/API/
-        # UI callers all get identical Excel-handling behavior (sheet
-        # combination, size checks, etc.) from one place.
-        try:
-            if file_extension == '.csv':
-                df = pd.read_csv(io.BytesIO(content_bytes))
-            elif file_extension == '.json':
-                df = pd.read_json(io.BytesIO(content_bytes))
-            elif file_extension in ('.xlsx', '.xls'):
-                df = mcp_server.DataLoader.load_excel(content_bytes)
-            else:  # .txt / .tsv
-                df = pd.read_csv(io.BytesIO(content_bytes), sep='\t')
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to parse {file_extension} file: {str(e)}"
-            )
 
-        # Run the shared validation engine - single source of truth for all
-        # quality-check logic (row count, type, and range/allowed-value checks).
-        pipeline = mcp_server.QualityPipeline(df, schema=schema_dict, rules=rules_dict)
-        results = pipeline.run_all_checks(min_rows=min_rows)
+# Parser extension for each "format" value accepted by /api/v1/analyze/json.
+_JSON_ROUTE_EXTENSIONS = {"csv": ".csv", "tsv": ".tsv", "json": ".json"}
 
-        report = _build_quality_report(df, results)
 
-        logger.info(
-            f"Analysis complete for {filename}: {report['summary']['issues_found']} issues "
-            f"({report['summary']['critical_issues']} critical, {report['summary']['warnings']} warnings)"
-        )
-        return report
+@app.post(
+    ANALYZE_JSON_PATH,
+    response_model=QualityAnalysisResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Empty, undecodable or unparseable data_content"},
+        413: {"model": ErrorResponse, "description": "Request larger than DATA_ANALYZER_MAX_UPLOAD_BYTES"},
+        422: {"model": ErrorResponse, "description": "Request body failed validation"},
+    },
+)
+@limiter.limit("30/minute")
+async def analyze_data_json(
+    request: Request,
+    body: AnalyzeJsonRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Run rule-based data quality analysis on a dataset sent inline as JSON (ST-359).
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error analyzing data: {e}")
-        logger.error(traceback.format_exc())
+    Same analysis and same response as the multipart `POST /api/v1/analyze`,
+    for programs that would rather post a JSON body than build a file
+    upload. Rule-based: does NOT call an LLM.
+
+    **Rate Limit**: 30 requests per minute
+
+    **Authentication**: Requires valid API key via X-API-Key header
+
+    **Body:**
+    - `data_content`: CSV/TSV/JSON text, or base64 when `encoding` is `"base64"`
+    - `format`: `csv` (default), `tsv` or `json`
+    - `encoding`: `text` (default) or `base64`
+    - `schema`: Optional object mapping column names to expected types
+    - `rules`: Optional object mapping column names to validation rules
+    - `min_rows`: Minimum required row count (default 1)
+
+    **Errors:** 400 (bad content), 413 (over the size limit) and 422 (bad
+    body) use the standard `ErrorResponse` JSON shape.
+    """
+    if mcp_server is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Analysis engine not available (mcp_server failed to import)."
         )
+
+    if body.encoding == "base64":
+        try:
+            content_bytes = base64.b64decode(body.data_content, validate=True)
+        except (binascii.Error, ValueError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid base64 in 'data_content': {str(e)}"
+            )
+    else:
+        content_bytes = body.data_content.encode("utf-8")
+
+    label = f"inline {body.format}"
+    logger.info(
+        f"Analyzing {label} content (schema={'yes' if body.column_schema else 'no'}, "
+        f"rules={'yes' if body.rules else 'no'})"
+    )
+    return _run_quality_analysis(
+        content_bytes,
+        _JSON_ROUTE_EXTENSIONS[body.format],
+        body.column_schema,
+        body.rules,
+        body.min_rows,
+        label=label,
+    )
 
 # ============================================================================
 # Dictionary Management Endpoints
@@ -1019,7 +1306,7 @@ async def startup_event():
     """Log startup information"""
     logger.info("=" * 60)
     logger.info("Data Analyzer REST API starting up")
-    logger.info(f"Version: 1.0.0")
+    logger.info(f"Version: {__version__}")
     logger.info(f"Environment: {os.getenv('APP_ENV', 'development')}")
     logger.info(f"Services initialized:")
     logger.info(f"  - LLM Client: {'✓' if llm_client else '✗'}")

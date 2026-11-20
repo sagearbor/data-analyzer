@@ -12,6 +12,74 @@ This service exposes the same analysis core through three interfaces:
 
 See **[docs/INTEGRATION.md](docs/INTEGRATION.md)** for full curl examples, payload schemas, and A2A envelope details.
 
+### Calling the REST API from another program
+
+`api_server.py` (FastAPI; `python api_server.py` listens on `API_PORT`, default 8000) is the
+programmatic entry point. Interactive docs are at `/api/v1/docs`, the OpenAPI document at
+`/api/v1/openapi.json`. A ready-to-copy Python client is in
+[`examples/api_client.py`](examples/api_client.py) (`health()`, `version()`, `analyze_file()`,
+`analyze_json()`; it reads `DATA_ANALYZER_API_URL` and `DATA_ANALYZER_API_KEY`).
+
+| Route | Purpose | API key |
+|---|---|---|
+| `GET /api/v1/health` | Service status and version | no |
+| `GET /api/v1/version` | `{"name": "data-analyzer", "version": "<src/__version__.py>"}` | no |
+| `POST /api/v1/analyze` | Analyze an uploaded file (multipart form) | `X-API-Key` |
+| `POST /api/v1/analyze/json` | Analyze a dataset sent inline in a JSON body | `X-API-Key` |
+
+Both analyze routes run the same rule-based analysis (no LLM) and return the same report:
+`summary`, `issues`, `recommendations`, `quality_checks`, `summary_stats`. Each is limited to
+30 requests per minute.
+
+**JSON route body** (`POST /api/v1/analyze/json`):
+
+| Field | Required | Meaning |
+|---|---|---|
+| `data_content` | yes | The dataset as CSV/TSV/JSON text, or base64 when `encoding` is `"base64"` |
+| `format` | no | `csv` (default), `tsv` or `json` |
+| `encoding` | no | `text` (default) or `base64` |
+| `schema` | no | Object mapping column to type: `int`, `float`, `str`, `bool`, `datetime` |
+| `rules` | no | Object mapping column to `{"min", "max"}` or `{"allowed": [...]}` |
+| `min_rows` | no | Minimum required row count (default 1) |
+
+```bash
+# Inline JSON
+curl -sS -X POST http://127.0.0.1:8000/api/v1/analyze/json \
+  -H "X-API-Key: $DATA_ANALYZER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"data_content": "widget_id,quantity\n1,10\n2,950\n", "format": "csv", "rules": {"quantity": {"min": 0, "max": 100}}}'
+
+# File upload (schema and rules are JSON-encoded form fields here)
+curl -sS -X POST http://127.0.0.1:8000/api/v1/analyze \
+  -H "X-API-Key: $DATA_ANALYZER_API_KEY" \
+  -F "data_file=@widgets.csv" \
+  -F 'rules={"quantity": {"min": 0, "max": 100}}'
+
+# Version (no key)
+curl -sS http://127.0.0.1:8000/api/v1/version
+```
+
+**Size limit.** A request to either analyze route larger than `DATA_ANALYZER_MAX_UPLOAD_BYTES`
+(default 104857600 bytes = 100 MB; set the environment variable to change it) is rejected with
+HTTP 413. The limit is enforced while the body is received, so it also applies to chunked uploads
+that send no `Content-Length`.
+
+**Errors.** Errors are JSON, never HTML:
+
+```json
+{"error": "Invalid credentials provided.", "detail": "...", "timestamp": "2026-01-01T12:00:00", "request_id": null}
+```
+
+| Status | When |
+|---|---|
+| 400 | Empty or unparseable data, invalid base64, unsupported file extension |
+| 401 / 403 | `X-API-Key` missing / wrong |
+| 413 | Request larger than the size limit |
+| 422 | Request body failed validation (on the multipart route this is FastAPI's default `{"detail": [...]}` body) |
+| 429 | Rate limit exceeded |
+
+`request_id` echoes the `X-Request-ID` request header when you send one.
+
 ## 🏗️ Architecture
 
 ```

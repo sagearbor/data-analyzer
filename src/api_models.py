@@ -15,7 +15,7 @@ All models include:
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
@@ -1035,3 +1035,58 @@ def convert_validation_program_to_summary(program: Any) -> ProgramSummary:
         dictionary_source=program.dictionary_source,
         status=program.status
     )
+
+
+class AnalyzeJsonRequest(BaseModel):
+    """
+    Request body for POST /api/v1/analyze/json (ST-359).
+
+    JSON alternative to the multipart POST /api/v1/analyze upload, for
+    programs that would rather send the dataset inline than build a
+    multipart form. Runs the same analysis and returns the same
+    QualityAnalysisResponse.
+
+    Attributes:
+        data_content: Dataset as text, or base64 when encoding is "base64"
+        format: Format of data_content (csv, tsv or json)
+        encoding: "text" (default) or "base64"
+        column_schema: Optional column-type map (wire name: "schema")
+        rules: Optional per-column validation rules
+        min_rows: Minimum required row count
+    """
+    data_content: str = Field(
+        min_length=1,
+        description='Dataset content: CSV/TSV/JSON text, or base64 when encoding is "base64"'
+    )
+    format: Literal["csv", "tsv", "json"] = Field(
+        default="csv", description="Format of data_content"
+    )
+    encoding: Literal["text", "base64"] = Field(
+        default="text", description='How data_content is encoded: "text" or "base64"'
+    )
+    # Python identifier is column_schema (not "schema") to avoid shadowing
+    # BaseModel.schema(); the wire-level field name stays "schema" via alias=.
+    column_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        alias="schema",
+        description="Optional column-type map. Supported types: int, float, str, bool, datetime."
+    )
+    rules: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description='Optional validation rules: "min"/"max" for numeric columns, '
+                    '"allowed" for categorical columns.'
+    )
+    min_rows: int = Field(default=1, ge=0, description="Minimum required row count")
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "data_content": "id,age\n1,34\n2,150\n",
+                "format": "csv",
+                "schema": {"id": "int", "age": "int"},
+                "rules": {"age": {"min": 0, "max": 120}},
+                "min_rows": 1
+            }
+        }
+    }

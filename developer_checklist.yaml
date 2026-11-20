@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2026-10-30T00:00:00Z
+  last_updated: 2026-11-17T00:00:00Z
 
 # =========================================================
 # CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
@@ -884,3 +884,34 @@ phase_dcri_llm:
     raise LLMCallError; PHI log lines removed; ACA templates keyless.
     REMAINING: Sage deploys with "shipaz" and removes the azure-openai-api-key
     secret from both live apps after verifying.
+
+# Programmatic API access (Jira ST-358) - 2026-11-17
+phase_api_programmatic:
+  name: "REST API callable by other programs (JSON analyze route, version, size limit, client)"
+  status: DONE
+  notes: |
+    DONE (branch feature/api-json-ST-358, not yet merged or deployed):
+    - POST /api/v1/analyze/json takes the dataset inline in a JSON body and
+      shares _run_quality_analysis() with the multipart POST /api/v1/analyze.
+    - GET /api/v1/version; health/root/OpenAPI report src.__version__.
+    - Both analyze routes return 413 over DATA_ANALYZER_MAX_UPLOAD_BYTES.
+    - examples/api_client.py and a README section with curl examples.
+    - Size limit enforced while the body streams (MaxRequestSizeMiddleware,
+      pure ASGI), so a missing or wrong Content-Length cannot bypass it.
+    - tests/test_api_programmatic.py: 28 tests, offline, synthetic data.
+    REMAINING: review + PR to main; README top section and docs/INTEGRATION.md
+    still describe port 8003 and /analyze, /data-info, /health, which do not
+    match api_server.py (port 8000, /api/v1/...).
+  tasks:
+    - id: ST-359
+      name: "POST /api/v1/analyze/json"
+      status: DONE
+    - id: ST-360
+      name: "GET /api/v1/version, real version in health, 413 size limit"
+      status: DONE
+    - id: ST-361
+      name: "examples/api_client.py and README section"
+      status: DONE
+    - id: ST-365
+      name: "tests/test_api_programmatic.py"
+      status: DONE
