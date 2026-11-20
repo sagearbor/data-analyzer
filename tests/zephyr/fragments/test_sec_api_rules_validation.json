@@ -30,12 +30,12 @@
  {
   "id": "tests.test_sec_api_rules_validation.test_a_malformed_schema_is_refused_with_422",
   "name": "Data Analyzer: Malformed column-type definitions are refused with HTTP 422",
-  "objective": "Shows a schema (column types) with the wrong shape is rejected rather than ignored. Runs 3 cases on both routes (6 runs).",
+  "objective": "Shows a schema (column types) with the wrong shape, or an unknown type name, is rejected rather than ignored. Runs 3 cases on both routes (6 runs).",
   "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. The sample file is a made-up 3-row table (age: 10, 200, 30; colour: red, blue, green). No network and no AI model.",
   "steps": [
    {
     "action": "Send the sample file with a bad schema to each route.",
-    "data": "Schema age = 5; age = 'integer'; age = ['int']",
+    "data": "Schema age = 5; age = 'blobtype' (a type name the system does not know; common names such as 'integer' are now accepted); age = ['int']",
     "expected": "HTTP 422 and the message names the column 'age' in quotes."
    }
   ],

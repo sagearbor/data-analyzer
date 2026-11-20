@@ -61,6 +61,12 @@
    "id": "219628",
    "type": "Task",
    "summary": "Selected tab label on the top bar is hard to read"
+  },
+  "release-request": {
+   "key": "ADP-91",
+   "id": "219629",
+   "type": "Change Request",
+   "summary": "Data Analyzer.1.0 - release request (first production release)"
   }
  },
  "pages": {

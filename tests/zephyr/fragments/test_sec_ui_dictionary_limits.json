@@ -92,7 +92,7 @@
   "id": "tests.test_sec_ui_dictionary_limits.test_pdf_with_too_many_pages_is_refused_with_a_clear_message",
   "name": "Data Analyzer: PDF with too many pages is refused with a clear message",
   "objective": "Proves the page-count limit is enforced and the message says how many pages and what the limit is.",
-  "precondition": "A fake PDF reader with 6 pages ('x' each); limit 5 pages, 1000 characters.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 6 pages ('x' each); limit 5 pages, 1000 characters.",
   "steps": [
    {
     "action": "Extract text from the 6-page fake PDF",
@@ -106,7 +106,7 @@
   "id": "tests.test_sec_ui_dictionary_limits.test_pdf_with_too_much_text_is_refused_with_a_clear_message",
   "name": "Data Analyzer: PDF with too much text is refused with a clear message",
   "objective": "Proves the character limit is enforced.",
-  "precondition": "A fake PDF reader with 2 pages of 600 characters each; limit 5 pages, 1000 characters.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 2 pages of 600 characters each; limit 5 pages, 1000 characters.",
   "steps": [
    {
     "action": "Extract text",
@@ -120,7 +120,7 @@
   "id": "tests.test_sec_ui_dictionary_limits.test_pdf_within_limits_returns_all_text",
   "name": "Data Analyzer: PDF within the limits returns all of its text",
   "objective": "Proves normal-sized documents are unaffected.",
-  "precondition": "A fake PDF reader with 2 pages ('one', 'two'); limits 5 pages, 1000 characters.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 2 pages ('one', 'two'); limits 5 pages, 1000 characters.",
   "steps": [
    {
     "action": "Extract text",
@@ -134,7 +134,7 @@
   "id": "tests.test_sec_ui_dictionary_limits.test_pdf_limits_come_from_environment",
   "name": "Data Analyzer: PDF page limit can be set by an environment variable",
   "objective": "Proves UI_PDF_MAX_PAGES is honoured when no limit is passed in.",
-  "precondition": "A fake PDF reader with 3 pages; UI_PDF_MAX_PAGES=2.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 3 pages; UI_PDF_MAX_PAGES=2.",
   "steps": [
    {
     "action": "Extract text from the 3-page fake PDF",
