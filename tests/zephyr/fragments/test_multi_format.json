@@ -1,0 +1,82 @@
+[
+ {
+  "id": "tests.test_multi_format.test_csv_format",
+  "name": "Data Analyzer: CSV text loads with the expected size",
+  "objective": "Shows a 3-row, 5-column CSV is read completely.",
+  "precondition": "Offline test harness; small made-up tables are built in memory; the data loader is used directly.",
+  "steps": [
+   {
+    "action": "Load made-up CSV text",
+    "data": "3 employee rows, 5 columns",
+    "expected": "Table shape is 3 rows by 5 columns"
+   }
+  ],
+  "source": "tests/test_multi_format.py::test_csv_format"
+ },
+ {
+  "id": "tests.test_multi_format.test_json_format",
+  "name": "Data Analyzer: JSON data loads, both as a plain list and as a nested document",
+  "objective": "Shows two JSON layouts are read: a list of records, and a document with a nested list of employees.",
+  "precondition": "Offline test harness; small made-up tables are built in memory; the data loader is used directly.",
+  "steps": [
+   {
+    "action": "Load a JSON list of records",
+    "data": "3 made-up records with id, name, age",
+    "expected": "Shape 3 by 3"
+   },
+   {
+    "action": "Load a nested JSON document with an employees list and a company name",
+    "data": "2 made-up employees with nested department details",
+    "expected": "2 rows returned"
+   }
+  ],
+  "source": "tests/test_multi_format.py::test_json_format"
+ },
+ {
+  "id": "tests.test_multi_format.test_excel_format",
+  "name": "Data Analyzer: Excel data written in memory loads with the expected size",
+  "objective": "Shows an Excel file produced by the standard library is read completely.",
+  "precondition": "Offline test harness; small made-up tables are built in memory; the data loader is used directly.",
+  "steps": [
+   {
+    "action": "Write a made-up table to Excel bytes, then load them",
+    "data": "3 rows, 4 columns (id, name, age, salary)",
+    "expected": "Shape 3 by 4"
+   }
+  ],
+  "source": "tests/test_multi_format.py::test_excel_format"
+ },
+ {
+  "id": "tests.test_multi_format.test_parquet_format",
+  "name": "Data Analyzer: Parquet data written in memory loads with the expected size",
+  "objective": "Shows a Parquet file (a compact table format) is read completely.",
+  "precondition": "Offline test harness; small made-up tables are built in memory; the data loader is used directly.",
+  "steps": [
+   {
+    "action": "Write a made-up table to Parquet bytes, then load them",
+    "data": "3 rows, 4 columns",
+    "expected": "Shape 3 by 4"
+   }
+  ],
+  "source": "tests/test_multi_format.py::test_parquet_format"
+ },
+ {
+  "id": "tests.test_multi_format.test_load_data_wrapper",
+  "name": "Data Analyzer: The general load function handles both CSV and JSON",
+  "objective": "Shows the single entry point routes csv and json formats correctly.",
+  "precondition": "Offline test harness; small made-up tables are built in memory; the data loader is used directly.",
+  "steps": [
+   {
+    "action": "Load CSV through the general loader",
+    "data": "2 made-up rows, 2 columns",
+    "expected": "Shape 2 by 2"
+   },
+   {
+    "action": "Load JSON through the general loader",
+    "data": "1 made-up record, 2 fields",
+    "expected": "Shape 1 by 2"
+   }
+  ],
+  "source": "tests/test_multi_format.py::test_load_data_wrapper"
+ }
+]

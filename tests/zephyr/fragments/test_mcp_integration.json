@@ -1,0 +1,58 @@
+[
+ {
+  "id": "tests.test_mcp_integration.test_mcp_analyze_data",
+  "name": "Data Analyzer: Full analysis of a small employee table is run (outcome not enforced)",
+  "objective": "Runs load-and-analyze on made-up data with one planted age error. The test catches every error and only returns a value, so it passes whether or not the analysis works; it does not prove the age error is found.",
+  "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+  "steps": [
+   {
+    "action": "Load made-up CSV, run all checks with schema and rules",
+    "data": "5 employees; one age of 150 against a 18-65 rule; salary and department rules",
+    "expected": "Nothing is asserted. Results are printed; any error is caught and the test still passes"
+   }
+  ],
+  "source": "tests/test_mcp_integration.py::test_mcp_analyze_data"
+ },
+ {
+  "id": "tests.test_mcp_integration.test_multi_format_mcp",
+  "name": "Data Analyzer: Analysis runs on JSON and Excel-style tables (outcome not enforced)",
+  "objective": "Runs the checks on a JSON-loaded table and a table built to resemble Excel. Errors are caught and printed, so the test always passes.",
+  "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+  "steps": [
+   {
+    "action": "Load made-up JSON, run checks; then run checks on a made-up product table",
+    "data": "3 score rows as JSON; 3 product rows",
+    "expected": "Nothing is asserted; failures are caught and only printed"
+   }
+  ],
+  "source": "tests/test_mcp_integration.py::test_multi_format_mcp"
+ },
+ {
+  "id": "tests.test_mcp_integration.test_data_quality_checks",
+  "name": "Data Analyzer: Row count, type, range and summary checks are run on a flawed table (outcome not enforced)",
+  "objective": "Runs the individual checks on made-up data with duplicates, missing values and bad ages. Nothing is asserted and errors are caught, so it always passes.",
+  "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+  "steps": [
+   {
+    "action": "Run row count, type, range and summary checks",
+    "data": "5 made-up rows with a duplicate id, blank values, ages 200 and -5, mixed-case status",
+    "expected": "Nothing is asserted; results are printed only"
+   }
+  ],
+  "source": "tests/test_mcp_integration.py::test_data_quality_checks"
+ },
+ {
+  "id": "tests.test_mcp_integration.test_auto_type_detection",
+  "name": "Data Analyzer: Automatic detection of column types is exercised (assertions are swallowed)",
+  "objective": "Intends to show integers, decimals, text, dates and true/false are recognised. The checks sit inside a catch-all error handler, so a wrong answer is printed but the test still passes.",
+  "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+  "steps": [
+   {
+    "action": "Detect types for six made-up columns",
+    "data": "int, decimal, text, ISO date and true/false columns, plus a mixed column",
+    "expected": "Intended: int, float, str, datetime, bool detected. In practice any mismatch is caught and the test still passes"
+   }
+  ],
+  "source": "tests/test_mcp_integration.py::test_auto_type_detection"
+ }
+]

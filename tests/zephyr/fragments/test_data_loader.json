@@ -1,0 +1,184 @@
+[
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_detect_encoding_utf8",
+  "name": "Data Analyzer: Text encoding of a normal UTF-8 CSV file is recognised",
+  "objective": "Shows the loader correctly identifies the character encoding of an ordinary plain-text CSV file.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly. A small made-up employee CSV file is written to a temporary folder.",
+  "steps": [
+   {
+    "action": "Ask the loader to detect the encoding of the saved CSV file",
+    "data": "Made-up 10-row employee CSV (ASCII/UTF-8 text)",
+    "expected": "Reported encoding is either UTF-8 or ASCII (ASCII is a subset of UTF-8)"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_detect_encoding_utf8"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_detect_encoding_with_special_chars",
+  "name": "Data Analyzer: Text encoding of a Latin-1 file with accented names is recognised",
+  "objective": "Shows files saved in an older Western-European encoding, with accented characters, are identified as such rather than mistaken for UTF-8.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly. A temporary CSV is saved in Latin-1 encoding.",
+  "steps": [
+   {
+    "action": "Write a CSV with accented made-up names and cities (Jose, Sao Paulo, Francois, Montreal) in Latin-1, then detect its encoding",
+    "data": "2-row made-up CSV with accented characters",
+    "expected": "Reported encoding is one of Latin-1, ISO-8859-1 or Windows-1252 (all equivalent Western-European encodings)"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_detect_encoding_with_special_chars"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_from_file",
+  "name": "Data Analyzer: A CSV file loads from a file path with the right rows and columns",
+  "objective": "Shows a CSV file on disk is read into a table with the expected 10 rows and 7 named columns.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly. Made-up employee CSV saved to a temporary file.",
+  "steps": [
+   {
+    "action": "Load the CSV from its file path",
+    "data": "Made-up employee file: id, name, age, department, salary, hire_date, is_active",
+    "expected": "Result is a data table with 10 rows and exactly the 7 expected column names in order"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_from_file"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_from_string",
+  "name": "Data Analyzer: A CSV supplied as text loads into a table",
+  "objective": "Shows CSV content passed as plain text (not a file) is read correctly.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Load the CSV text",
+    "data": "Made-up 10-row employee CSV as a text string",
+    "expected": "Result is a data table with 10 rows"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_from_string"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_from_stringio",
+  "name": "Data Analyzer: A CSV supplied as an in-memory text stream loads into a table",
+  "objective": "Shows CSV content held in an in-memory text stream is read correctly.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Wrap the CSV text in an in-memory stream and load it",
+    "data": "Made-up 10-row employee CSV",
+    "expected": "Result is a data table with 10 rows"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_from_stringio"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_with_missing_values",
+  "name": "Data Analyzer: Empty cells in a CSV are counted as missing values",
+  "objective": "Shows blank cells are read as missing values rather than dropped or filled in.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Load a tiny CSV with two blank cells and count missing values",
+    "data": "3 columns a,b,c; rows 1,2,3 / 4,(blank),6 / (blank),8,9",
+    "expected": "Exactly 2 missing values are found in the whole table"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_with_missing_values"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_empty_file",
+  "name": "Data Analyzer: A completely empty CSV gives an empty table instead of an error",
+  "objective": "Shows the loader copes with an empty file by returning a table with no rows.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Load an empty text string as CSV",
+    "data": "Empty text",
+    "expected": "Result has 0 rows and no error is raised"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_empty_file"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_headers_only",
+  "name": "Data Analyzer: A CSV with only a header line gives zero rows but keeps the column names",
+  "objective": "Shows a file containing column titles but no data is read as an empty table with the right columns.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Load a one-line CSV",
+    "data": "Text: col1,col2,col3",
+    "expected": "Columns are col1, col2, col3 and there are 0 rows"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_headers_only"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_data_csv_format",
+  "name": "Data Analyzer: The general load function handles CSV when told the format is csv",
+  "objective": "Shows the general-purpose loader hands CSV content to the CSV reader correctly.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Call the general loader with format csv",
+    "data": "Made-up 10-row employee CSV text",
+    "expected": "Result is a data table with 10 rows"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_data_csv_format"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_data_unsupported_format",
+  "name": "Data Analyzer: An unsupported file format is rejected with a clear error",
+  "objective": "Shows asking the loader for a format it does not support fails with an explanatory message instead of returning wrong data.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Call the general loader with format xml",
+    "data": "Text 'dummy data', format xml",
+    "expected": "A value error is raised whose message contains 'Unsupported file format'"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_data_unsupported_format"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_different_delimiters",
+  "name": "Data Analyzer: A semicolon-separated file loads correctly when the separator is given",
+  "objective": "Shows files that use semicolons instead of commas are split into the right columns.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly. A temporary semicolon-separated file is written.",
+  "steps": [
+   {
+    "action": "Load the file specifying the semicolon separator",
+    "data": "3 columns name;age;city with rows Alice/30/Boston and Bob/25/NYC (made-up)",
+    "expected": "2 rows and columns name, age, city"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_different_delimiters"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_with_quotes",
+  "name": "Data Analyzer: Quoted fields containing commas and quote marks load correctly",
+  "objective": "Shows commas inside quoted text do not split a field in two, and doubled quote marks are handled.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Load CSV text with quoted values",
+    "data": "Two made-up rows, e.g. \"Smith, John\" and a description containing \"\"quoted\"\" text",
+    "expected": "2 rows are returned and the first name is exactly 'Smith, John' (only that value is checked, not the quote-mark text)"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_with_quotes"
+ },
+ {
+  "id": "tests.test_data_loader.TestDataLoader.test_load_csv_with_different_types",
+  "name": "Data Analyzer: A CSV with mixed kinds of values loads with all its columns present",
+  "objective": "Shows a file with numbers, text, true/false and dates loads without error and keeps its column names. Only the number of rows and the presence of columns are checked, not the detected data types.",
+  "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
+  "steps": [
+   {
+    "action": "Load a made-up 4-row CSV with integer, decimal, text, boolean and date columns",
+    "data": "Columns int_col, float_col, str_col, bool_col, date_col",
+    "expected": "4 rows; columns int_col, float_col and bool_col are present (str_col and date_col are not checked)"
+   }
+  ],
+  "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_with_different_types"
+ }
+]

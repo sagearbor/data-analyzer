@@ -1,0 +1,128 @@
+[
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_basic",
+  "name": "Data Analyzer: Running all checks returns every expected result section",
+  "objective": "Shows the combined result has timestamp, summary statistics, checks, overall verdict, issue count and issue list. Values are not checked, only presence.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks with no schema or rules",
+    "data": "5-row made-up employee table (id, name, age, salary, department)",
+    "expected": "Result has the keys timestamp, summary_stats, checks, overall_passed, total_issues and issues"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_run_all_checks_basic"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_with_schema",
+  "name": "Data Analyzer: Running all checks with declared types passes for matching data",
+  "objective": "Shows the type check is included and passes when columns match their declared types.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks with a schema",
+    "data": "5-row made-up employee table (id, name, age, salary, department); id int, name str, age int, salary int, department str",
+    "expected": "The data-types check is present and passed"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_run_all_checks_with_schema"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_with_rules",
+  "name": "Data Analyzer: Running all checks with range rules passes for in-range data",
+  "objective": "Shows the value-range check is included and passes when values obey the rules.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks with rules",
+    "data": "5-row made-up employee table (id, name, age, salary, department); age 20-50; department in HR, IT, Finance, Sales",
+    "expected": "The value-ranges check is present and passed"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_run_all_checks_with_rules"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_with_failures",
+  "name": "Data Analyzer: Running all checks reports every kind of failure at once",
+  "objective": "Shows a too-small table, bad dates and a too-low salary limit are each reported and the overall result is a fail.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks with min rows 10, a date column of non-dates, and salary limit 10000",
+    "data": "5-row made-up employee table (id, name, age, salary, department) plus invalid_date column of text",
+    "expected": "Overall failed; total issues above zero; row count, data types and value ranges checks each failed"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_run_all_checks_with_failures"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_empty_dataframe",
+  "name": "Data Analyzer: Running all checks on an empty table fails the row count",
+  "objective": "Shows an empty table gives an overall fail and zero rows in the summary.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks",
+    "data": "Completely empty table",
+    "expected": "Overall failed; row-count check failed; summary rows is 0"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_run_all_checks_empty_dataframe"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_min_rows",
+  "name": "Data Analyzer: The minimum rows setting is applied and reported",
+  "objective": "Shows a 5-row table passes a minimum of 3 and the result states both numbers.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks with min rows 3",
+    "data": "5-row made-up employee table (id, name, age, salary, department)",
+    "expected": "Row-count check passed; row_count 5; min_required 3"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_run_all_checks_min_rows"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_pipeline_with_duplicates",
+  "name": "Data Analyzer: The pipeline counts duplicate rows",
+  "objective": "Shows repeated rows are counted in the summary.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks",
+    "data": "5 rows with two repeated pairs",
+    "expected": "Summary duplicate rows is 2"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_pipeline_with_duplicates"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_pipeline_with_missing_values",
+  "name": "Data Analyzer: The pipeline counts missing values per column",
+  "objective": "Shows blank cells are counted for each column.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Blank one salary and one name, then run all checks",
+    "data": "5-row made-up employee table (id, name, age, salary, department)",
+    "expected": "Missing values: salary 1, name 1"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_pipeline_with_missing_values"
+ },
+ {
+  "id": "tests.test_quality_pipeline.TestQualityPipeline.test_pipeline_comprehensive",
+  "name": "Data Analyzer: The pipeline reports several mixed problems in one table",
+  "objective": "Shows a table with out-of-range ages and an invalid date fails the date-type and range checks. The duplicate-row assertion is trivial (zero or more), so duplicates are not proven.",
+  "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run all checks with schema and age range 0-120",
+    "data": "5 rows with ages 150 and -5, text in place of one date, a repeated row",
+    "expected": "Overall failed; issues above zero; data types failed; value ranges failed; email missing count 0; duplicate count only checked to be zero or more"
+   }
+  ],
+  "source": "tests/test_quality_pipeline.py::TestQualityPipeline::test_pipeline_comprehensive"
+ }
+]

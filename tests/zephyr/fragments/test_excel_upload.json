@@ -1,0 +1,114 @@
+[
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadValid.test_load_excel_from_bytes_returns_dataframe",
+  "name": "Data Analyzer: A valid Excel workbook loads into a table with correct headings and values",
+  "objective": "Shows an .xlsx file is read correctly, including column names, size and individual cell values.",
+  "precondition": "Offline test harness; a small made-up Excel workbook is built in memory.",
+  "steps": [
+   {
+    "action": "Load the workbook bytes",
+    "data": "3 made-up rows (1/Alice/25, 2/Bob/30, 3/Charlie/35) with headings id, name, age",
+    "expected": "Columns id, name, age; 3 rows by 3 columns; first name is Alice and last age is 35"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadValid::test_load_excel_from_bytes_returns_dataframe"
+ },
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadValid.test_load_excel_matches_web_app_upload_pattern",
+  "name": "Data Analyzer: An Excel file read the way the upload screen reads it loads correctly",
+  "objective": "Shows the exact route the web page uses for uploaded Excel files (read the bytes, then load) works.",
+  "precondition": "Offline test harness; a small made-up Excel workbook is built in memory.",
+  "steps": [
+   {
+    "action": "Read the bytes from an in-memory stand-in for an uploaded file and load them",
+    "data": "2 made-up rows with headings patient_id, age",
+    "expected": "2 rows by 2 columns with headings patient_id and age"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadValid::test_load_excel_matches_web_app_upload_pattern"
+ },
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadValid.test_load_excel_via_load_data_wrapper",
+  "name": "Data Analyzer: The general load function handles Excel when told the format is xlsx",
+  "objective": "Shows the general loader passes xlsx content to the Excel reader.",
+  "precondition": "Offline test harness; a small made-up Excel workbook is built in memory.",
+  "steps": [
+   {
+    "action": "Call the general loader with format xlsx",
+    "data": "2 made-up rows, headings id, value",
+    "expected": "Result has 2 rows by 2 columns"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadValid::test_load_excel_via_load_data_wrapper"
+ },
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadValid.test_load_excel_preserves_numeric_and_string_types",
+  "name": "Data Analyzer: Excel numbers stay numbers and text stays text",
+  "objective": "Shows values are not altered when read from Excel.",
+  "precondition": "Offline test harness; a small made-up Excel workbook is built in memory.",
+  "steps": [
+   {
+    "action": "Load the workbook and read back each column",
+    "data": "product_id 1,2; price 19.99,29.99; product_name Widget A, Widget B (made-up)",
+    "expected": "Values come back exactly as entered: whole numbers, decimal prices and text names"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadValid::test_load_excel_preserves_numeric_and_string_types"
+ },
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadMalformed.test_zero_byte_file_raises_value_error",
+  "name": "Data Analyzer: A zero-byte Excel upload is rejected with a clear error",
+  "objective": "Shows an empty file produces a readable \"Failed to load Excel\" error rather than a crash.",
+  "precondition": "Offline test harness; no workbook is built.",
+  "steps": [
+   {
+    "action": "Load an empty byte sequence as Excel",
+    "data": "0 bytes",
+    "expected": "A value error is raised whose message contains 'Failed to load Excel'"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadMalformed::test_zero_byte_file_raises_value_error"
+ },
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadMalformed.test_garbage_bytes_raises_value_error",
+  "name": "Data Analyzer: A file that is not really Excel is rejected with a clear error",
+  "objective": "Shows non-Excel content is refused with a readable error.",
+  "precondition": "Offline test harness; no workbook is built.",
+  "steps": [
+   {
+    "action": "Load text bytes that are not a workbook",
+    "data": "The bytes of the sentence 'this is not a real xlsx file'",
+    "expected": "A value error is raised whose message contains 'Failed to load Excel'"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadMalformed::test_garbage_bytes_raises_value_error"
+ },
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadMalformed.test_valid_workbook_with_headers_but_no_rows_returns_empty_dataframe",
+  "name": "Data Analyzer: An Excel file with only a header row gives an empty table with the right columns",
+  "objective": "Shows a workbook with headings but no data is accepted, not treated as an error.",
+  "precondition": "Offline test harness; a small made-up Excel workbook is built in memory.",
+  "steps": [
+   {
+    "action": "Load a workbook that has only headings",
+    "data": "Headings col1, col2, col3 and no data rows",
+    "expected": "Columns col1, col2, col3 and 0 rows; no error"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadMalformed::test_valid_workbook_with_headers_but_no_rows_returns_empty_dataframe"
+ },
+ {
+  "id": "tests.test_excel_upload.TestExcelUploadMalformed.test_completely_empty_worksheet_does_not_crash",
+  "name": "Data Analyzer: A totally empty Excel sheet loads without crashing",
+  "objective": "Shows a workbook with nothing at all in it returns an empty table rather than an error.",
+  "precondition": "Offline test harness; a small made-up Excel workbook is built in memory.",
+  "steps": [
+   {
+    "action": "Load a workbook with no headings and no rows",
+    "data": "One blank sheet",
+    "expected": "A data table with 0 rows is returned; no error (the column list is not checked)"
+   }
+  ],
+  "source": "tests/test_excel_upload.py::TestExcelUploadMalformed::test_completely_empty_worksheet_does_not_crash"
+ }
+]
