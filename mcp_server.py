@@ -43,6 +43,11 @@ class DataTooLargeError(ValueError):
     """
 
 
+class JsonShapeError(ValueError):
+    """JSON input has a shape/depth we refuse before pandas sees it. The message
+    is a fixed text (never built from the content), safe to show to a caller."""
+
+
 def _env_int(name: str, default: int) -> int:
     """Read a positive integer limit from the environment (default if unset/bad)."""
     try:
@@ -55,6 +60,8 @@ def _env_int(name: str, default: int) -> int:
 # Defaults for the dataset-shape limits (each overridable by env var; read at
 # call time so a deployment can change them without re-importing this module).
 DEFAULT_MAX_ROWS = 1_000_000
+DEFAULT_MAX_JSON_BYTES = 25 * 1024 * 1024  # 26214400
+JSON_MAX_DEPTH = 20
 DEFAULT_MAX_COLUMNS = 2_000
 DEFAULT_MAX_EXCEL_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 DEFAULT_MAX_EXCEL_SHEETS = 50
@@ -117,6 +124,84 @@ class DataLoader:
                 f"{max_cols} (DATA_ANALYZER_MAX_COLUMNS)."
             )
         return df
+
+    # ------------------------------------------------------------------
+    # JSON: bound BEFORE pandas builds a DataFrame
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def max_json_bytes(overall_limit: Optional[int] = None) -> int:
+        """JSON byte cap (DATA_ANALYZER_MAX_JSON_BYTES, default 25 MB), never above
+        the overall limit (`overall_limit`, default the content-size cap)."""
+        overall = overall_limit if overall_limit is not None else DataLoader.MAX_CONTENT_BYTES
+        return min(_env_int("DATA_ANALYZER_MAX_JSON_BYTES", DEFAULT_MAX_JSON_BYTES), overall)
+
+    @staticmethod
+    def _json_depth_ok(obj: Any, max_depth: int = JSON_MAX_DEPTH) -> bool:
+        """Iterative (no recursion) nesting-depth check."""
+        stack = [(obj, 1)]
+        while stack:
+            node, depth = stack.pop()
+            if isinstance(node, (list, dict)):
+                if depth > max_depth:
+                    return False
+                children = node.values() if isinstance(node, dict) else node
+                stack.extend((c, depth + 1) for c in children if isinstance(c, (list, dict)))
+        return True
+
+    @staticmethod
+    def check_json_shape(obj: Any) -> None:
+        """Refuse a parsed JSON object that would build too many rows/columns, or
+        that is too deeply nested, without building any DataFrame.
+
+        list of records -> rows = len, columns = union of keys (counting stops once
+        over the limit); dict -> columns = number of keys, rows = longest column
+        (list or dict value); anything else -> JsonShapeError. Raises
+        DataTooLargeError (413 material) or JsonShapeError (400 material).
+        """
+        max_rows, max_cols = DataLoader.max_rows(), DataLoader.max_columns()
+        if not DataLoader._json_depth_ok(obj):
+            raise JsonShapeError(f"JSON is nested more than {JSON_MAX_DEPTH} levels deep.")
+        if isinstance(obj, list):
+            if len(obj) > max_rows:
+                raise DataTooLargeError(
+                    f"Dataset has more than the allowed {max_rows} rows (DATA_ANALYZER_MAX_ROWS).")
+            keys: set = set()
+            for item in obj:
+                if isinstance(item, dict):
+                    keys.update(item.keys())
+                    if len(keys) > max_cols:
+                        raise DataTooLargeError(
+                            f"Dataset has more than the allowed {max_cols} columns (DATA_ANALYZER_MAX_COLUMNS).")
+        elif isinstance(obj, dict):
+            if len(obj) > max_cols:
+                raise DataTooLargeError(
+                    f"Dataset has {len(obj)} columns; the allowed maximum is {max_cols} (DATA_ANALYZER_MAX_COLUMNS).")
+            longest = max((len(v) for v in obj.values() if isinstance(v, (list, dict))), default=0)
+            if longest > max_rows:
+                raise DataTooLargeError(
+                    f"Dataset has more than the allowed {max_rows} rows (DATA_ANALYZER_MAX_ROWS).")
+        else:
+            raise JsonShapeError("JSON data must be a list of records or an object of columns.")
+
+    @staticmethod
+    def precheck_json(content: Union[str, bytes], overall_limit: Optional[int] = None) -> Any:
+        """Bound JSON text/bytes before pandas: byte cap, safe parse (nesting that
+        overflows the parser is a clean error, never a RecursionError), then
+        check_json_shape. Returns the parsed object. One implementation for the
+        multipart route, the JSON route and DataLoader.load_json."""
+        limit = DataLoader.max_json_bytes(overall_limit)
+        if len(content) > limit:
+            raise DataTooLargeError(
+                f"JSON content is larger than the allowed {limit} bytes (DATA_ANALYZER_MAX_JSON_BYTES).")
+        try:
+            obj = json.loads(content.decode("utf-8") if isinstance(content, bytes) else content)
+        except RecursionError:
+            raise JsonShapeError(f"JSON is nested more than {JSON_MAX_DEPTH} levels deep.")
+        except (ValueError, UnicodeDecodeError):
+            raise JsonShapeError("The JSON could not be parsed.")
+        DataLoader.check_json_shape(obj)
+        return obj
 
     @staticmethod
     def check_excel_archive(content: bytes) -> None:
@@ -241,17 +326,18 @@ class DataLoader:
         try:
             if isinstance(file_path_or_content, (bytes, str)):
                 DataLoader._check_size(file_path_or_content)
-            # Parse JSON data
+            # Parse JSON data (bounded: byte cap, depth, rows/columns - before pandas)
             if isinstance(file_path_or_content, dict):
                 json_data = file_path_or_content
+                DataLoader.check_json_shape(json_data)
             elif isinstance(file_path_or_content, bytes):
-                json_data = json.loads(file_path_or_content.decode('utf-8'))
+                json_data = DataLoader.precheck_json(file_path_or_content)
             elif isinstance(file_path_or_content, str):
                 if allow_paths and os.path.exists(file_path_or_content):
                     with open(file_path_or_content, 'r', encoding='utf-8') as f:
-                        json_data = json.load(f)
+                        json_data = DataLoader.precheck_json(f.read())
                 else:
-                    json_data = json.loads(file_path_or_content)
+                    json_data = DataLoader.precheck_json(file_path_or_content)
             else:
                 raise ValueError("Invalid JSON input type")
 

@@ -976,6 +976,7 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
     max_issues = _max_issues_returned()
     issues_total = 0  # every issue found, including any not returned
     row_errors = 0    # error-severity per-row issues (all of them, returned or not)
+    type_totals: Dict[str, int] = {}  # true count per issue type (the list may be shortened)
 
     # Transform QualityPipeline issues (which have 'column', 'rule', 'violating_rows')
     # into the UI-shaped format ('type', 'severity', 'message', 'row', 'value').
@@ -1007,6 +1008,7 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
             where = f"column '{_safe_label(column)}'" + (f", key '{_safe_label(key)}'" if key else "")
             issues_total += 1
             row_errors += 1
+            type_totals["rule_invalid"] = type_totals.get("rule_invalid", 0) + 1
             issues.append({
                 "type": "rule_invalid",
                 "severity": "error",
@@ -1034,19 +1036,23 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
         if rowless:
             issues_total += 1
             row_errors += 1
+            type_totals[rowless[0]] = type_totals.get(rowless[0], 0) + 1
             if len(issues) < max_issues:
                 issues.append({"type": rowless[0], "severity": "error", "column": rowless[1], "message": rowless[2]})
             continue
 
-        # Rows beyond the first listed ones are counted, not listed (see issues_truncated).
+        # The checker lists only the first rows of a finding; the rest are counted
+        # here (range, allowed-value and type findings alike) but not listed.
         extra = int(qp_issue.get('violation_count') or 0) - len(violating_rows)
-        if issue_type in ("type_mismatch", "invalid_date") and extra > 0:
+        if extra > 0:
             issues_total += extra
             row_errors += extra
+            type_totals[issue_type] = type_totals.get(issue_type, 0) + extra
 
         for row_idx in violating_rows:
             issues_total += 1
             row_errors += 1
+            type_totals[issue_type] = type_totals.get(issue_type, 0) + 1
             if len(issues) >= max_issues:
                 continue  # counted, but not returned (see issues_truncated)
             value = df[column].iloc[row_idx] if column in df.columns and row_idx < len(df) else None
@@ -1066,6 +1072,7 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
         missing = int(df[col].isnull().sum())
         if missing > 0:
             issues_total += 1
+            type_totals["missing_values"] = type_totals.get("missing_values", 0) + 1
             issues.append({
                 "type": "missing_values",
                 "severity": "warning",
@@ -1087,7 +1094,8 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
         "critical_issues": row_errors,
         "warnings": sum(1 for i in issues if i.get('severity') == 'warning'),
         "data_types": results.get('summary_stats', {}).get('dtypes', {col: str(df[col].dtype) for col in df.columns}),
-        "completeness": completeness
+        "completeness": completeness,
+        "issue_type_totals": type_totals,
     }
 
     report = {
@@ -1166,6 +1174,9 @@ def _run_quality_analysis(
                     io.BytesIO(content_bytes), nrows=mcp_server.DataLoader.max_rows() + 1
                 )
             elif file_extension == '.json':
+                # Bound it BEFORE pandas builds anything (bytes, depth, rows, columns).
+                # pd.read_json is kept for the build so dtype inference is unchanged.
+                mcp_server.DataLoader.precheck_json(content_bytes, overall_limit=limit)
                 df = pd.read_json(io.BytesIO(content_bytes))
             elif file_extension in ('.xlsx', '.xls'):
                 df = mcp_server.DataLoader.load_excel(content_bytes)
@@ -1182,6 +1193,9 @@ def _run_quality_analysis(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=str(e),
             )
+        except mcp_server.JsonShapeError as e:
+            logger.warning("analysis_refused_json_shape ext=%s %s", file_extension, fingerprint)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except Exception as e:
             # Library text can quote cell values: log only class + fingerprint.
             logger.warning(
@@ -1828,9 +1842,25 @@ async def get_dictionary(
 # Startup and Shutdown Events
 # ============================================================================
 
+def warn_if_client_id_shared() -> bool:
+    """Log ONE warning (token client_id_shared_mode, no values) when deployed
+    without DATA_ANALYZER_TRUSTED_PROXY_HOPS: callers cannot be told apart, so the
+    wrong-key lockout runs in shared mode and rate limits are one bucket.
+    Never refuses to start. Returns True when the warning was logged."""
+    if is_deployed_env() and _trusted_proxy_hops() <= 0:
+        logger.warning(
+            "client_id_shared_mode: DATA_ANALYZER_TRUSTED_PROXY_HOPS is not set, so callers cannot be "
+            "told apart; the wrong-key lockout runs in shared mode and rate limits are one bucket "
+            "for all callers."
+        )
+        return True
+    return False
+
+
 @app.on_event("startup")
 async def startup_event():
     """Log startup information"""
+    warn_if_client_id_shared()
     logger.info("=" * 60)
     logger.info("Data Analyzer REST API starting up")
     logger.info(f"Version: {__version__}")

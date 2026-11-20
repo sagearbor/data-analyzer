@@ -1143,15 +1143,21 @@ class DataQualityAnalyzer:
         if logic_violations_count:
             # Logic issues were appended after the API computed its counts -
             # recompute them so the summary stays consistent with `issues`.
-            summary["issues_found"] = len(issues)
-            summary["critical_issues"] = sum(1 for i in issues if i.get('severity') == 'error')
-            summary["warnings"] = sum(1 for i in issues if i.get('severity') == 'warning')
+            # Add to the API's true totals (its list may be shortened), never
+            # recompute from the listed issues.
+            summary["issues_found"] = summary.get("issues_found", 0) + logic_violations_count
+            summary["critical_issues"] = summary.get("critical_issues", 0) + sum(
+                1 for v in logic_violations if v.severity == 'error')
+            summary["warnings"] = summary.get("warnings", 0) + sum(
+                1 for v in logic_violations if v.severity == 'warning')
             recommendations.append({
                 "type": "conditional_logic",
                 "priority": "critical",
                 "message": "Conditional logic violations detected. Review field dependencies and branching rules in data dictionary"
             })
         summary["logic_violations_count"] = logic_violations_count
+        # True per-type counts (the API lists only the first rows of each finding).
+        summary["issue_type_totals"] = summary.get("issue_type_totals") or {}
         summary["rules_not_checked"] = rule_coverage["rules_not_checked"] if rule_coverage else 0
         summary["column_types_not_checked"] = list(types_not_checked)  # names; count = len()
 
@@ -2409,14 +2415,17 @@ if nav_choice == "Analyze":
             for issue_type, issues in issues_by_type.items():
                 # Collapse by default for Missing Values and Invalid Values
                 expand_by_default = issue_type not in ['missing_values', 'invalid_value']
-                with st.expander(f"{md_escape(str(issue_type).replace('_', ' ').title())} ({len(issues)} issues)", expanded=expand_by_default):
+                _type_totals = summary.get('issue_type_totals') or {}
+                true_total = max(len(issues), int(_type_totals.get(issue_type, 0)))
+                with st.expander(f"{md_escape(str(issue_type).replace('_', ' ').title())} ({true_total} issues)", expanded=expand_by_default):
                     for issue in issues[:10]:  # Show first 10
                         if issue['severity'] == 'error':
                             st.error(f"❌ {md_escape(issue['message'])}")
                         else:
                             st.warning(f"⚠️ {md_escape(issue['message'])}")
-                    if len(issues) > 10:
-                        st.info(f"... and {len(issues) - 10} more")
+                    if true_total > min(len(issues), 10):
+                        st.info(f"Showing the first {min(len(issues), 10)} of {true_total} issues of this kind; "
+                                f"{true_total - min(len(issues), 10)} more are counted but not listed.")
 
         # Recommendations
         if st.session_state.analysis_results['recommendations']:
@@ -2434,40 +2443,49 @@ elif nav_choice == "About":
 
     st.markdown("""
     ### Purpose
-    The Data Quality Analyzer is a tool designed to help you identify and resolve data quality issues
-    in your datasets. It performs comprehensive checks to ensure your data meets quality standards.
+    The Data Quality Analyzer helps you find data quality problems in a dataset so you can
+    look at them and fix them. It reports what its checks find. It is a screening aid: it does
+    not certify that data is correct, and it has not been validated or approved for use with
+    real study data.
 
     ### Features
     - **Multiple Format Support**: CSV, JSON, Excel (XLSX/XLS), and TXT files
-    - **Automatic Issue Detection**: Missing values, invalid entries, range violations
-    - **Custom Validation Rules**: Define your own business rules via data dictionaries (JSON or PDF)
-    - **Visual Reporting**: Clear metrics and issue summaries with interactive heatmaps
-    - **Excel Export**: Highlighted cells showing exact error locations with comments
-    - **Demo Data**: Built-in datasets for testing various validation scenarios
-    - **Dictionary Caching**: Fast PDF dictionary parsing with automatic caching
+    - **Automatic Issue Detection**: Missing values, values that do not fit a column's type, and values outside the rules you supply
+    - **Custom Validation Rules**: Define min/max ranges, allowed values and conditional (branching) rules via a data dictionary (JSON, CSV, Excel or PDF)
+    - **Visual Reporting**: Metrics, issue groups and a heatmap of where issues are
+    - **Export**: Excel with highlighted cells and comments, or a JSON report. Both include which conditional rules could not be checked
+    - **Demo Data**: Built-in example datasets and dictionaries to try the tool
+    - **Dictionary Caching**: A parsed dictionary is cached for your browser session only and expires after a few hours
 
     ### What We Check
-    1. **Missing Values**: Identifies null or empty cells
-    2. **Invalid Values**: Detects entries like "invalid", "error", "n/a"
-    3. **Data Type Validation**: Ensures values match expected types
-    4. **Range Validation**: Checks if numeric values fall within specified ranges
-    5. **Suspicious Values**: Flags test data or anomalous entries
-    6. **Completeness**: Overall data completeness percentage
+    1. **Missing Values**: Counts empty cells per column
+    2. **Data Type Validation**: Whole-number, decimal, date/time and true/false columns are checked against the type in your dictionary (or the type detected from the data)
+    3. **Range Validation**: Numeric values against the min/max you specify
+    4. **Allowed Values**: Values against the list you specify
+    5. **Conditional Rules**: Rules such as "if A then B must be blank" taken from the dictionary; rules the tool cannot understand are listed as not checked
+    6. **Row Count and Completeness**: Minimum rows, and the overall percentage of non-empty cells
+
+    ### What It Does Not Check
+    - Placeholder or junk entries such as "n/a", "invalid", "error" or test data are not looked for
+    - There is no outlier or "suspicious value" detection
+    - Duplicate rows are only counted in the summary statistics; they are not reported as issues
+    - A dictionary's "Required" flag is read but not enforced
+    - Text columns are not checked beyond allowed-value lists
+    - Anything that depends on a dictionary rule is only as good as that rule; an AI-read dictionary should be reviewed by a person
 
     ### How to Use
     1. **Upload your data** using the file uploader or select demo data
-    2. **Optionally add a dictionary** (JSON or PDF) to define custom validation rules
+    2. **Optionally add a dictionary** (JSON, CSV, Excel, PDF or text) to define custom validation rules
     3. **Click Analyze** to run the quality checks
     4. **Review the results** including issues, recommendations, and visual heatmap
     5. **Export findings** to Excel (with highlighting) or JSON for further analysis
 
     ### Technical Details
-    Built with Streamlit and powered by the Model Context Protocol (MCP) for
-    advanced data analysis capabilities. Features include:
+    Built with Streamlit. The checks run in the data-analyzer REST API (see below). Features include:
     - Interactive Plotly visualizations
     - PDF parsing with pypdf
     - Excel generation with cell highlighting and comments
-    - Efficient dictionary caching system
+    - Per-session dictionary cache
 
     ### Data Flow Architecture
     """)

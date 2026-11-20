@@ -382,6 +382,11 @@ class QualityAnalysisSummary(BaseModel):
     warnings: int = Field(ge=0, description="Number of warning-severity issues")
     data_types: Dict[str, str] = Field(description="Column name -> pandas dtype string")
     completeness: float = Field(ge=0.0, le=100.0, description="Percentage of non-missing cells")
+    issue_type_totals: Dict[str, int] = Field(
+        default={},
+        description="True number of issues per issue type, including rows not listed in `issues` "
+                    "(the checker lists only the first 10 violating rows per rule)",
+    )
 
     model_config = {
         "json_schema_extra": {
