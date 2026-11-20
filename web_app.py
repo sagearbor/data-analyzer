@@ -1582,6 +1582,49 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
     except Exception as e:
         st.caption(f"Issue map unavailable ({type(e).__name__})")
 
+def analysis_inputs_fingerprint(data, dictionary) -> Optional[str]:
+    """Short fingerprint of the data + dictionary an analysis ran on (shape, column
+    names, a sample of rows, and the dictionary content). Used to notice that stored
+    results are stale."""
+    if data is None:
+        return None
+    h = hashlib.sha256()
+    h.update(repr((data.shape, [str(c) for c in data.columns])).encode())
+    sample = pd.concat([data.head(200), data.tail(200)]).astype(str)
+    h.update(pd.util.hash_pandas_object(sample, index=True).values.tobytes())
+    h.update(json.dumps(dictionary, sort_keys=True, default=str).encode() if dictionary else b"-")
+    return h.hexdigest()
+
+
+EXPORT_FORMATS = ["Excel with highlighting", "JSON report"]
+
+
+def render_export_controls(data, results: dict) -> None:
+    """Export section: a format choice (Excel is the default, so a download button
+    is visible immediately) and a download button built from THESE results (issues,
+    rule coverage, types not checked, true totals). The file is built only when the
+    user clicks (download_button accepts a callable)."""
+    st.markdown('<div class="app-section-title">Export</div>', unsafe_allow_html=True)
+    export_format = st.selectbox("Choose format:", EXPORT_FORMATS, key="export_format")
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    if export_format == "Excel with highlighting":
+        st.download_button(
+            label="📊 Download Excel",
+            data=lambda: export_to_excel_with_highlighting(
+                data, results['issues'], results.get('rule_coverage'),
+                results['summary'].get('column_types_not_checked')),
+            file_name=f"data_quality_{stamp}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True, type="secondary")
+    else:
+        st.download_button(
+            label="📄 Download JSON",
+            data=lambda: json.dumps(results, indent=2, default=str),
+            file_name=f"quality_report_{stamp}.json",
+            mime="application/json",
+            use_container_width=True, type="secondary")
+
+
 def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list, rule_coverage: Optional[dict] = None,
                                       types_not_checked: Optional[list] = None) -> bytes:
     """Export data to Excel with error cells highlighted.
@@ -2250,42 +2293,10 @@ if nav_choice == "Analyze":
                 st.caption("No cached dictionaries")
 
     with col3:
-        # Export dropdown - moved from bottom
-        if st.session_state.analysis_results:
-            st.markdown('<div class="app-section-title">Export</div>', unsafe_allow_html=True)
-            export_format = st.selectbox(
-                "Choose format:",
-                ["Select format to export", "Excel with highlighting", "JSON report"],
-                key="export_format",
-                on_change=lambda: None  # Trigger rerun on selection
-            )
-
-            # Show download button immediately when format is selected
-            if export_format == "Excel with highlighting":
-                excel_data = export_to_excel_with_highlighting(
-                    st.session_state.data,
-                    st.session_state.analysis_results['issues'],
-                    st.session_state.analysis_results.get('rule_coverage'),
-                    st.session_state.analysis_results['summary'].get('column_types_not_checked'),
-                )
-                st.download_button(
-                    label="📊 Download Excel",
-                    data=excel_data,
-                    file_name=f"data_quality_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="secondary"
-                )
-            elif export_format == "JSON report":
-                json_str = json.dumps(st.session_state.analysis_results, indent=2, default=str)
-                st.download_button(
-                    label="📄 Download JSON",
-                    data=json_str,
-                    file_name=f"quality_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    type="secondary"
-                )
+        # The Export controls are drawn into this slot AFTER the Analyze handler below
+        # has run: the handler is what sets analysis_results, so drawing here (earlier
+        # in the script) would skip Export in the very run that finishes an analysis.
+        export_slot = st.empty()
 
     # Run Analysis - full width between uploads and results
     st.markdown("<div style='margin: 1.75rem 0 1rem 0; border-top: 1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
@@ -2303,6 +2314,10 @@ if nav_choice == "Analyze":
             key="run_analysis_main"
         ):
             if st.session_state.data is not None:
+                # A new analysis starts from a clean slate: if it fails, no earlier
+                # result (or its Export) may stay on the page.
+                st.session_state.analysis_results = None
+                st.session_state.analysis_fingerprint = None
                 # Log dictionary usage
                 if st.session_state.dictionary:
                     dict_source = st.session_state.dictionary.get('source', 'Unknown')
@@ -2332,6 +2347,8 @@ if nav_choice == "Analyze":
                             )
                         )
                         st.session_state.analysis_results = results
+                        st.session_state.analysis_fingerprint = analysis_inputs_fingerprint(
+                            st.session_state.data, st.session_state.dictionary)
                         _status_box.empty()
                         st.success("✅ Analysis complete!")
                     except (ApiConfigError, RuntimeError) as e:
@@ -2349,6 +2366,21 @@ if nav_choice == "Analyze":
                                  "The error was logged; please contact the app owner.")
 
     st.markdown("<div style='margin: 1.75rem 0 1rem 0; border-top: 1px solid #e2e8f0;'></div>", unsafe_allow_html=True)
+
+    # Results belong to the data + dictionary that were analysed. If either changed
+    # since, they are stale: clear them (and say so) instead of showing an old result
+    # next to new data.
+    if st.session_state.analysis_results and st.session_state.get('analysis_fingerprint') != \
+            analysis_inputs_fingerprint(st.session_state.data, st.session_state.dictionary):
+        st.session_state.analysis_results = None
+        st.session_state.analysis_fingerprint = None
+        st.info("The data or dictionary changed since the last analysis, so those results were cleared. "
+                "Click **Analyze Data Quality** to analyse again.")
+
+    # Export (drawn here, after the handler, into the slot in the top row)
+    if st.session_state.analysis_results:
+        with export_slot.container():
+            render_export_controls(st.session_state.data, st.session_state.analysis_results)
 
     # Display results if available
     if st.session_state.analysis_results:
