@@ -13,6 +13,12 @@
 # ============================================================================
 FROM python:3.11-slim AS builder
 
+# PIP_TRUSTED_HOSTS: DCRI machines sit behind a TLS-intercepting proxy, so the
+# default keeps today's behaviour (pip trusts the PyPI hosts even without a
+# verifiable certificate chain; audit finding B-09). To turn it OFF build with:
+#     --build-arg PIP_TRUSTED_HOSTS=""
+ARG PIP_TRUSTED_HOSTS="--trusted-host pypi.org --trusted-host files.pythonhosted.org"
+
 # Set working directory
 WORKDIR /app
 
@@ -25,17 +31,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements files
-COPY requirements.txt .
+# NOTE: the UI's requirements.txt is deliberately NOT installed here; the API
+# needs only api_requirements.txt (self-contained) and mcp_requirements.txt.
 COPY api_requirements.txt .
 COPY mcp_requirements.txt .
 
 # Install Python dependencies to a local directory
 # This creates a clean set of installed packages without build artifacts
-# Note: --trusted-host flags added for WSL/corporate network compatibility
-RUN pip install --no-cache-dir --user \
-    --trusted-host pypi.org \
-    --trusted-host files.pythonhosted.org \
-    -r requirements.txt \
+# PIP_TRUSTED_HOSTS is intentionally unquoted so it expands to separate flags.
+RUN pip install --no-cache-dir --user ${PIP_TRUSTED_HOSTS} \
     -r api_requirements.txt \
     -r mcp_requirements.txt
 

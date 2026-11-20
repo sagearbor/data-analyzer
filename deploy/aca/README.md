@@ -32,13 +32,9 @@ docker push "$ACR/data-analyzer-api:latest"
 
 ## 2. Set secrets (never commit these)
 
-Values live in the gitignored `.env`, never in a manifest or on a command line.
-The shared guard reads `.env` and passes the value to `az` on stdin:
-
-```bash
-~/dcri/aca-guard.sh put-secret data-analyzer-api data-analyzer-api-key DATA_ANALYZER_API_KEY
-~/dcri/aca-guard.sh put-secret data-analyzer-ui  data-analyzer-api-key DATA_ANALYZER_API_KEY
-```
+Values live in the gitignored `.env`, never in a manifest or on a command line. Set them through
+the DCRI deployment guard script (aca-guard.sh) `put-secret` command, which reads the value from
+`.env` and passes it to `az` on stdin (see the DCRI ACA runbook for the exact invocation).
 
 Azure OpenAI is keyless (managed identity), so no OpenAI key secret is needed.
 Manifests must not contain a `secrets:` key; `pytest` (tests/test_aca_manifests.py)
@@ -50,15 +46,16 @@ authorized callers.
 
 ## 3. Deploy
 
-Fill in the `<...>` placeholders in `containerapp.yaml` (subscription, RG,
-environment id, ACR name, Azure OpenAI endpoint, frontend origin), then:
+Copy the manifest to a gitignored `*.local.yaml`, fill in the `<...>` placeholders there
+(subscription, RG, environment id, ACR name, Azure OpenAI endpoint, frontend origin), and deploy
+**only through the DCRI deployment guard script (aca-guard.sh)**: its `image` command to roll a new
+image onto an existing app, its `deploy` command when the manifest changed, and the guarded
+first-create steps in the DCRI ACA runbook when the app does not exist yet.
 
-```bash
-az containerapp create --name "$APP" --resource-group "$RG" \
-  --environment <ACA_ENVIRONMENT> --yaml deploy/aca/containerapp.yaml
-```
-
-Updates use the same file: `az containerapp update --name "$APP" --resource-group "$RG" --yaml deploy/aca/containerapp.yaml`.
+Do **not** run a bare `az containerapp create --yaml` or `az containerapp update --yaml` against an
+existing app. That bypasses the guard, and `update --yaml` **replaces** the whole `env` array
+(it does not merge), which silently drops any environment variable that was set outside the
+manifest.
 
 ## Security-relevant configuration (what IT will ask about)
 

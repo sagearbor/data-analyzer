@@ -2,21 +2,28 @@
 
 A comprehensive data quality analysis tool built with Azure MCP (Model Context Protocol) server and Streamlit web interface. Supports multiple data formats including CSV, JSON, Excel (XLSX/XLS), and Parquet with comprehensive data quality analysis capabilities. Based on your [csvChecker](https://github.com/sagearbor/csvChecker) repository with enhanced cloud capabilities.
 
-## Calling this service (REST / MCP / A2A)
+## Calling this service
 
-This service exposes the same analysis core through three interfaces:
+The released service is the **REST API** (`api_server.py`, routes under `/api/v1/*`, API key in the
+`X-API-Key` header) plus the Streamlit web UI. Those are the only two images that are built and
+deployed.
 
-- **REST API** — `python api_server.py` (default port 8003); endpoints `/analyze`, `/data-info`, `/health`
-- **MCP** — `python mcp_server.py` (stdio); tools `analyze_data` and `get_data_info` for Claude Desktop / Cursor
-- **A2A** — `POST /a2a/data-analyzer` with an encoded A2A Message envelope; AgentCard at `GET /.well-known/agent.json`
-
-See **[docs/INTEGRATION.md](docs/INTEGRATION.md)** for full curl examples, payload schemas, and A2A envelope details.
+- **REST API** - see "Calling the REST API from another program" below and
+  **[docs/INTEGRATION.md](docs/INTEGRATION.md)**.
+- **MCP server** (`python mcp_server.py`, stdio; tools `analyze_data` and `get_data_info`) - an
+  **optional** local adapter for Claude Desktop / Cursor. It is not part of the released service.
+- **A2A adapter** (`a2a_agent.py`, `a2a_runtime/`) - **optional and experimental**. The released
+  API registers **no** `/a2a/*` route and **no** `/.well-known/agent.json` route, and
+  `analysis_service.py`, `a2a_agent.py` and `a2a_runtime/` are **not copied into the released
+  images**. Do not expose either adapter to a network without authentication in front of it.
 
 ### Calling the REST API from another program
 
 `api_server.py` (FastAPI; `python api_server.py` listens on `API_PORT`, default 8000) is the
 programmatic entry point. Interactive docs are at `/api/v1/docs`, the OpenAPI document at
-`/api/v1/openapi.json`. A ready-to-copy Python client is in
+`/api/v1/openapi.json`. The OpenAPI/Swagger pages are open without an API key by design
+(they describe the schema only; the service is reachable on the internal network only).
+A ready-to-copy Python client is in
 [`examples/api_client.py`](examples/api_client.py) (`health()`, `version()`, `analyze_file()`,
 `analyze_json()`; it reads `DATA_ANALYZER_API_URL` and `DATA_ANALYZER_API_KEY`).
 

@@ -110,10 +110,10 @@ class Condition:
                 # Legacy cached rules stored a Python expression string here.
                 # We deliberately do NOT execute it; the rule is neutralized.
                 logger.warning(
-                    "Encountered legacy string condition; neutralizing to Const(False): %r",
-                    data[:120],
+                    "Encountered legacy string condition (%d chars); neutralizing to Const(False)",
+                    len(data),
                 )
-            return Const(False)
+            return Const(False, unsupported=True)
 
         ctype = data.get("type")
         try:
@@ -126,22 +126,31 @@ class Condition:
             if ctype == "not":
                 return Not(Condition.from_dict(data.get("operand")))
             if ctype == "const":
-                return Const(bool(data.get("value", False)))
+                return Const(bool(data.get("value", False)),
+                             unsupported=bool(data.get("unsupported", False)))
         except Exception as e:  # malformed node -> fail closed
-            logger.warning("Malformed condition node %r: %s", data, e)
-        return Const(False)
+            logger.warning("Malformed condition node (%s)", type(e).__name__)
+        return Const(False, unsupported=True)
 
 
 @dataclass
 class Const(Condition):
     """A constant boolean predicate (used for unparseable / always-true cases)."""
     value: bool = False
+    # True when this constant stands in for text/structure that could NOT be
+    # understood (fail-closed placeholder). Lets the validator report the rule as
+    # "unsupported" instead of silently treating it as never violated. Excluded
+    # from equality so Const(False) == Const(False, unsupported=True).
+    unsupported: bool = field(default=False, compare=False)
 
     def evaluate(self, df: pd.DataFrame) -> pd.Series:
         return _all_true(df) if self.value else _all_false(df)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"type": "const", "value": bool(self.value)}
+        d: Dict[str, Any] = {"type": "const", "value": bool(self.value)}
+        if self.unsupported:
+            d["unsupported"] = True
+        return d
 
     def __str__(self) -> str:
         return "True" if self.value else "False"
@@ -387,6 +396,78 @@ def _to_py(value: Any) -> Any:
     return value
 
 
+# Safe, closed set of reason codes (never raw expression text).
+REASON_UNSUPPORTED_CONDITION = "unsupported_condition"
+REASON_UNSUPPORTED_ACTION = "unsupported_action"
+REASON_EVALUATION_ERROR = "evaluation_error"
+
+
+def _contains_unsupported(cond: Condition) -> bool:
+    """True if any node of the condition tree is a fail-closed 'could not understand' placeholder."""
+    if isinstance(cond, Const):
+        return bool(cond.unsupported)
+    if isinstance(cond, (And, Or)):
+        return any(_contains_unsupported(o) for o in cond.operands)
+    if isinstance(cond, Not):
+        return _contains_unsupported(cond.operand)
+    return False
+
+
+def _safe_rule_id(rule_id: Any) -> str:
+    """Rule ids are field-derived; keep them short and single-line for logs/UI."""
+    return re.sub(r"[^\w.\-:]", "?", str(rule_id))[:80]
+
+
+class _RuleNotEvaluable(Exception):
+    """Internal: the rule cannot be evaluated; carries a safe reason code."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+@dataclass
+class RuleCoverage:
+    """How much of the rule set was actually checked.
+
+    ``evaluated`` rules ran to completion (they may or may not have produced
+    violations). ``unsupported`` rules could not be understood (unparseable
+    condition or unknown action) and were NOT checked. ``failed`` rules raised
+    during evaluation and were NOT checked. ``not_checked`` = unsupported + failed.
+    Lists hold ``{"rule_id", "reason"}`` only (never raw expression text).
+    """
+    total: int = 0
+    evaluated: int = 0
+    unsupported: List[Dict[str, str]] = field(default_factory=list)
+    failed: List[Dict[str, str]] = field(default_factory=list)
+
+    @property
+    def not_checked(self) -> int:
+        return len(self.unsupported) + len(self.failed)
+
+    @property
+    def complete(self) -> bool:
+        return self.not_checked == 0
+
+    def summary(self) -> str:
+        """One-line, user-facing summary ('' when everything was checked)."""
+        if self.complete:
+            return ""
+        return f"{self.not_checked} of {self.total} rules could not be checked"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "rules_total": self.total,
+            "rules_evaluated": self.evaluated,
+            "rules_unsupported": len(self.unsupported),
+            "rules_failed": len(self.failed),
+            "rules_not_checked": self.not_checked,
+            "complete": self.complete,
+            "unsupported_rules": list(self.unsupported),
+            "failed_rules": list(self.failed),
+        }
+
+
 class LogicValidator:
     """
     Validates conditional logic rules against data.
@@ -402,11 +483,16 @@ class LogicValidator:
 
     def __init__(self):
         """Initialize LogicValidator."""
-        pass
+        # Coverage of the most recent validate()/validate_with_coverage() call.
+        self.last_coverage: RuleCoverage = RuleCoverage()
 
     def validate(self, rules: List[ConditionalRule], df: pd.DataFrame) -> List[LogicViolation]:
         """
         Validate data against conditional logic rules.
+
+        Returns only the violations (unchanged shape). Coverage of the run (which
+        rules were evaluated / unsupported / failed) is available afterwards as
+        ``self.last_coverage``, or use :meth:`validate_with_coverage`.
 
         Args:
             rules: List of ConditionalRule objects
@@ -415,26 +501,60 @@ class LogicValidator:
         Returns:
             List of LogicViolation objects
         """
+        violations, _ = self.validate_with_coverage(rules, df)
+        return violations
+
+    def validate_with_coverage(self, rules: List[ConditionalRule],
+                               df: pd.DataFrame) -> "tuple[List[LogicViolation], RuleCoverage]":
+        """
+        Validate and report explicit coverage alongside the violations.
+
+        A rule that cannot be parsed (unsupported) or that errors during
+        evaluation is NOT treated as "never violated": it is listed in the
+        returned RuleCoverage with a safe reason code.
+        """
+        coverage = RuleCoverage(total=len(rules or []))
+        self.last_coverage = coverage
+        violations: List[LogicViolation] = []
+
         if not rules:
             logger.debug("No rules to validate")
-            return []
+            return violations, coverage
 
-        if df is None or df.empty:
-            logger.debug("Empty DataFrame, no violations")
-            return []
+        has_rows = df is not None and not df.empty
+        logger.info(f"Validating {len(rules)} rules against {len(df) if df is not None else 0} rows")
 
-        logger.info(f"Validating {len(rules)} rules against {len(df)} rows")
-
-        violations: List[LogicViolation] = []
         for rule in rules:
+            rid = _safe_rule_id(getattr(rule, "rule_id", "?"))
             try:
-                violations.extend(self._check_rule(rule, df))
+                if _contains_unsupported(rule.condition):
+                    raise _RuleNotEvaluable(REASON_UNSUPPORTED_CONDITION)
+                if has_rows:
+                    violations.extend(self._check_rule(rule, df))
+                else:
+                    self._require_supported_action(rule)
+                coverage.evaluated += 1
+            except _RuleNotEvaluable as e:
+                coverage.unsupported.append({"rule_id": rid, "reason": e.reason})
             except Exception as e:
-                # A single bad rule must never abort validation of the rest.
-                logger.warning(f"Skipping rule {rule.rule_id} due to error: {e}")
+                # A single bad rule must never abort validation of the rest, and
+                # must never be mistaken for "no violations".
+                coverage.failed.append({"rule_id": rid, "reason": REASON_EVALUATION_ERROR})
+                logger.warning("Rule %s could not be evaluated (%s)", rid, type(e).__name__)
 
+        if not coverage.complete:
+            logger.warning(
+                "Rule coverage incomplete: %d evaluated, %d unsupported, %d failed of %d",
+                coverage.evaluated, len(coverage.unsupported), len(coverage.failed), coverage.total,
+            )
         logger.info(f"Found {len(violations)} logic violations")
-        return violations
+        return violations, coverage
+
+    @staticmethod
+    def _require_supported_action(rule: ConditionalRule) -> None:
+        action = (rule.action or "").lower()
+        if action not in ("must_be_blank", "skip", "must_be_filled", "required"):
+            raise _RuleNotEvaluable(REASON_UNSUPPORTED_ACTION)
 
     def _check_rule(self, rule: ConditionalRule, df: pd.DataFrame) -> List[LogicViolation]:
         """Evaluate one rule and collect its violations (vectorized)."""
@@ -447,10 +567,9 @@ class LogicValidator:
             expect_blank = False
             expected_behavior = "Field should be filled when condition is met"
         else:
-            # value_in / unknown actions are not evaluated (parity with prior code).
-            if action not in ("value_in",):
-                logger.debug(f"Unknown action '{action}' for rule {rule.rule_id}; skipping")
-            return []
+            # value_in / unknown actions are not evaluated; reported as unsupported
+            # (never silently counted as "no violations").
+            raise _RuleNotEvaluable(REASON_UNSUPPORTED_ACTION)
 
         condition_met = rule.condition.evaluate(df)  # boolean Series
 
@@ -562,10 +681,10 @@ def parse_redcap_expression(text: str) -> Condition:
     not fire. No part of ``text`` is ever executed.
     """
     if not text or not text.strip():
-        return Const(False)
+        return Const(False, unsupported=True)
     if len(text) > _MAX_EXPRESSION_LEN:
         logger.warning("REDCap expression too long (%d chars); neutralizing", len(text))
-        return Const(False)
+        return Const(False, unsupported=True)
 
     try:
         tokens = _tokenize(text)
@@ -574,8 +693,9 @@ def parse_redcap_expression(text: str) -> Condition:
         parser.expect_end()
         return cond
     except _ParseError as e:
-        logger.warning("Could not parse REDCap expression %r: %s", text, e)
-        return Const(False)
+        # Never log the raw expression (may contain study content).
+        logger.warning("Could not parse REDCap expression (%d chars)", len(text))
+        return Const(False, unsupported=True)
 
 
 class _RedcapParser:
@@ -927,7 +1047,7 @@ class RuleExtractor:
         Fail-closed: unparseable text becomes Const(False).
         """
         if not condition_text or not isinstance(condition_text, str):
-            return Const(False)
+            return Const(False, unsupported=True)
 
         text = condition_text.lower().strip()
 
@@ -966,7 +1086,7 @@ class RuleExtractor:
             return Compare(fld, "eq", value)
 
         logger.warning(f"Could not parse natural language condition ({len(condition_text)} chars)")
-        return Const(False)
+        return Const(False, unsupported=True)
 
     def _extract_llm_rules(self, field_def: Dict) -> List[ConditionalRule]:
         """
