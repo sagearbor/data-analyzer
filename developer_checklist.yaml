@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2026-11-17T00:00:00Z
+  last_updated: 2026-11-20T00:00:00Z
 
 # =========================================================
 # CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
@@ -915,3 +915,16 @@ phase_api_programmatic:
     - id: ST-365
       name: "tests/test_api_programmatic.py"
       status: DONE
+
+# Release 1.0 small features - 2026-11-20
+phase_release_1_0_small_features:
+  name: "Release 1.0: About-page API examples, model allow-list"
+  status: INPROGRESS
+  tasks:
+    - id: ADP-51
+      name: "About page: copy-paste API blocks (curl + Python) for health, version, analyze file, analyze JSON"
+      status: DONE
+      notes: |
+        Block text lives in src/api_examples.py (pure, no Streamlit/os); web_app.py renders
+        it and tests/test_about_api_examples.py runs every block verbatim against a real
+        local uvicorn server (curl tests skip if curl is missing).

@@ -48,6 +48,7 @@ from mcp_server import DataLoader
 # Force use of custom renderer for better compatibility
 MERMAID_AVAILABLE = False
 from mermaid_renderer import render_mermaid
+from src.api_examples import EXAMPLE_GROUPS, build_api_examples, display_base_url
 
 # Import LLM parser
 try:
@@ -2041,105 +2042,45 @@ elif nav_choice == "About":
     except Exception as e:
         st.error(f"Error rendering diagram: {str(e)}")
 
-    with st.expander("Programmatic access (API)", expanded=False):
-        st.markdown(
-            "For pipelines and scripts, the REST API is the intended interface "
-            "instead of this UI - it requires **(1)** the Duke VPN and **(2)** an "
-            "API key sent via the `X-API-Key` header. Request the API key from "
-            "the app owner, then `export DATA_ANALYZER_API_KEY=...` - the "
-            "examples below work unchanged. Requests are rate-limited."
-        )
-        st.markdown("Key-less access via your Duke (Entra ID) sign-in is planned.")
-
-        # Fill the example with the RUNTIME base URL when available, so this is
-        # copy-paste-ready rather than a templated placeholder. The URL is not
-        # secret (VPN + API key are the actual access controls), but the key
-        # value itself is never read into a displayed string below - only a
-        # literal `$DATA_ANALYZER_API_KEY` / `os.environ[...]` placeholder is
-        # shown, so nothing here can leak the real key.
-        _runtime_api_url = os.getenv("DATA_ANALYZER_API_URL", "")
-
-        _placeholder_url = "https://<data-analyzer-api-fqdn>"
-
-        _example_url = _runtime_api_url or _placeholder_url
-        _docker_hint_comment = ""
-        # "://api:" is the docker-compose service hostname (see
-        # docker-compose.fullstack.yml) - it resolves inside the container
-        # network only. When the running UI sees that value it's still the
-        # *correct* value for server-to-server calls, but useless to a human
-        # copy-pasting the example onto their own machine, so swap in
-        # localhost for display purposes and explain why.
-        if "://api:" in _example_url:
-            _example_url = "http://localhost:8000"
-            _docker_hint_comment = "\n# running via docker-compose.fullstack.yml - use localhost:8000 from your machine"
-
-        st.markdown("**Python example**")
-        st.code(
-            f'''import os
-import requests
-
-# Base URL is a placeholder for local/dev use below; in production the API is
-# only reachable over the Duke VPN (internal/VPN-only Azure FQDN). The API key
-# is never hardcoded - it must be set in your shell environment.{_docker_hint_comment}
-API_URL = os.environ.get("DATA_ANALYZER_API_URL", "{_example_url}")
-API_KEY = os.environ["DATA_ANALYZER_API_KEY"]  # request this from the app owner
-
-headers = {{"X-API-Key": API_KEY}}
-
-# 1. Health check (no auth required)
-resp = requests.get(f"{{API_URL}}/api/v1/health", timeout=10)
-resp.raise_for_status()
-print(resp.json())
-
-# 2. Analyze a dataset (CSV or Excel), with optional schema/rules
-with open("my_data.csv", "rb") as f:
-    files = {{"data_file": ("my_data.csv", f, "text/csv")}}
-    data = {{
-        "schema": '{{"age": "int"}}',        # optional, JSON-encoded
-        "rules": '{{"age": {{"min": 0, "max": 120}}}}',  # optional, JSON-encoded
-        "min_rows": "1",                   # optional, default 1
-    }}
-    resp = requests.post(
-        f"{{API_URL}}/api/v1/analyze",
-        headers=headers,
-        files=files,
-        data=data,
-        timeout=60,
+    st.markdown("---")
+    st.header("Use it from code (API)")
+    st.markdown(
+        "For pipelines and scripts, the REST API is the intended interface "
+        "instead of this UI. It requires **(1)** the Duke VPN and **(2)** an "
+        "API key sent in the `X-API-Key` header. Request the key from the app "
+        "owner, then run `export DATA_ANALYZER_API_KEY=...` in your shell. "
+        "Every block below then runs exactly as shown (use the copy button at "
+        "the top right of each block). Requests are rate-limited. "
+        "Key-less access via your Duke (Entra ID) sign-in is planned."
     )
-resp.raise_for_status()
-result = resp.json()
-print(result["summary"])
-''',
-            language="python",
-        )
 
-        st.markdown("**curl equivalent**")
-        st.markdown(
-            "Set `DATA_ANALYZER_API_KEY` in your shell first, then create a "
-            "small sample file and call the API - both commands are complete, "
-            "single-line commands (no `\\` line continuations, which is what "
-            "broke the earlier version of this example)."
-        )
-        st.code(
-            'printf "age,name\\n30,Jane\\n" > demo.csv',
-            language="bash",
-        )
-        st.code(
-            f'curl -sS -X POST "{_example_url}/api/v1/analyze" -H "X-API-Key: $DATA_ANALYZER_API_KEY" -F "data_file=@demo.csv;type=text/csv"',
-            language="bash",
-        )
+    # The block text lives in src/api_examples.py (also executed verbatim by
+    # tests/test_about_api_examples.py). The key's value is never read here:
+    # the blocks only reference $DATA_ANALYZER_API_KEY / os.environ[...].
+    _example_url, _example_note = display_base_url(os.getenv("DATA_ANALYZER_API_URL", ""))
+    if _example_note:
+        st.info(_example_note)
+    _examples_by_group = {}
+    for _ex in build_api_examples(_example_url):
+        _examples_by_group.setdefault(_ex["group"], []).append(_ex)
 
-        st.markdown("**Test the API**")
-        st.markdown(
-            f"- **Paste in a browser** (works in incognito): "
-            f"[`{_example_url}/api/v1/health`]({_example_url}/api/v1/health) returns JSON; "
-            f"[`{_example_url}/api/v1/docs`]({_example_url}/api/v1/docs) is an interactive "
-            f"Swagger UI where you can execute `/analyze` directly from the browser.\n"
-            f"- **curl one-liner** for `/analyze` - see the curl example above.\n"
-            f"- Incognito/private browsing only avoids sending cookies - it does **not** "
-            f"simulate being off the VPN. To test the VPN requirement itself, use a "
-            f"device that is actually off-network (e.g. a phone on cellular data, wifi off)."
-        )
+    for _group_id, _heading, _blurb in EXAMPLE_GROUPS:
+        st.subheader(_heading)
+        st.caption(_blurb)
+        _group = _examples_by_group[_group_id]
+        _tabs = st.tabs(["curl" if e["language"] == "bash" else "Python" for e in _group])
+        for _tab, _ex in zip(_tabs, _group):
+            with _tab:
+                st.code(_ex["code"], language=_ex["language"])
+
+    st.markdown(
+        f"Interactive API docs (Swagger UI, where you can try `/analyze` in the browser): "
+        f"[`{_example_url}/api/v1/docs`]({_example_url}/api/v1/docs). "
+        f"Health and version also open directly in a browser. "
+        f"Incognito/private browsing only avoids sending cookies - it does **not** "
+        f"simulate being off the VPN. To test the VPN requirement itself, use a "
+        f"device that is actually off-network (e.g. a phone on cellular data, wifi off)."
+    )
 
     st.markdown(f"""
     ---
