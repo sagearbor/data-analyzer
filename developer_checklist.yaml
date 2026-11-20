@@ -919,7 +919,7 @@ phase_api_programmatic:
 # Release 1.0 small features - 2026-11-20
 phase_release_1_0_small_features:
   name: "Release 1.0: About-page API examples, model allow-list"
-  status: INPROGRESS
+  status: DONE
   tasks:
     - id: ADP-51
       name: "About page: copy-paste API blocks (curl + Python) for health, version, analyze file, analyze JSON"
@@ -928,3 +928,13 @@ phase_release_1_0_small_features:
         Block text lives in src/api_examples.py (pure, no Streamlit/os); web_app.py renders
         it and tests/test_about_api_examples.py runs every block verbatim against a real
         local uvicorn server (curl tests skip if curl is missing).
+    - id: ADP-52
+      name: "Model choice limited to a server-side allow-list (AZURE_OPENAI_DEPLOYMENTS)"
+      status: DONE
+      notes: |
+        src/llm_client.require_allowed_deployment() refuses an override not in
+        get_available_deployments() with LLMCallError(error_class="deployment_not_allowed")
+        before any HTTP call; max_output_tokens_for() floors every non-gpt-4 name at 40000;
+        UI selectbox falls back to the first entry on a stale value and shows the model in use;
+        AZURE_OPENAI_DEPLOYMENTS added to both ACA manifest templates. REMAINING: owner to
+        adjust the list after live testing (only models verified to answer).

@@ -91,6 +91,11 @@ properties:
             secretRef: data-analyzer-api-key
           - name: AZURE_OPENAI_ENDPOINT
             value: "<AZURE_OPENAI_ENDPOINT>"
+          # Models offered in the UI AND the only ones the code will call (server-side
+          # allow-list, ADP-52); the first entry is the default. List ONLY models
+          # verified to answer on the deployed endpoint. Comma-separated, no spaces needed.
+          - name: AZURE_OPENAI_DEPLOYMENTS
+            value: "gpt-5-nano,gpt-5.4-mini,gpt-5.5"
           # dcri_llm: identity auth (no key) + telemetry solution tag.
           - name: LLM_AUTH
             value: identity

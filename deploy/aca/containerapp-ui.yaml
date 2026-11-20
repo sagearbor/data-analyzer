@@ -89,6 +89,11 @@ properties:
             value: "<AZURE_OPENAI_ENDPOINT>"
           - name: AZURE_OPENAI_DEPLOYMENT
             value: "<AZURE_OPENAI_DEPLOYMENT>"   # shown in the UI's "LLM ACTIVE" label
+          # Models offered in the UI AND the only ones the code will call (server-side
+          # allow-list, ADP-52); the first entry is the default. List ONLY models
+          # verified to answer on the deployed endpoint. Comma-separated, no spaces needed.
+          - name: AZURE_OPENAI_DEPLOYMENTS
+            value: "gpt-5-nano,gpt-5.4-mini,gpt-5.5"
           - name: LLM_AUTH
             value: identity
           - name: SOLUTION_NAME

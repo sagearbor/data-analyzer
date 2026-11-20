@@ -52,7 +52,7 @@ from src.api_examples import EXAMPLE_GROUPS, build_api_examples, display_base_ur
 
 # Import LLM parser
 try:
-    from src.llm_client import LLMDictionaryParser, get_available_deployments
+    from src.llm_client import LLMDictionaryParser, get_available_deployments, resolve_deployment_choice
     from src.dcri_llm import llm_action, set_user
     LLM_AVAILABLE = True
 except ImportError:
@@ -1273,16 +1273,22 @@ if nav_choice == "Analyze":
             # so it's already set by the time the user uploads a file that
             # needs it. Defaults to the first configured deployment.
             if LLM_AVAILABLE:
-                if "llm_deployment" not in st.session_state:
-                    _available_deployments = get_available_deployments()
-                    st.session_state.llm_deployment = _available_deployments[0] if _available_deployments else None
-
+                # Only models on the server-side allow-list (AZURE_OPENAI_DEPLOYMENTS)
+                # are offered, and the same list is enforced again where the LLM call
+                # is made. A value left in the session from a model that is no longer
+                # listed would make the selectbox raise, so fall back to the first entry.
+                _deployment_options = get_available_deployments()
+                st.session_state["llm_deployment_select"] = resolve_deployment_choice(
+                    st.session_state.get("llm_deployment_select"), _deployment_options
+                )
                 st.session_state.llm_deployment = st.selectbox(
                     "LLM model",
-                    get_available_deployments(),
+                    _deployment_options,
                     key="llm_deployment_select",
-                    help="Azure OpenAI deployment used for AI-assisted dictionary parsing.",
+                    help="Azure OpenAI deployment used for AI-assisted dictionary parsing. "
+                         "Only models enabled on this server are listed; the first is the default.",
                 )
+                st.caption(f"Model in use for AI parsing: **{st.session_state.llm_deployment}**")
 
             # Add LLM parsing option if available with auto-detection
             if LLM_AVAILABLE and dict_file:

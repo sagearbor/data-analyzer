@@ -78,12 +78,16 @@ def llm_failure(message: str, *, operation: str, model: Optional[str], error_cla
 def max_output_tokens_for(deployment: str) -> int:
     """Output-token budget for a deployment.
 
-    Known models use their documented ceiling; unknown ones (e.g. gpt-5.4-*)
-    get 128000. Reasoning models are never capped below 32000 (HARD RULE:
-    thinking tokens come out of this budget).
+    Known models use their documented ceiling; unknown ones (e.g. gpt-5.4-*,
+    grok-*, DeepSeek-*, Kimi-*) get 128000. HARD RULE: a reasoning model is
+    never capped below DEFAULT_MAX_COMPLETION_TOKENS (40000), because thinking
+    tokens come out of this budget. Any deployment can be a reasoning model, so
+    the floor applies to every name except the documented non-reasoning
+    gpt-4* family (e.g. gpt-4o-mini, capped at 16384 by the model itself).
     """
-    limit = MODEL_OUTPUT_LIMITS.get((deployment or "").lower(), 128000)
-    if re.match(r"^(gpt-5|o\d)", (deployment or "").lower()):
+    name = (deployment or "").lower()
+    limit = MODEL_OUTPUT_LIMITS.get(name, 128000)
+    if not name.startswith("gpt-4"):
         limit = max(limit, DEFAULT_MAX_COMPLETION_TOKENS)
     return limit
 
@@ -118,6 +122,45 @@ def get_available_deployments() -> List[str]:
             deduped.append(name)
 
     return deduped
+
+
+def _log_safe(value: object, limit: int = 64) -> str:
+    """Make a caller-supplied name safe for a single log line and an error message."""
+    return re.sub(r"[^\w.\-:/]", "?", str(value))[:limit]
+
+
+def require_allowed_deployment(deployment: Optional[str], operation: str = "llm_call") -> None:
+    """Refuse a per-call deployment override that is not on the server-side allow-list.
+
+    The allow-list is get_available_deployments() (AZURE_OPENAI_DEPLOYMENTS,
+    falling back to AZURE_OPENAI_DEPLOYMENT), read at call time. None / empty
+    means "use the configured default" and is not checked here.
+
+    Raises:
+        LLMCallError: error_class="deployment_not_allowed". Raised before any
+            network call is made.
+    """
+    if not deployment:
+        return
+    allowed = get_available_deployments()
+    if deployment not in allowed:
+        safe = _log_safe(deployment)
+        raise llm_failure(
+            f"Model '{safe}' is not enabled on this server. Allowed models: {', '.join(allowed)}",
+            operation=operation, model=safe, error_class="deployment_not_allowed",
+        )
+
+
+def resolve_deployment_choice(current: Optional[str], options: List[str]) -> Optional[str]:
+    """Pick the model to show selected in the UI.
+
+    Keeps ``current`` when it is still in ``options``; otherwise (nothing chosen
+    yet, or a stale session value for a model that is no longer offered) falls
+    back to the first option. Returns None when there are no options.
+    """
+    if current and current in options:
+        return current
+    return options[0] if options else None
 
 
 @dataclass
@@ -522,6 +565,7 @@ Return JSON object with "fields" array:"""
                 a different deployment per request.
         """
         prompt = self.create_extraction_prompt(text_chunk, is_continuation)
+        require_allowed_deployment(deployment, operation="parse_dictionary")
         active_deployment = deployment or self.deployment
         max_output = max_output_tokens_for(active_deployment)
 
@@ -589,6 +633,9 @@ Return JSON object with "fields" array:"""
         """
         import time
         start_time = time.time()
+
+        # Refuse a disallowed model up front, before token counting/chunking.
+        require_allowed_deployment(deployment, operation="parse_dictionary")
 
         # Log to console for browser debugging
         print(f"[LLM] Starting dictionary parsing - {len(dictionary_text)} characters at {time.strftime('%H:%M:%S')}")
