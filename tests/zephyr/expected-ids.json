@@ -723,6 +723,11 @@
   "tests.test_sec_ui_excel_formulas.test_highlighting_and_comments_still_work_on_neutralised_cells",
   "tests.test_sec_ui_excel_formulas.test_looks_like_formula"
  ],
+ "test_sec_ui_no_usage_stats": [
+  "tests.test_sec_ui_no_usage_stats.test_streamlit_config_file_turns_usage_statistics_off",
+  "tests.test_sec_ui_no_usage_stats.test_every_streamlit_start_command_in_the_entrypoint_turns_usage_statistics_off",
+  "tests.test_sec_ui_no_usage_stats.test_page_deployment_template_turns_usage_statistics_off"
+ ],
  "test_sec_ui_rule_coverage": [
   "tests.test_sec_ui_rule_coverage.test_a_dictionary_with_a_supported_and_an_unsupported_rule_gives_an_explicit_partial_result",
   "tests.test_sec_ui_rule_coverage.test_a_dictionary_with_only_supported_rules_reports_complete_coverage",
@@ -768,6 +773,16 @@
   "tests.test_ui_api_connection.test_no_logic_error_when_logic_validation_ok",
   "tests.test_ui_api_connection.test_model_label_reads_deployment_from_config",
   "tests.test_ui_api_connection.test_no_hardcoded_model_name_in_llm_banner"
+ ],
+ "test_ui_export_after_analysis": [
+  "tests.test_ui_export_after_analysis.test_export_appears_in_the_same_run_that_completes_the_analysis",
+  "tests.test_ui_export_after_analysis.test_the_default_export_choice_leaves_a_download_button_visible_and_json_is_reachable",
+  "tests.test_ui_export_after_analysis.test_messages_and_warnings_still_appear_with_the_export",
+  "tests.test_ui_export_after_analysis.test_a_failed_analysis_shows_its_error_and_no_export_for_the_previous_result",
+  "tests.test_ui_export_after_analysis.test_changing_the_data_clears_the_old_results_and_their_export",
+  "tests.test_ui_export_after_analysis.test_the_page_is_stable_across_reruns_without_a_change",
+  "tests.test_ui_export_after_analysis.test_the_excel_export_for_the_current_results_has_data_issues_and_rule_coverage_sheets",
+  "tests.test_ui_export_after_analysis.test_the_json_export_parses_and_carries_the_same_issue_total_as_the_page"
  ],
  "test_upload": [
   "tests.test_upload.TestApiRequestConstruction.test_posts_to_configured_base_url",

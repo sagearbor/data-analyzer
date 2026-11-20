@@ -103,6 +103,54 @@
    "id": "6259998790",
    "title": "DRAFT Data Analyzer 1.0_TSRA",
    "template": "4771020831"
+  },
+  "MVP": {
+   "id": "6259310706",
+   "title": "DRAFT Data Analyzer 1.0_TS-MVP",
+   "template": "4735205475",
+   "family": "TS-S-001"
+  },
+  "TS-RS": {
+   "id": "6260129890",
+   "title": "DRAFT Data Analyzer 1.0_TS-RS",
+   "template": "4735238296",
+   "family": "TS-S-001"
+  },
+  "DS": {
+   "id": "6260129917",
+   "title": "DRAFT Data Analyzer 1.0_DesignSpec",
+   "template": "4735303789",
+   "family": "TS-S-001"
+  },
+  "CRUT": {
+   "id": "6259409018",
+   "title": "DRAFT Data Analyzer 1.0_TS-CRUT",
+   "template": "4735238252",
+   "family": "TS-S-001"
+  },
+  "IQP": {
+   "id": "6258425976",
+   "title": "DRAFT Data Analyzer 1.0_TS-IQP",
+   "template": "4735271088",
+   "family": "TS-S-001"
+  },
+  "TS-IQC": {
+   "id": "6258327730",
+   "title": "DRAFT Data Analyzer 1.0_TS-IQC",
+   "template": "4735303813",
+   "family": "TS-S-001"
+  },
+  "PTP": {
+   "id": "6259081367",
+   "title": "DRAFT Data Analyzer 1.0_TS-PTP",
+   "template": "4735238319",
+   "family": "TS-S-001"
+  },
+  "PTR": {
+   "id": "6258294875",
+   "title": "DRAFT Data Analyzer 1.0_TS-PTR",
+   "template": "4735303823",
+   "family": "TS-S-001"
   }
  }
 }
