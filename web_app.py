@@ -57,7 +57,7 @@ try:
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
-    print("LLM client not available. Install openai package to enable.")
+    logger.warning("LLM client not available. Install openai package to enable.")
 
 
 def llm_model_label() -> str:
@@ -77,7 +77,7 @@ try:
     PROGRAM_CACHE_AVAILABLE = True
 except ImportError:
     PROGRAM_CACHE_AVAILABLE = False
-    print("Program cache and logic validation not available.")
+    logger.warning("Program cache and logic validation not available.")
 
 # Import environment banner
 try:
@@ -85,20 +85,315 @@ try:
     ENVBANNER_AVAILABLE = True
 except ImportError:
     ENVBANNER_AVAILABLE = False
-    print("env-banner not available. Install with: pip install env-banner")
+    logger.warning("env-banner not available. Install with: pip install env-banner")
 
-# Browser console logging helper
-def log_to_browser_console(message: str, data: dict = None):
-    """Inject JavaScript to log to browser console (visible in Chrome DevTools)"""
-    import streamlit.components.v1 as components
-    import json
-    log_data = json.dumps(data) if data else "{}"
-    html = f"""
-    <script>
-        console.log('[Data Analyzer] {message}', {log_data});
-    </script>
+# ---------------------------------------------------------------------------
+# Security helpers (release 1.0 hardening). Pure functions / small classes so
+# they can be unit tested without a running Streamlit session
+# (tests/test_sec_ui_*.py).
+# ---------------------------------------------------------------------------
+import secrets
+import string as _string
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    """Positive integer from the environment; bad/blank/too-small values fall
+    back to `default` so a typo can never switch a limit off."""
+    try:
+        value = int((os.environ.get(name) or "").strip())
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
+
+# Upload / dictionary limits (all overridable by environment variable).
+DEFAULT_MAX_UPLOAD_MB = 25          # also enforced by Streamlit (server.maxUploadSize)
+DEFAULT_PDF_MAX_PAGES = 200
+DEFAULT_DICT_MAX_CHARS = 500_000
+DEFAULT_CACHE_TTL_HOURS = 12
+_LINE_CAP = 500                     # per-line cap for the manual PDF patterns
+
+
+def max_upload_bytes() -> int:
+    return _env_int("UI_MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB) * 1024 * 1024
+
+
+class DictionaryTooLargeError(ValueError):
+    """The dictionary is over a configured size limit (message is user-safe)."""
+
+
+_MD_PUNCT = re.compile("([" + re.escape(_string.punctuation) + "])")
+
+
+def md_escape(value) -> str:
+    """Make any untrusted value render as plain text through st.markdown /
+    st.error / st.warning (which interpret markdown, links, images and $math$).
+
+    Every ASCII punctuation character is backslash-escaped, which CommonMark
+    renders as the literal character, so `![x](https://evil/p.png)` is shown
+    as text and never fetched. Newlines are kept.
     """
-    components.html(html, height=0, width=0)
+    return _MD_PUNCT.sub(r"\\\1", str(value))
+
+
+def file_fingerprint(name: str, size: Optional[int] = None) -> str:
+    """Log-safe description of an uploaded file: extension, size and a short
+    SHA-256 of the name. The name itself (it can encode study/site ids) is
+    never logged."""
+    name = str(name or "")
+    ext = name.rsplit(".", 1)[-1].lower()[:8] if "." in name else "none"
+    digest = hashlib.sha256(name.encode("utf-8", "replace")).hexdigest()[:8]
+    return f"ext={ext} size={size if size is not None else 'unknown'} name_sha256={digest}"
+
+
+# --- Excel export: formula neutralisation (B-02) ---------------------------
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+
+def looks_like_formula(value) -> bool:
+    """True for text a spreadsheet could execute: starts with = + - @ even
+    after leading whitespace / tab / CR / LF."""
+    return isinstance(value, str) and value.lstrip(" \t\r\n\v\f ").startswith(_FORMULA_PREFIXES)
+
+
+def force_text_cells(workbook) -> int:
+    """Turn every formula-looking string cell in `workbook` into a literal text
+    cell (data_type 's', plus Excel's quotePrefix so it stays text when edited).
+    Real numbers/dates/booleans are never touched. Returns the cell count."""
+    changed = 0
+    for ws in workbook.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if looks_like_formula(cell.value):
+                    cell.data_type = "s"
+                    cell.quotePrefix = True
+                    changed += 1
+    return changed
+
+
+# --- Dictionary text limits (B-04) -----------------------------------------
+def extract_pdf_text(reader, max_pages: Optional[int] = None, max_chars: Optional[int] = None) -> str:
+    """Concatenate page text from a pypdf reader, refusing oversized input.
+
+    Raises DictionaryTooLargeError (with a message fit to show the user) when
+    the PDF has more than `max_pages` pages or yields more than `max_chars`
+    characters. Defaults come from UI_PDF_MAX_PAGES / UI_DICT_MAX_CHARS.
+    """
+    max_pages = max_pages or _env_int("UI_PDF_MAX_PAGES", DEFAULT_PDF_MAX_PAGES)
+    max_chars = max_chars or _env_int("UI_DICT_MAX_CHARS", DEFAULT_DICT_MAX_CHARS)
+    pages = reader.pages
+    if len(pages) > max_pages:
+        raise DictionaryTooLargeError(
+            f"This PDF has {len(pages)} pages; the limit is {max_pages}. "
+            "Split the dictionary into smaller files and upload them separately."
+        )
+    parts, total = [], 0
+    for page in pages:
+        text = (page.extract_text() or "") + "\n"
+        total += len(text)
+        if total > max_chars:
+            raise DictionaryTooLargeError(
+                f"The text in this PDF is longer than the limit of {max_chars:,} characters. "
+                "Split the dictionary into smaller files and upload them separately."
+            )
+        parts.append(text)
+    return "".join(parts)
+
+
+def check_dictionary_text_size(text: str, max_chars: Optional[int] = None) -> str:
+    """Same character limit for non-PDF dictionary text sent to the LLM."""
+    max_chars = max_chars or _env_int("UI_DICT_MAX_CHARS", DEFAULT_DICT_MAX_CHARS)
+    if len(text) > max_chars:
+        raise DictionaryTooLargeError(
+            f"This dictionary has {len(text):,} characters; the limit is {max_chars:,}. "
+            "Split it into smaller files and upload them separately."
+        )
+    return text
+
+
+_DATE_KEYWORD = re.compile(r"date|Date|DATE")
+_RANGE_KEYWORD = re.compile(r"range|Range|between")
+_WORD = re.compile(r"\w+")
+_DIGITS = re.compile(r"\d{1,15}")
+_RANGE_SEP = re.compile(r"to|and|-|–")
+
+
+def extract_pdf_manual_rules(page_text: str) -> Dict[str, Dict[str, Any]]:
+    """Best-effort "manual" rule extraction from dictionary PDF text.
+
+    Replaces two regexes of the form `([\\w_]+).*?keyword.*?...`, which took
+    cubic time on a long run of word characters (ReDoS, B-03). This version is
+    linear: it works line by line, caps each line at _LINE_CAP characters, and
+    uses only single left-to-right scans (no nested quantifiers, no
+    backtracking). Rules: a line containing a date keyword makes its first word
+    a date field; a line with range/between followed by two numbers separated
+    by to/and/- makes its first word a numeric range field.
+    """
+    rules: Dict[str, Dict[str, Any]] = {}
+    for line in page_text.splitlines():
+        line = line[:_LINE_CAP]
+        first = _WORD.search(line)
+        if not first:
+            continue
+        field = first.group(0)
+        if field in rules:
+            continue
+        if _DATE_KEYWORD.search(line, first.start() + 1):
+            rules[field] = {"type": "date"}
+            continue
+        kw = _RANGE_KEYWORD.search(line, first.start() + 1)
+        if kw:
+            n1 = _DIGITS.search(line, kw.end())
+            sep = _RANGE_SEP.search(line, n1.end()) if n1 else None
+            n2 = _DIGITS.search(line, sep.end()) if sep else None
+            if n1 and n2:
+                rules[field] = {"min": int(n1.group(0)), "max": int(n2.group(0))}
+    return rules
+
+
+def validate_dictionary_shape(obj) -> dict:
+    """Shape check for a user-supplied JSON dictionary (B-10): a JSON object,
+    `rules` (if present) an object, `fields` (if present) a list of objects.
+    Raises ValueError with a user-safe message; returns `obj` unchanged."""
+    if not isinstance(obj, dict):
+        raise ValueError("The dictionary must be a JSON object.")
+    if "rules" in obj and not isinstance(obj["rules"], dict):
+        raise ValueError("The dictionary's 'rules' entry must be a JSON object.")
+    if "fields" in obj:
+        fields = obj["fields"]
+        if not isinstance(fields, list) or not all(isinstance(f, dict) for f in fields):
+            raise ValueError("The dictionary's 'fields' entry must be a list of JSON objects.")
+    return obj
+
+
+def field_markdown(field: dict, detailed: bool = False, max_values: int = 5) -> str:
+    """Markdown for one extracted dictionary field with EVERY dictionary/LLM
+    derived string escaped (rendered as text, never as markdown/HTML)."""
+    name = md_escape(field.get("field_name", "(unnamed)"))
+    info = f"**{name}** ({md_escape(field.get('data_type', 'unknown'))})"
+    if field.get("required"):
+        info += " *[Required]*"
+    desc = field.get("description")
+    if desc:
+        desc = str(desc)
+        if detailed and len(desc) > 150:
+            desc = desc[:150] + "..."
+        info += f"\n   {'📝 ' if detailed else ''}{md_escape(desc)}"
+    lo, hi = field.get("min_value"), field.get("max_value")
+    if (lo is not None and lo != "") or (hi is not None and hi != ""):
+        info += f"\n   {'📊 ' if detailed else ''}Range: {md_escape(lo if lo is not None else 'N/A')} - {md_escape(hi if hi is not None else 'N/A')}"
+    allowed = field.get("allowed_values")
+    if isinstance(allowed, (list, tuple)) and allowed:
+        vals = ", ".join(md_escape(v) for v in allowed[:max_values])
+        if len(allowed) > max_values:
+            vals += f" ... +{len(allowed) - max_values} more"
+        info += f"\n   {'✓ Allowed' if detailed else 'Values'}: {vals}"
+    return info
+
+
+# --- Per-session dictionary cache (B-12) ------------------------------------
+_SESSION_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def default_cache_base() -> Path:
+    """Root of the dictionary disk cache. DICT_CACHE_DIR overrides it. Never
+    the legacy shared per-user folder in the home directory (its entries
+    must not be readable by new sessions)."""
+    override = (os.environ.get("DICT_CACHE_DIR") or "").strip()
+    return Path(override) if override else Path(tempfile.gettempdir()) / "data_analyzer_ui_cache_v2"
+
+
+class DictionaryCache:
+    """Disk cache of parsed dictionaries, private to ONE browser session.
+
+    Entries live in `<base>/<session_id>/<sha256>.json` (random 128-bit session
+    id held in st.session_state), so a different session can neither read,
+    count nor delete them. Keys are SHA-256 of the uploaded bytes. Entries
+    expire after `ttl_seconds` (UI_CACHE_TTL_HOURS, default 12) and expired
+    entries of every session are pruned opportunistically. JSON only.
+    """
+
+    def __init__(self, base_dir: Path, session_id: str, ttl_seconds: Optional[float] = None):
+        if not _SESSION_ID_RE.match(session_id or ""):
+            raise ValueError("invalid cache session id")
+        self.base = Path(base_dir)
+        self.session_id = session_id
+        self.ttl = ttl_seconds if ttl_seconds is not None else _env_int(
+            "UI_CACHE_TTL_HOURS", DEFAULT_CACHE_TTL_HOURS) * 3600
+        self.dir = self.base / session_id
+        self.base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.dir.mkdir(exist_ok=True, mode=0o700)
+
+    @staticmethod
+    def key_for(content: bytes, llm: bool = False) -> str:
+        digest = hashlib.sha256(content).hexdigest()
+        return f"{digest}_llm" if llm else digest
+
+    def _path(self, key: str) -> Path:
+        if not re.fullmatch(r"[0-9a-f]{64}(_llm)?", key):
+            raise ValueError("invalid cache key")
+        return self.dir / f"{key}.json"
+
+    def _expired(self, path: Path, now: Optional[float] = None) -> bool:
+        try:
+            return ((now or time.time()) - path.stat().st_mtime) > self.ttl
+        except OSError:
+            return True
+
+    def get(self, key: str) -> Optional[dict]:
+        path = self._path(key)
+        if not path.exists():
+            return None
+        if self._expired(path):
+            path.unlink(missing_ok=True)
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                value = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def put(self, key: str, value: dict) -> None:
+        path = self._path(key)
+        self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(value, f)
+        self.prune()
+
+    def count(self) -> int:
+        """Number of live entries in THIS session only."""
+        return sum(1 for p in self.dir.glob("*.json") if not self._expired(p))
+
+    def clear(self) -> int:
+        """Delete this session's entries only; returns how many were removed."""
+        removed = 0
+        for p in self.dir.glob("*.json"):
+            p.unlink(missing_ok=True)
+            removed += 1
+        return removed
+
+    def prune(self, now: Optional[float] = None) -> int:
+        """Delete expired entries (and empty session folders) under the cache
+        root, for every session. Returns the number of entries removed."""
+        removed = 0
+        try:
+            for sdir in self.base.iterdir():
+                if not (sdir.is_dir() and _SESSION_ID_RE.match(sdir.name)):
+                    continue
+                for p in sdir.glob("*.json"):
+                    if self._expired(p, now):
+                        p.unlink(missing_ok=True)
+                        removed += 1
+                if sdir != self.dir:
+                    try:
+                        sdir.rmdir()  # only succeeds when empty
+                    except OSError:
+                        pass
+        except OSError:
+            logger.warning("dictionary_cache_prune_failed", exc_info=True)
+        return removed
 
 
 def resolve_effective_dictionary(
@@ -754,7 +1049,10 @@ class DataQualityAnalyzer:
         for attempt in (1, 2):
             failure = None
             try:
-                response = requests.post(url, files=files, data=form_data, headers=headers, timeout=timeout)
+                # allow_redirects=False: a redirect would re-send the X-API-Key to wherever
+                # the Location header points; any 3xx is treated as an error below.
+                response = requests.post(url, files=files, data=form_data, headers=headers,
+                                         timeout=timeout, allow_redirects=False)
             except requests.exceptions.ConnectionError as e:
                 failure = (f"Could not connect to the analysis service at {self.api_base_url} "
                            f"({type(e).__name__}).", type(e).__name__, None)
@@ -778,6 +1076,14 @@ class DataQualityAnalyzer:
                 time.sleep(self.COLD_START_RETRY_DELAY_SECONDS)
                 continue
             raise RuntimeError(f"{message} Retried once; please try again in a minute or contact the app owner.")
+
+        if 300 <= response.status_code < 400:
+            logger.error("api_call_failed url=%s error_class=redirect_refused http_status=%s",
+                         url, response.status_code)
+            raise RuntimeError(
+                f"Data-analyzer API answered with a redirect (HTTP {response.status_code}), "
+                "which the UI refuses to follow because the request carries the API key. "
+                "Check that DATA_ANALYZER_API_URL is the API's final https URL.")
 
         if response.status_code != 200:
             try:
@@ -1073,7 +1379,7 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
         if error_count > 0 or warning_count > 0:
             caption_parts.append(f"🔴 {int(error_count)} cells with errors, 🟡 {int(warning_count)} cells with warnings")
         if unmapped_count > 0:
-            cols_str = ', '.join(list(unmapped_column_warnings.keys())[:5])
+            cols_str = ', '.join(md_escape(c) for c in list(unmapped_column_warnings.keys())[:5])
             if len(unmapped_column_warnings) > 5:
                 cols_str += f", +{len(unmapped_column_warnings) - 5} more"
             caption_parts.append(
@@ -1084,10 +1390,15 @@ def create_issue_heatmap(df: pd.DataFrame, issues: list):
             st.caption(" · ".join(caption_parts))
 
     except Exception as e:
-        st.caption(f"Issue map unavailable: {str(e)}")
+        st.caption(f"Issue map unavailable ({type(e).__name__})")
 
 def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
-    """Export data to Excel with error cells highlighted"""
+    """Export data to Excel with error cells highlighted.
+
+    Text that starts with = + - @ (also after whitespace/tab/CR) - in data
+    cells, column headers and issue text - is stored as a literal text cell,
+    never a live formula (CWE-1236). Numbers and dates keep their types.
+    """
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -1122,9 +1433,12 @@ def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
 
                     # Add comment with issue details
                     from openpyxl.comments import Comment
-                    cell.comment = Comment(issue['message'], "Data Analyzer")
-                except:
+                    cell.comment = Comment(str(issue['message']), "Data Analyzer")
+                except Exception:
                     pass
+
+        # Neutralise formula-like text on EVERY sheet (data, headers, issues)
+        force_text_cells(workbook)
 
         # Auto-adjust column widths
         for column in worksheet.columns:
@@ -1134,7 +1448,7 @@ def export_to_excel_with_highlighting(df: pd.DataFrame, issues: list) -> bytes:
                 try:
                     if len(str(cell.value)) > max_length:
                         max_length = len(str(cell.value))
-                except:
+                except Exception:
                     pass
             adjusted_width = min(max_length + 2, 50)
             worksheet.column_dimensions[column_letter].width = adjusted_width
@@ -1164,22 +1478,19 @@ if 'dict_cache' not in st.session_state:
     st.session_state.dict_cache = {}  # Cache for parsed dictionaries
 if 'last_dict_file' not in st.session_state:
     st.session_state.last_dict_file = None  # Track last uploaded dictionary
-if 'cache_dir' not in st.session_state:
-    # Create persistent cache directory (user-specific to avoid multi-user conflicts)
-    import getpass
+if 'cache_session_id' not in st.session_state:
+    # Random per-browser-session id: namespaces this session's dictionary cache
+    # so other users' sessions can neither read, count nor delete its entries.
+    st.session_state.cache_session_id = secrets.token_hex(16)
+if 'dict_cache_store' not in st.session_state:
     try:
-        username = getpass.getuser()
-    except:
-        # Fallback if getuser() fails
-        import os
-        username = os.environ.get('USER', os.environ.get('USERNAME', 'default'))
+        st.session_state.dict_cache_store = DictionaryCache(
+            default_cache_base(), st.session_state.cache_session_id)
+        st.session_state.dict_cache_store.prune()  # drop expired entries of any session
+    except OSError:
+        logger.warning("dictionary_cache_unavailable", exc_info=True)
+        st.session_state.dict_cache_store = None  # fall back to the in-memory cache only
 
-    cache_dir = Path.home() / f'.data_analyzer_cache_{username}'
-    cache_dir.mkdir(exist_ok=True)
-    st.session_state.cache_dir = cache_dir
-
-    print(f"\n📦 Cache directory: {cache_dir}")
-    print(f"   (User-specific to avoid multi-user conflicts)\n")
 
 if nav_choice == "Analyze":
     # Subtitle only - title is in the navbar
@@ -1201,8 +1512,12 @@ if nav_choice == "Analyze":
                 label_visibility="collapsed"
             )
 
+            if uploaded_file and uploaded_file.size > max_upload_bytes():
+                st.error(f"This file is {uploaded_file.size / (1024 * 1024):.1f} MB; the upload limit is "
+                         f"{max_upload_bytes() // (1024 * 1024)} MB. Split the file or contact the app owner.")
+                uploaded_file = None
             if uploaded_file:
-                with st.spinner(f"Processing {uploaded_file.name}..."):
+                with st.spinner("Processing the uploaded data file..."):
                     try:
                         if uploaded_file.name.endswith('.csv'):
                             st.session_state.data = pd.read_csv(uploaded_file)
@@ -1224,7 +1539,9 @@ if nav_choice == "Analyze":
                             st.session_state.data_source_format = 'tsv'
                         st.success(f"✅ Loaded {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
                     except Exception as e:
-                        st.error(f"Error loading file: {str(e)}")
+                        logger.error("data_load_failed error_class=%s %s", type(e).__name__,
+                                     file_fingerprint(uploaded_file.name, uploaded_file.size))
+                        st.error(f"Error loading file: {md_escape(e)}")
 
             # Demo data selector below file uploader
             demo_option = st.selectbox(
@@ -1290,10 +1607,14 @@ if nav_choice == "Analyze":
                 )
                 st.caption(f"Model in use for AI parsing: **{st.session_state.llm_deployment}**")
 
+            if dict_file and dict_file.size > max_upload_bytes():
+                st.error(f"This dictionary is {dict_file.size / (1024 * 1024):.1f} MB; the upload limit is "
+                         f"{max_upload_bytes() // (1024 * 1024)} MB.")
+                dict_file = None
+
             # Add LLM parsing option if available with auto-detection
             if LLM_AVAILABLE and dict_file:
-                # DEBUG: Show filename
-                st.caption(f"📎 Uploaded file: **{dict_file.name}** ({dict_file.type if hasattr(dict_file, 'type') else 'unknown type'})")
+                st.caption(f"📎 Uploaded file: **{md_escape(dict_file.name)}**")
 
                 llm_mode = st.selectbox(
                     "Dictionary parsing method:",
@@ -1309,13 +1630,11 @@ if nav_choice == "Analyze":
                     use_llm = False
                 else:  # Auto-detect
                     # Check file type and structure
-                    print(f"\n🔍 AUTO-DETECT: Checking file '{dict_file.name}'")
-                    print(f"   Extension check: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}")
+                    logger.info("dictionary_auto_detect %s", file_fingerprint(dict_file.name, dict_file.size))
 
                     if dict_file.name.endswith('.pdf'):
                         use_llm = True
                         st.info("🤖 Auto-detected: PDF requires AI parsing")
-                        print(f"   ✅ Detected as PDF, will use LLM")
                     elif dict_file.name.endswith('.csv'):
                         # Peek at CSV to check if it's structured
                         dict_file.seek(0)
@@ -1346,7 +1665,7 @@ if nav_choice == "Analyze":
                             st.info("🤖 Auto-detected: Unstructured Excel, using AI parsing")
                     else:
                         use_llm = True
-                        st.info(f"🤖 Auto-detected: {dict_file.name.split('.')[-1].upper()} file, using AI parsing")
+                        st.info(f"🤖 Auto-detected: {md_escape(dict_file.name.split('.')[-1].upper())} file, using AI parsing")
             else:
                 use_llm = False
 
@@ -1355,26 +1674,23 @@ if nav_choice == "Analyze":
                     # Calculate file hash for caching (works for all file types)
                     dict_file.seek(0)
                     raw_content = dict_file.read()
-                    file_hash = hashlib.md5(raw_content).hexdigest()
+                    file_hash = hashlib.sha256(raw_content).hexdigest()
                     dict_file.seek(0)  # Reset for reading
 
-                    # Create cache key with LLM flag
+                    # Create cache key with LLM flag. Disk entries are private to
+                    # this browser session (see DictionaryCache); None = memory only.
                     cache_key = f"{file_hash}_llm" if use_llm else file_hash
-                    cache_file = st.session_state.cache_dir / f"{cache_key}.json"
+                    _store = st.session_state.get("dict_cache_store")
+                    _disk_hit = _store.get(cache_key) if _store else None
 
                     # Check if already cached
                     if cache_key in st.session_state.dict_cache:
                         # Use in-memory cache
                         st.session_state.dictionary = st.session_state.dict_cache[cache_key]
 
-                        # CLEAR CACHE LOGGING
-                        print("\n" + "="*80)
-                        print("💾 LOADING FROM MEMORY CACHE (NO LLM CALL)")
-                        print(f"   Cache key: {cache_key}")
-                        print(f"   File: {dict_file.name}")
-                        print("="*80 + "\n")
+                        logger.info("dictionary_cache_hit tier=memory %s", file_fingerprint(dict_file.name, len(raw_content)))
 
-                        st.success(f"⚡ Using cached dictionary (instant load)")
+                        st.success("⚡ Using cached dictionary (instant load)")
                         st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
 
                         if use_llm:
@@ -1382,19 +1698,11 @@ if nav_choice == "Analyze":
                             st.info(f"📊 Contains {fields_count} AI-extracted field definitions")
                         else:
                             st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
-                    elif cache_file.exists():
-                        # Load from persistent cache file (JSON, not pickle - avoids
-                        # insecure deserialization if the cache dir is ever shared/writable)
-                        with open(cache_file, 'r', encoding='utf-8') as f:
-                            st.session_state.dictionary = json.load(f)
-                            st.session_state.dict_cache[cache_key] = st.session_state.dictionary
-
-                        # CLEAR CACHE LOGGING
-                        print("\n" + "="*80)
-                        print("💾 LOADING FROM DISK CACHE (NO LLM CALL)")
-                        print(f"   Cache file: {cache_file.name}")
-                        print(f"   File: {dict_file.name}")
-                        print("="*80 + "\n")
+                    elif _disk_hit is not None:
+                        # Per-session JSON cache entry (JSON only, never shared)
+                        st.session_state.dictionary = _disk_hit
+                        st.session_state.dict_cache[cache_key] = st.session_state.dictionary
+                        logger.info("dictionary_cache_hit tier=disk %s", file_fingerprint(dict_file.name, len(raw_content)))
 
                         st.success(f"⚡ Loaded dictionary from disk cache (no API calls)")
                         st.warning("🔄 **CACHE HIT**: Using previously parsed dictionary. Clear cache below if data dictionary changed.")
@@ -1409,10 +1717,7 @@ if nav_choice == "Analyze":
                         # CLEAR LLM MARKER
                         _model_label = st.session_state.get("llm_deployment") or llm_model_label()
                         st.warning(f"🤖 **LLM ACTIVE**: Sending data to Azure OpenAI ({_model_label}) for intelligent dictionary parsing...")
-                        print("\n" + "="*80)
-                        print("🤖 LLM DICTIONARY PARSER INVOKED")
-                        print(f"   Size: {len(raw_content)} bytes")
-                        print("="*80 + "\n")
+                        logger.info("llm_dictionary_parse_started size_bytes=%d", len(raw_content))
 
                         # More informative spinner with warning about processing time
                         with st.spinner("🤖 Using AI to extract field definitions... This may take 30-60 seconds for large PDFs."):
@@ -1420,8 +1725,8 @@ if nav_choice == "Analyze":
                             file_content = ""
                             if dict_file.name.endswith('.pdf'):
                                 pdf_reader = pypdf.PdfReader(dict_file)
-                                for page in pdf_reader.pages:
-                                    file_content += page.extract_text() + "\n"
+                                # Bounded pages/characters; raises DictionaryTooLargeError
+                                file_content = extract_pdf_text(pdf_reader)
                             elif dict_file.name.endswith('.csv'):
                                 file_content = dict_file.read().decode('utf-8')
                             elif dict_file.name.endswith('.txt'):
@@ -1439,25 +1744,15 @@ if nav_choice == "Analyze":
                             else:
                                 file_content = dict_file.read().decode('utf-8')
 
+                            check_dictionary_text_size(file_content)
+
                             # Initialize LLM parser
                             llm_parser = LLMDictionaryParser()
 
-                            # Estimate tokens for browser console log
-                            import time
                             estimated_tokens = llm_parser.count_tokens(file_content)
                             start_time = time.time()
-                            start_timestamp = time.strftime('%H:%M:%S')
-
-                            # Log to browser console
-                            log_to_browser_console(
-                                f"🤖 LLM parsing started at {start_timestamp}",
-                                {
-                                    "model": llm_parser.deployment,
-                                    "tokens": estimated_tokens,
-                                    "file": dict_file.name,
-                                    "size_bytes": len(file_content)
-                                }
-                            )
+                            logger.info("llm_dictionary_parse_input model=%s tokens=%s chars=%d",
+                                        llm_parser.deployment, estimated_tokens, len(file_content))
 
                             # Parse with LLM
                             # Don't truncate - the LLM parser handles chunking internally
@@ -1484,15 +1779,9 @@ if nav_choice == "Analyze":
                             # Calculate elapsed time
                             elapsed_time = time.time() - start_time
 
-                            # Log completion to browser console
-                            log_to_browser_console(
-                                f"✅ LLM parsing completed in {elapsed_time:.1f}s",
-                                {
-                                    "fields_extracted": len(parsed_result.get('fields', [])),
-                                    "chunks_processed": parsed_result.get('metadata', {}).get('chunks_processed', 0),
-                                    "mode": parsed_result.get('metadata', {}).get('mode', 'unknown')
-                                }
-                            )
+                            logger.info("llm_dictionary_parse_done seconds=%.1f fields=%d chunks=%s",
+                                        elapsed_time, len(parsed_result.get('fields', [])),
+                                        parsed_result.get('metadata', {}).get('chunks_processed', 0))
 
                             # Store the parsed dictionary
                             st.session_state.dictionary = {
@@ -1505,9 +1794,9 @@ if nav_choice == "Analyze":
 
                             # Cache the result both in memory and to disk
                             st.session_state.dict_cache[cache_key] = st.session_state.dictionary
-                            with open(cache_file, 'w', encoding='utf-8') as f:
-                                json.dump(st.session_state.dictionary, f)
-                            st.info(f"💾 Dictionary cached - future loads will be instant (no API calls)")
+                            if _store:
+                                _store.put(cache_key, st.session_state.dictionary)
+                            st.info("💾 Dictionary cached for this session - re-loading it will be instant (no API calls)")
 
                             # Add processing time to success message
                             processing_time = parsed_result.get('metadata', {}).get('processing_time_seconds', 0)
@@ -1520,117 +1809,68 @@ if nav_choice == "Analyze":
                                 expand_fields = len(parsed_result['fields']) <= 20
                                 with st.expander(f"📋 Extracted Fields ({len(parsed_result['fields'])})", expanded=expand_fields):
                                     for field in parsed_result['fields'][:10]:
-                                        field_info = f"**{field['field_name']}** ({field['data_type']})"
-                                        if field.get('required'):
-                                            field_info += " *[Required]*"
-                                        if field.get('description'):
-                                            field_info += f"\n   {field['description']}"
-                                        if field.get('min_value') or field.get('max_value'):
-                                            field_info += f"\n   Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
-                                        if field.get('allowed_values'):
-                                            field_info += f"\n   Values: {', '.join(field['allowed_values'][:5])}"
-                                        st.markdown(field_info)
+                                        if isinstance(field, dict):
+                                            st.markdown(field_markdown(field))
                                     if len(parsed_result['fields']) > 10:
                                         st.info(f"📊 Showing first 10 of {len(parsed_result['fields'])} extracted fields. Use 'View All Fields' below to see more.")
 
                     elif dict_file.name.endswith('.pdf'):
-                        # PDF without LLM - already have hash from above
+                        # PDF without LLM. (Cache hits for this key were already
+                        # handled by the branches above.)
                         dict_file.seek(0)  # Reset for reading
 
-                        # Check persistent file cache first
-                        cache_file = st.session_state.cache_dir / f"{file_hash}.json"
+                        st.info("📄 **MANUAL PARSING**: Using basic text patterns (limited extraction). Enable AI parsing for better results.")
+                        logger.info("manual_pdf_parse_started %s", file_fingerprint(dict_file.name, len(raw_content)))
 
-                        if cache_file.exists():
-                            # Load from persistent cache file (JSON, not pickle)
-                            with open(cache_file, 'r', encoding='utf-8') as f:
-                                st.session_state.dictionary = json.load(f)
-                                st.session_state.dict_cache[file_hash] = st.session_state.dictionary
-                            st.success(f"⚡ Loaded dictionary from cache (instant)")
-                            st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
-                        elif file_hash in st.session_state.dict_cache:
-                            # Use in-memory cache
-                            st.session_state.dictionary = st.session_state.dict_cache[file_hash]
-                            st.success(f"⚡ Using cached dictionary '{dict_file.name}' (instant load)")
-                            st.info(f"📊 Contains {len(st.session_state.dictionary.get('rules', {}))} validation rules")
-                        else:
-                            # Manual PDF parsing (NO LLM)
-                            st.info("📄 **MANUAL PARSING**: Using basic regex patterns (limited extraction). Enable AI parsing for better results.")
-                            print("\n" + "="*80)
-                            print("📄 MANUAL PDF PARSER (NO LLM)")
-                            print(f"   File: {dict_file.name}")
-                            print("   ⚠️ WARNING: Basic regex patterns only - may miss complex field definitions")
-                            print("="*80 + "\n")
+                        # Parse PDF dictionary with container to prevent UI blocking
+                        with st.container():
+                            progress_bar = st.progress(0, text="Parsing PDF dictionary...")
 
-                            # Parse PDF dictionary with container to prevent UI blocking
-                            with st.container():
-                                progress_bar = st.progress(0, text="Parsing PDF dictionary...")
+                            # Read PDF content. Page count and total characters are
+                            # bounded (UI_PDF_MAX_PAGES / UI_DICT_MAX_CHARS); a
+                            # DictionaryTooLargeError is shown to the user below.
+                            pdf_reader = pypdf.PdfReader(dict_file)
+                            num_pages = len(pdf_reader.pages)
+                            extracted_text = extract_pdf_text(pdf_reader)
+                            progress_bar.progress(1.0, text=f"Processed {num_pages} pages")
 
-                                # Read PDF content
-                                pdf_reader = pypdf.PdfReader(dict_file)
-                                num_pages = len(pdf_reader.pages)
+                            # Linear-time pattern extraction (no ReDoS, see extract_pdf_manual_rules)
+                            extracted_rules = extract_pdf_manual_rules(extracted_text)
 
-                                extracted_text = ""
-                                extracted_rules = {}
+                            # Clear progress bar
+                            progress_bar.empty()
 
-                                # Process pages with continuous progress updates
-                                for i, page in enumerate(pdf_reader.pages):
-                                    # Update progress for every page
-                                    progress_bar.progress((i + 1) / num_pages, text=f"Processing page {i+1} of {num_pages}...")
+                        # Store extracted dictionary
+                        st.session_state.dictionary = {
+                            "source": "PDF",
+                            "filename": dict_file.name,
+                            "rules": extracted_rules,
+                            "pages": num_pages,
+                            "text_length": len(extracted_text),
+                            "hash": file_hash
+                        }
 
-                                    page_text = page.extract_text()
-                                    extracted_text += page_text
+                        # Cache the parsed dictionary in memory and (per session) on disk
+                        st.session_state.dict_cache[file_hash] = st.session_state.dictionary
+                        if _store:
+                            _store.put(file_hash, st.session_state.dictionary)
 
-                                    # Look for validation rules in the PDF (example patterns)
-                                    # Look for date fields
-                                    date_fields = re.findall(r'([\w_]+).*?(?:date|Date|DATE)', page_text)
-                                    for field in date_fields:
-                                        if field not in extracted_rules:
-                                            extracted_rules[field] = {"type": "date"}
+                        st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
+                        st.info("💾 Dictionary cached for this session")
 
-                                    # Look for numeric ranges
-                                    range_patterns = re.findall(r'([\w_]+).*?(?:range|Range|between).*?(\d+).*?(?:to|and|-|–).*?(\d+)', page_text)
-                                    for field, min_val, max_val in range_patterns:
-                                        if field not in extracted_rules:
-                                            extracted_rules[field] = {"min": int(min_val), "max": int(max_val)}
-
-                                # Clear progress bar
-                                progress_bar.empty()
-
-                            # Store extracted dictionary
-                            st.session_state.dictionary = {
-                                "source": "PDF",
-                                "filename": dict_file.name,
-                                "rules": extracted_rules,
-                                "pages": num_pages,
-                                "text_length": len(extracted_text),
-                                "hash": file_hash
-                            }
-
-                            # Cache the parsed dictionary both in memory and to file
-                            st.session_state.dict_cache[file_hash] = st.session_state.dictionary
-
-                            # Save to persistent cache file (JSON, not pickle)
-                            cache_file = st.session_state.cache_dir / f"{file_hash}.json"
-                            with open(cache_file, 'w', encoding='utf-8') as f:
-                                json.dump(st.session_state.dictionary, f)
-
-                            st.success(f"✅ Parsed {num_pages} pages from PDF dictionary")
-                            st.info(f"💾 Dictionary cached to disk for permanent reuse")
-                            st.caption(f"📁 Cache location: {cache_file}")
-
-                            if extracted_rules:
-                                with st.expander(f"Found {len(extracted_rules)} validation rules", expanded=False):
-                                    for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
-                                        st.text(f"{field}: {rule}")
-                                    if len(extracted_rules) > 10:
-                                        st.text(f"... and {len(extracted_rules) - 10} more")
+                        if extracted_rules:
+                            with st.expander(f"Found {len(extracted_rules)} validation rules", expanded=False):
+                                for field, rule in list(extracted_rules.items())[:10]:  # Show first 10
+                                    st.text(f"{field}: {rule}")
+                                if len(extracted_rules) > 10:
+                                    st.text(f"... and {len(extracted_rules) - 10} more")
                     elif dict_file.name.endswith('.json'):
-                        st.session_state.dictionary = json.load(dict_file)
+                        st.session_state.dictionary = validate_dictionary_shape(json.load(dict_file))
                         st.success("✅ JSON dictionary loaded")
                     elif dict_file.name.endswith('.csv') and not use_llm:
                         # Parse CSV dictionary (NO LLM) - only if LLM mode not active
                         st.info("📊 **CSV PARSING**: Reading structured CSV data dictionary...")
-                        print(f"\n📊 CSV DICTIONARY PARSER: {dict_file.name}")
+                        logger.info("csv_dictionary_parse %s", file_fingerprint(dict_file.name, len(raw_content)))
 
                         import pandas as pd
                         dict_file.seek(0)
@@ -1664,7 +1904,7 @@ if nav_choice == "Analyze":
                         # Parse Excel dictionary (NO LLM) - structured field definitions,
                         # same column-name conventions as the CSV dictionary branch above.
                         st.info("📊 **EXCEL PARSING**: Reading structured Excel data dictionary...")
-                        print(f"\n📊 EXCEL DICTIONARY PARSER: {dict_file.name}")
+                        logger.info("excel_dictionary_parse %s", file_fingerprint(dict_file.name, len(raw_content)))
 
                         dict_file.seek(0)
                         df = DataLoader.load_excel(dict_file.read())
@@ -1694,40 +1934,31 @@ if nav_choice == "Analyze":
                         }
                         st.success(f"✅ Parsed {len(rules)} field definitions from Excel")
                     else:
-                        st.error(f"⚠️ Unsupported dictionary format: **{dict_file.name}**")
-                        st.info(f"Debug: use_llm={use_llm}, LLM_AVAILABLE={LLM_AVAILABLE}, file ends with .csv={dict_file.name.endswith('.csv')}")
-                        print(f"\n⚠️ UNSUPPORTED FORMAT: {dict_file.name}")
-                        print(f"   use_llm: {use_llm}")
-                        print(f"   LLM_AVAILABLE: {LLM_AVAILABLE}")
-                        print(f"   File extension checks: .pdf={dict_file.name.endswith('.pdf')}, .csv={dict_file.name.endswith('.csv')}, .json={dict_file.name.endswith('.json')}")
+                        st.error(f"⚠️ Unsupported dictionary format: **{md_escape(dict_file.name)}**")
+                        logger.warning("dictionary_unsupported_format use_llm=%s llm_available=%s %s",
+                                       use_llm, LLM_AVAILABLE, file_fingerprint(dict_file.name, len(raw_content)))
+                except DictionaryTooLargeError as e:
+                    # Our own limit message (page/character caps): safe and actionable.
+                    logger.warning("dictionary_too_large %s", file_fingerprint(dict_file.name, dict_file.size))
+                    st.error(f"⚠️ {md_escape(e)}")
                 except Exception as e:
-                    st.error(f"Error loading dictionary: {str(e)}")
+                    logger.error("dictionary_load_failed error_class=%s %s", type(e).__name__,
+                                 file_fingerprint(dict_file.name, dict_file.size))
+                    st.error(f"Error loading dictionary: {md_escape(e)}")
 
             # View All Fields button - accessible location near dictionary upload
             if st.session_state.dictionary and st.session_state.dictionary.get('fields'):
                 fields_list = st.session_state.dictionary['fields']
+                if not isinstance(fields_list, list):
+                    fields_list = []
                 num_fields = len(fields_list)
 
                 if num_fields > 0:
                     st.markdown("---")
                     with st.expander(f"📋 View All {num_fields} Extracted Fields", expanded=False):
                         for field in fields_list:
-                            field_info = f"**{field['field_name']}** ({field.get('data_type', 'unknown')})"
-                            if field.get('required'):
-                                field_info += " *[Required]*"
-                            if field.get('description'):
-                                # Truncate very long descriptions
-                                desc = field['description'][:150] + "..." if len(field['description']) > 150 else field['description']
-                                field_info += f"\n   📝 {desc}"
-                            if field.get('min_value') is not None or field.get('max_value') is not None:
-                                field_info += f"\n   📊 Range: {field.get('min_value', 'N/A')} - {field.get('max_value', 'N/A')}"
-                            if field.get('allowed_values'):
-                                vals = field['allowed_values'][:8]  # Show first 8
-                                vals_str = ', '.join(vals)
-                                if len(field['allowed_values']) > 8:
-                                    vals_str += f" ... +{len(field['allowed_values']) - 8} more"
-                                field_info += f"\n   ✓ Allowed: {vals_str}"
-                            st.markdown(field_info)
+                            if isinstance(field, dict):
+                                st.markdown(field_markdown(field, detailed=True, max_values=8))
 
             # Demo dictionary selector below file uploader
             demo_dict = st.selectbox(
@@ -1788,24 +2019,24 @@ if nav_choice == "Analyze":
             st.markdown("---")
             st.markdown("#### Cache Management")
 
-            # Include legacy .pkl files so old pickle-based caches get cleaned up too
-            cache_files = list(st.session_state.cache_dir.glob("*.json")) + list(st.session_state.cache_dir.glob("*.pkl"))
-            num_cached = len(cache_files)
+            # Only THIS session's entries are counted or deleted (no server paths,
+            # no other users' activity).
+            _store = st.session_state.get("dict_cache_store")
+            num_cached = _store.count() if _store else 0
 
             if num_cached > 0:
-                st.caption(f"📦 {num_cached} dictionaries cached")
+                st.caption(f"📦 {num_cached} dictionaries cached in your session")
 
-                if st.button("🗑️ Clear All Cache", help="Delete all cached dictionaries to force re-parsing"):
+                if st.button("🗑️ Clear my cache", help="Delete your session's cached dictionaries to force re-parsing"):
                     try:
-                        for cache_file in cache_files:
-                            cache_file.unlink()
+                        removed = _store.clear()
                         st.session_state.dict_cache = {}
                         st.session_state.dictionary = None
-                        st.success(f"✅ Cleared {num_cached} cached dictionaries")
-                        print(f"\n🗑️ CLEARED {num_cached} CACHE FILES\n")
+                        st.success(f"✅ Cleared {removed} cached dictionaries")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error clearing cache: {e}")
+                    except OSError as e:
+                        logger.error("dictionary_cache_clear_failed error_class=%s", type(e).__name__)
+                        st.error("❌ Could not clear the cache.")
             else:
                 st.caption("No cached dictionaries")
 
@@ -1868,16 +2099,13 @@ if nav_choice == "Analyze":
                     num_rules = len(st.session_state.dictionary.get('rules', {}))
                     num_fields = len(st.session_state.dictionary.get('fields', []))
 
-                    print("\n" + "="*80)
-                    print("🔍 RUNNING DATA QUALITY ANALYSIS")
-                    print(f"   Data: {len(st.session_state.data)} rows × {len(st.session_state.data.columns)} columns")
-                    print(f"   Dictionary: {dict_filename} (source: {dict_source})")
-                    print(f"   Rules: {num_rules}, Fields: {num_fields}")
-                    print("="*80 + "\n")
+                    logger.info("analysis_started rows=%d columns=%d dictionary_source=%s rules=%d fields=%d",
+                                len(st.session_state.data), len(st.session_state.data.columns),
+                                dict_source, num_rules, num_fields)
 
-                    st.info(f"📖 Using dictionary: **{dict_filename}** ({dict_source}) - {num_rules} rules, {num_fields} fields")
+                    st.info(f"📖 Using dictionary: **{md_escape(dict_filename)}** ({md_escape(dict_source)}) - {num_rules} rules, {num_fields} fields")
                 else:
-                    print("\n⚠️ RUNNING ANALYSIS WITHOUT DICTIONARY (auto-detection only)\n")
+                    logger.info("analysis_started_without_dictionary")
                     st.info("⚠️ No dictionary loaded - using auto-detection only")
 
                 _status_box = st.empty()
@@ -1899,8 +2127,9 @@ if nav_choice == "Analyze":
                         # Expected, already-explained failures: one clear line,
                         # no traceback for the user. Logged for diagnosis.
                         _status_box.empty()
-                        logger.error("analysis_failed error_class=%s message=%r", type(e).__name__, str(e))
-                        st.error(f"❌ Analysis failed: {e}")
+                        # Class only: the text may quote upstream/API detail (cell values).
+                        logger.error("analysis_failed error_class=%s", type(e).__name__)
+                        st.error(f"❌ Analysis failed: {md_escape(e)}")
                     except Exception as e:
                         _status_box.empty()
                         logger.error("analysis_failed_unexpected error_class=%s\n%s",
@@ -1918,7 +2147,7 @@ if nav_choice == "Analyze":
         summary = st.session_state.analysis_results['summary']
 
         if st.session_state.analysis_results.get('logic_validation_error'):
-            st.warning(f"⚠️ {st.session_state.analysis_results['logic_validation_error']}")
+            st.warning(f"⚠️ {md_escape(st.session_state.analysis_results['logic_validation_error'])}")
 
         # Create columns with space for heatmap
         col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1.2, 1, 1, 1.5])
@@ -1954,12 +2183,12 @@ if nav_choice == "Analyze":
             for issue_type, issues in issues_by_type.items():
                 # Collapse by default for Missing Values and Invalid Values
                 expand_by_default = issue_type not in ['missing_values', 'invalid_value']
-                with st.expander(f"{issue_type.replace('_', ' ').title()} ({len(issues)} issues)", expanded=expand_by_default):
+                with st.expander(f"{md_escape(str(issue_type).replace('_', ' ').title())} ({len(issues)} issues)", expanded=expand_by_default):
                     for issue in issues[:10]:  # Show first 10
                         if issue['severity'] == 'error':
-                            st.error(f"❌ {issue['message']}")
+                            st.error(f"❌ {md_escape(issue['message'])}")
                         else:
-                            st.warning(f"⚠️ {issue['message']}")
+                            st.warning(f"⚠️ {md_escape(issue['message'])}")
                     if len(issues) > 10:
                         st.info(f"... and {len(issues) - 10} more")
 
@@ -1968,11 +2197,11 @@ if nav_choice == "Analyze":
             st.subheader("Recommendations")
             for rec in st.session_state.analysis_results['recommendations']:
                 if rec['priority'] == 'critical':
-                    st.error(f"🔴 **{rec['priority'].upper()}**: {rec['message']}")
+                    st.error(f"🔴 **{md_escape(rec['priority'].upper())}**: {md_escape(rec['message'])}")
                 elif rec['priority'] == 'high':
-                    st.warning(f"🟡 **{rec['priority'].upper()}**: {rec['message']}")
+                    st.warning(f"🟡 **{md_escape(rec['priority'].upper())}**: {md_escape(rec['message'])}")
                 else:
-                    st.info(f"🔵 **{rec['priority'].upper()}**: {rec['message']}")
+                    st.info(f"🔵 **{md_escape(rec['priority'].upper())}**: {md_escape(rec['message'])}")
 
 elif nav_choice == "About":
     st.title("About Data Quality Analyzer")
@@ -2025,7 +2254,7 @@ elif nav_choice == "About":
         with open('assets/data_flow_diagram.mmd', 'r') as f:
             detailed_diagram = f.read()
 
-        st.info("Interactive flowcharts showing the data analysis pipeline:")
+        st.info("Flowcharts showing the data analysis pipeline:")
 
         # Add diagram selector within the content area
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -2039,14 +2268,14 @@ elif nav_choice == "About":
 
         # Render the selected diagram
         if diagram_view == "Simple View":
-            render_mermaid(simple_diagram, height=400)
+            render_mermaid(simple_diagram, height=400, image_path='assets/data_flow_simple.png')
         else:
-            render_mermaid(detailed_diagram, height=700)
+            render_mermaid(detailed_diagram, height=700, image_path='assets/data_flow_diagram.png')
 
     except FileNotFoundError as e:
-        st.info(f"Data flow diagram not found: {str(e)}")
+        st.info("Data flow diagram files were not found.")
     except Exception as e:
-        st.error(f"Error rendering diagram: {str(e)}")
+        st.error(f"Error showing the diagram ({type(e).__name__}).")
 
     st.markdown("---")
     st.header("Use it from code (API)")

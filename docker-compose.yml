@@ -6,11 +6,25 @@ services:
     container_name: data-analyzer-prod
     restart: unless-stopped
     # No external port - accessed only via nginx-helper
+    # SECURITY: only the variables the UI needs are passed (listed explicitly).
+    # Compose still reads ./.env to fill the ${...} values below, but nothing
+    # else in .env (admin passwords, unrelated keys) reaches this container.
+    # Streamlit XSRF/CORS protection is ON by default. If this legacy NGINX
+    # path rewrite trips it on a local/VM test box, add
+    #   - STREAMLIT_INSECURE_LOCAL_ONLY=1
+    # (ignored unless APP_ENV is dev/local/test).
     environment:
       - APP_ENV=dev  # Set to 'dev' for POC/testing (shows red banner)
       - BASE_URL_PATH=/sageapp02  # Tells Streamlit the external path (NGINX strips it when proxying)
-    env_file:
-      - .env
+      - DATA_ANALYZER_API_URL=${DATA_ANALYZER_API_URL:-}
+      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-}
+      - AZURE_OPENAI_DEPLOYMENTS=${AZURE_OPENAI_DEPLOYMENTS:-}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-}
+      - LLM_AUTH=${LLM_AUTH:-identity}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}  # only read when LLM_AUTH=key
+      - UI_MAX_UPLOAD_MB=${UI_MAX_UPLOAD_MB:-25}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/sageapp02/_stcore/health"]
       interval: 30s

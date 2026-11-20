@@ -29,7 +29,7 @@ services:
 
     # Port mapping - expose API on host
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # loopback only; put a TLS reverse proxy in front for remote access
 
     # Environment variables
     # SECURITY: Do not commit secrets to version control

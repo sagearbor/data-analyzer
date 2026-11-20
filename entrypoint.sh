@@ -5,23 +5,46 @@
 BASE_URL_PATH=${BASE_URL_PATH:-""}
 
 # ---------------------------------------------------------------------------
-# Security posture (XSRF + CORS)
+# Security posture (XSRF + CORS) - ON BY DEFAULT
 #
-# The original VM/NGINX deployment DISABLED Streamlit's XSRF and CORS guards
-# because the NGINX sidecar terminated TLS and rewrote paths, which tripped
-# Streamlit's same-origin checks. That posture is UNSAFE when Streamlit is
-# exposed directly behind a modern reverse proxy.
+# Streamlit's XSRF protection and CORS/origin check stay ENABLED. Azure
+# Container Apps ingress and a modern single-origin reverse proxy preserve
+# Host/Origin, so they work and must stay on.
 #
-# Azure Container Apps ingress is a single-origin HTTPS reverse proxy that
-# preserves Host/Origin, so the guards work correctly and MUST stay ON.
-# Set STREAMLIT_SECURE=1 (done in the ACA manifest) for the hardened posture.
-# Unset / 0 keeps the legacy VM/NGINX behavior so nothing else breaks.
+# The legacy VM + NGINX path rewrite (nginx-helper.conf) tripped those checks.
+# For that LOCAL-ONLY situation, and nothing else, set
+#     STREAMLIT_INSECURE_LOCAL_ONLY=1
+# to turn both guards off. The override is IGNORED on Azure Container Apps
+# (any CONTAINER_APP_* variable present) or when APP_ENV is not dev/local/test.
+# (STREAMLIT_SECURE=1, used by older manifests, is accepted and is now the
+# default behaviour.)
 # ---------------------------------------------------------------------------
-if [ "${STREAMLIT_SECURE:-0}" = "1" ]; then
-    SEC_FLAGS="--server.enableXsrfProtection=true --server.enableCORS=true"
-else
-    SEC_FLAGS="--server.enableXsrfProtection=false --server.enableCORS=false"
+SEC_FLAGS="--server.enableXsrfProtection=true --server.enableCORS=true"
+if [ "${STREAMLIT_INSECURE_LOCAL_ONLY:-0}" = "1" ]; then
+    ON_ACA=""
+    for v in CONTAINER_APP_NAME CONTAINER_APP_REVISION CONTAINER_APP_HOSTNAME CONTAINER_APP_ENV_DNS_SUFFIX; do
+        [ -n "${!v}" ] && ON_ACA="1"
+    done
+    case "${APP_ENV:-dev}" in
+        dev|development|local|test) LOCAL_ENV="1" ;;
+        *) LOCAL_ENV="" ;;
+    esac
+    if [ -n "$ON_ACA" ] || [ -z "$LOCAL_ENV" ]; then
+        echo "WARNING: STREAMLIT_INSECURE_LOCAL_ONLY is ignored in a deployed environment; XSRF/CORS stay ON." >&2
+    else
+        echo "WARNING: XSRF and CORS protection are OFF (STREAMLIT_INSECURE_LOCAL_ONLY=1, local use only)." >&2
+        SEC_FLAGS="--server.enableXsrfProtection=false --server.enableCORS=false"
+    fi
 fi
+
+# Upload limit in MB (Streamlit's own default is 200, too large for a 1 GiB
+# replica that holds the parsed data in memory). Default 25, below the API's
+# 100 MB cap; override with UI_MAX_UPLOAD_MB (positive integer, else default).
+case "${UI_MAX_UPLOAD_MB:-}" in
+    ""|*[!0-9]*|0) UPLOAD_MB=25 ;;
+    *) UPLOAD_MB="$UI_MAX_UPLOAD_MB" ;;
+esac
+SEC_FLAGS="$SEC_FLAGS --server.maxUploadSize=$UPLOAD_MB"
 
 # ---------------------------------------------------------------------------
 # Fail fast on a broken deployment config. In a non-local environment (ACA, or

@@ -5,7 +5,7 @@
 #
 # Usage:
 #   docker compose -f docker-compose.fullstack.yml up --build -d
-#   open http://localhost:3002          # UI
+#   open http://localhost:3002          # UI (loopback only)
 #   open http://localhost:8000/api/v1/docs   # API Swagger
 #   docker compose -f docker-compose.fullstack.yml down
 #
@@ -24,12 +24,12 @@ services:
     image: data-analyzer-api:local
     environment:
       - APP_ENV=dev
-      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY}
+      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY:?set DATA_ANALYZER_API_KEY in .env - a blank key would leave the API open}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"   # loopback only; never publish on all interfaces
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 15s
@@ -44,14 +44,13 @@ services:
     image: data-analyzer-ui:local
     environment:
       - APP_ENV=dev
-      - STREAMLIT_SECURE=1
       - DATA_ANALYZER_API_URL=http://api:8000   # service-name DNS on the compose network
-      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY}
+      - DATA_ANALYZER_API_KEY=${DATA_ANALYZER_API_KEY:?set DATA_ANALYZER_API_KEY in .env - a blank key would leave the API open}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-}
     ports:
-      - "3002:8002"
+      - "127.0.0.1:3002:8002"   # loopback only; never publish on all interfaces
     depends_on:
       api:
         condition: service_healthy

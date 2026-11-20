@@ -4,9 +4,15 @@
 port = 8002
 address = "0.0.0.0"
 
-# Disable XSRF for reverse proxy
-enableXsrfProtection = false
-enableCORS = false
+# Security guards ON by default. entrypoint.sh re-states them on the command
+# line and has the only (local-only) override, STREAMLIT_INSECURE_LOCAL_ONLY=1.
+enableXsrfProtection = true
+enableCORS = true
+
+# Upload limit in MB (Streamlit default is 200). 25 MB keeps a parsed upload
+# well inside a 1 GiB replica and below the API's 100 MB cap. entrypoint.sh
+# overrides this from UI_MAX_UPLOAD_MB; web_app.py enforces the same value.
+maxUploadSize = 25
 
 # WebSocket configuration for NGINX reverse proxy
 enableWebsocketCompression = false
