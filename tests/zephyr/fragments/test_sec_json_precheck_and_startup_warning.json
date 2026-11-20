@@ -1,0 +1,190 @@
+[
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_a_json_list_with_too_many_rows_is_refused_with_413_before_pandas",
+  "name": "Data Analyzer: A JSON list with too many rows is refused with HTTP 413 before any table is built",
+  "objective": "Proves the row limit is checked on the raw JSON, so a huge file cannot use memory first. HTTP 413 means 'too large'. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The table-building library is replaced by a trap that fails the test if it is ever called.",
+  "steps": [
+   {
+    "action": "Send a JSON list of 6 records with the row limit set to 5.",
+    "data": "6 records of {a: i}",
+    "expected": "HTTP 413 and the message mentions 'rows'; the trap is never triggered."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_a_json_list_with_too_many_rows_is_refused_with_413_before_pandas"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_a_json_list_with_too_many_columns_is_refused_with_413_before_pandas",
+  "name": "Data Analyzer: A JSON list with too many columns is refused with HTTP 413 before any table is built",
+  "objective": "Proves the column limit is checked on the raw JSON, counting columns across all records. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The table-building library is replaced by a trap that fails the test if it is ever called.",
+  "steps": [
+   {
+    "action": "Send 2 records with different keys (4 columns in total) with the column limit set to 3.",
+    "data": "[{a,b},{c,d}]",
+    "expected": "HTTP 413 and the message mentions 'columns'; the trap is not triggered."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_a_json_list_with_too_many_columns_is_refused_with_413_before_pandas"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_a_json_object_of_columns_over_the_limits_is_refused_before_pandas",
+  "name": "Data Analyzer: A JSON object of columns over the limits is refused before any table is built",
+  "objective": "Proves the same row and column limits apply to the column-wise JSON shape. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The table-building library is replaced by a trap that fails the test if it is ever called.",
+  "steps": [
+   {
+    "action": "Send {a: [1,2,3,4]} with the row limit 3.",
+    "data": "4 values in one column",
+    "expected": "HTTP 413."
+   },
+   {
+    "action": "Send {a, b, c} with one value each with the column limit 2.",
+    "data": "3 columns",
+    "expected": "HTTP 413."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_a_json_object_of_columns_over_the_limits_is_refused_before_pandas"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_oversized_json_bytes_are_refused_with_413_before_pandas",
+  "name": "Data Analyzer: JSON text over the byte limit is refused with HTTP 413 before any table is built",
+  "objective": "Proves the size limit on the JSON text itself, and that the error names the setting to change. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The table-building library is replaced by a trap that fails the test if it is ever called.",
+  "steps": [
+   {
+    "action": "Send a record containing 100 'x' characters with the JSON byte limit set to 50.",
+    "data": "One record, 100 characters",
+    "expected": "HTTP 413 and the message contains DATA_ANALYZER_MAX_JSON_BYTES."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_oversized_json_bytes_are_refused_with_413_before_pandas"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_deeply_nested_json_is_refused_cleanly_not_a_500",
+  "name": "Data Analyzer: Very deeply nested JSON is refused with HTTP 400, not a server crash",
+  "objective": "Proves nesting 25 or 5000 levels deep gives a clear user error instead of HTTP 500. Runs for both depths on both routes. both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The table-building library is replaced by a trap that fails the test if it is ever called.",
+  "steps": [
+   {
+    "action": "Send text made of 25 (then 5000) opening brackets followed by the same number of closing brackets.",
+    "data": "Nesting depth 25 and 5000",
+    "expected": "HTTP 400 and the message mentions 'nested'."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_deeply_nested_json_is_refused_cleanly_not_a_500"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_json_that_is_not_a_list_or_object_is_a_400_with_a_stable_message",
+  "name": "Data Analyzer: JSON that is a plain number, text or null is refused with a clear HTTP 400",
+  "objective": "Proves unusable top-level JSON values are rejected with the same message every time. Runs for 3 values on both routes.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model. The table-building library is replaced by a trap that fails the test if it is ever called.",
+  "steps": [
+   {
+    "action": "Send the JSON value 5, then \"x\", then null.",
+    "data": "5; \"x\"; null",
+    "expected": "HTTP 400 and the message says 'list of records or an object of columns'."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_json_that_is_not_a_list_or_object_is_a_400_with_a_stable_message"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_valid_list_of_records_and_dict_of_columns_still_analyse",
+  "name": "Data Analyzer: Normal JSON files in either layout still analyse correctly",
+  "objective": "Proves the new checks do not break good input. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a 2-record list, then the equivalent object of columns.",
+    "data": "[{a:1,b:x},{a:2,b:y}] and {a:[1,2], b:[x,y]}",
+    "expected": "Both get HTTP 200 and report 2 rows."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_valid_list_of_records_and_dict_of_columns_still_analyse"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_the_json_byte_limit_is_never_above_the_overall_limit",
+  "name": "Data Analyzer: The JSON size limit can never exceed the overall upload limit",
+  "objective": "Proves a generous JSON setting is capped by the overall limit, and the default is 25 MB (26,214,400 bytes).",
+  "precondition": "No server request; the library function is called directly.",
+  "steps": [
+   {
+    "action": "Set the JSON limit to 1,000,000 and ask for the effective limit with an overall limit of 500.",
+    "data": "1,000,000 and 500",
+    "expected": "The result is 500."
+   },
+   {
+    "action": "Remove the setting and ask with an overall limit of 1,000,000,000.",
+    "data": "Overall limit 10^9",
+    "expected": "The result is 26,214,400."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_json_byte_limit_is_never_above_the_overall_limit"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_the_library_loader_uses_the_same_bounds",
+  "name": "Data Analyzer: The data loading library applies the same JSON limits",
+  "objective": "Proves the limits also protect the loader used outside the web service.",
+  "precondition": "No server request; the loader is called directly with the row limit set to 2.",
+  "steps": [
+   {
+    "action": "Load a 3-record JSON list.",
+    "data": "3 records",
+    "expected": "A 'data too large' error is raised."
+   },
+   {
+    "action": "Load JSON nested 5000 levels deep.",
+    "data": "5000 brackets",
+    "expected": "An error whose message mentions 'nested' is raised."
+   },
+   {
+    "action": "Load a 2-record JSON list.",
+    "data": "2 records",
+    "expected": "2 rows are returned."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_library_loader_uses_the_same_bounds"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_deployed_without_trusted_proxy_hops_logs_one_shared_mode_warning",
+  "name": "Data Analyzer: A production service that cannot tell callers apart logs one start-up warning",
+  "objective": "Proves operators are warned when the caller address is shared, so the wrong-key lockout is weaker.",
+  "precondition": "Server application in the offline test harness; environment says production; the trusted-proxy hop setting is absent.",
+  "steps": [
+   {
+    "action": "Run the start-up check while capturing warning logs.",
+    "data": "Production, no hop setting",
+    "expected": "The check returns true and exactly one log line contains 'client_id_shared_mode'."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_deployed_without_trusted_proxy_hops_logs_one_shared_mode_warning"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_the_shared_mode_warning_depends_on_deployment_and_the_hops_setting",
+  "name": "Data Analyzer: The shared-address warning depends on the environment and the hop setting",
+  "objective": "Proves the warning appears only for a deployed service without a working hop setting. Runs for 3 cases.",
+  "precondition": "Server application in the offline test harness; the container-name variable is removed.",
+  "steps": [
+   {
+    "action": "Run the start-up check in each case.",
+    "data": "Production with hops 1; production with hops 0; development with hops empty",
+    "expected": "Results are false, true and false respectively."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_shared_mode_warning_depends_on_deployment_and_the_hops_setting"
+ },
+ {
+  "id": "tests.test_sec_json_precheck_and_startup_warning.test_the_startup_event_calls_the_check_and_does_not_refuse_to_start",
+  "name": "Data Analyzer: The service start-up runs the warning check and still starts",
+  "objective": "Proves the warning is wired into start-up and does not stop the service.",
+  "precondition": "Server application in the offline test harness; environment says production; no hop setting.",
+  "steps": [
+   {
+    "action": "Run the service's start-up routine while capturing warning logs.",
+    "data": "Production, no hop setting",
+    "expected": "It completes without error and a log line contains 'client_id_shared_mode'."
+   }
+  ],
+  "source": "tests/test_sec_json_precheck_and_startup_warning.py::test_the_startup_event_calls_the_check_and_does_not_refuse_to_start"
+ }
+]
