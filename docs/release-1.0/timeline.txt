@@ -36,3 +36,6 @@
 2026-11-20 15:23:13 EST | ADP-53 | zephyr record start (674 cases, commit 266cd7f)
 2026-11-20 15:26:09 EST | ADP-54 | RS uploaded (14 UR, 56 FR)
 2026-11-20 15:38:10 EST | ADP-54 | TSRA (TS-T1-001) draft uploaded; TS-S-001 identified as the likely applicable SOP
+2026-11-20 15:43:25 EST | shipit | PR 12 merged to main
+2026-11-20 15:46:22 EST | ADP-55 | images pushed d1c0f86
+2026-11-20 15:53:26 EST | ADP-53 | zephyr record finished
