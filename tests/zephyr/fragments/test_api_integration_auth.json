@@ -1,0 +1,175 @@
+[
+ {
+  "id": "tests.test_api_integration_auth.TestHealthEndpointIntegration.test_health_endpoint_no_auth",
+  "name": "Data Analyzer: Health check works without a key even when keys are configured",
+  "objective": "Shows the health check stays public.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Request the health check with no key.",
+    "data": "No key.",
+    "expected": "HTTP 200; status is 'healthy' or 'degraded'; services is present."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestHealthEndpointIntegration::test_health_endpoint_no_auth"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationHeadersIntegration.test_root_endpoint_no_auth",
+  "name": "Data Analyzer: Front page works without a key",
+  "objective": "Shows the front page stays public.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Request the front page (/).",
+    "data": "No key.",
+    "expected": "HTTP 200; reply contains message and version."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationHeadersIntegration::test_root_endpoint_no_auth"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationHeadersIntegration.test_missing_api_key_header_format",
+  "name": "Data Analyzer: Data check without a key is refused with 401 and an 'ApiKey' challenge",
+  "objective": "Shows, through a real web request, that a missing key is refused before any processing and the reply names the credential type.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Post a tiny CSV to the analyze endpoint with no key header.",
+    "data": "Made-up CSV 'a,b / 1,2'.",
+    "expected": "HTTP 401; WWW-Authenticate header equals 'ApiKey'; the body has a detail or error entry."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationHeadersIntegration::test_missing_api_key_header_format"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationHeadersIntegration.test_invalid_api_key_header_format",
+  "name": "Data Analyzer: Data check with a wrong key is refused with 403",
+  "objective": "Shows a wrong key gives a different status (403) from a missing key (401).",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Post a tiny CSV with the key 'definitely-wrong-key'.",
+    "data": "Made-up CSV.",
+    "expected": "HTTP 403; the body has a detail or error entry."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationHeadersIntegration::test_invalid_api_key_header_format"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationHeadersIntegration.test_valid_api_key_reaches_handler",
+  "name": "Data Analyzer: Data check with the correct key is accepted and produces a report",
+  "objective": "Shows the correct key is let through and the analysis runs.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Post a tiny CSV with the correct key.",
+    "data": "Made-up CSV.",
+    "expected": "HTTP 200; the reply contains summary, issues or quality_checks."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationHeadersIntegration::test_valid_api_key_reaches_handler"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationHeadersIntegration.test_dictionary_endpoint_rejects_missing_and_wrong_key",
+  "name": "Data Analyzer: Dictionary fetch also requires the key (401 without, 403 with wrong)",
+  "objective": "Shows key protection applies to a second address too, not only the data check.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/nonexistent-id-xyz with no key.",
+    "data": "Made-up ID.",
+    "expected": "HTTP 401 with WWW-Authenticate 'ApiKey'."
+   },
+   {
+    "action": "Request the same address with a wrong key.",
+    "data": "Wrong key.",
+    "expected": "HTTP 403."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationHeadersIntegration::test_dictionary_endpoint_rejects_missing_and_wrong_key"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestSecurityBestPractices.test_api_key_not_in_logs",
+  "name": "Data Analyzer: API key is not written to the log (weak check)",
+  "objective": "Shows the key is not logged when the key check runs. Likely nothing is logged at all, so the check may pass without testing much.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Run the key check with the correct key and read the captured log records.",
+    "data": "Correct key.",
+    "expected": "No captured log record contains the key text."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestSecurityBestPractices::test_api_key_not_in_logs"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestSecurityBestPractices.test_admin_password_not_in_logs",
+  "name": "Data Analyzer: Admin password is not written to the log (weak check)",
+  "objective": "As above for the administrator password.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Run the admin check with the correct password and read the captured log records.",
+    "data": "Correct password.",
+    "expected": "No captured log record contains the password."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestSecurityBestPractices::test_admin_password_not_in_logs"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestSecurityBestPractices.test_error_messages_dont_leak_credentials",
+  "name": "Data Analyzer: Refusal text does not contain the typed key, the real key or the setting name",
+  "objective": "Shows error messages do not leak secrets.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Run the key check with 'wrong-key'.",
+    "data": "Wrong key.",
+    "expected": "The refusal message contains neither 'wrong-key', the real key, nor 'DATA_ANALYZER_API_KEY'."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestSecurityBestPractices::test_error_messages_dont_leak_credentials"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationConfiguration.test_auth_enabled_when_configured",
+  "name": "Data Analyzer: Configured key and admin password are loaded by the server",
+  "objective": "Shows the server picks up the settings it was given.",
+  "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
+  "steps": [
+   {
+    "action": "Read the key and admin password held by the server.",
+    "data": "Made-up values.",
+    "expected": "Both are present and equal the configured values."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationConfiguration::test_auth_enabled_when_configured"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationConfiguration.test_auth_disabled_when_not_configured",
+  "name": "Data Analyzer: With no settings, the server holds no key and no admin password",
+  "objective": "Shows authentication is off when nothing is configured.",
+  "precondition": "Server application reloaded with all environment settings cleared and the local settings file ignored.",
+  "steps": [
+   {
+    "action": "Read the key and admin password held by the server.",
+    "data": "No settings.",
+    "expected": "Both are empty (none)."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationConfiguration::test_auth_disabled_when_not_configured"
+ },
+ {
+  "id": "tests.test_api_integration_auth.TestAuthenticationConfiguration.test_unconfigured_auth_permits_request_without_header_end_to_end",
+  "name": "Data Analyzer: With no key configured, a data check without a key succeeds",
+  "objective": "Shows the designed permissive behaviour through a real web request.",
+  "precondition": "Server application reloaded with all environment settings cleared and the local settings file ignored.",
+  "steps": [
+   {
+    "action": "Post a tiny CSV to the analyze endpoint with no key header.",
+    "data": "Made-up CSV.",
+    "expected": "HTTP 200; the reply contains summary, issues or quality_checks."
+   }
+  ],
+  "source": "tests/test_api_integration_auth.py::TestAuthenticationConfiguration::test_unconfigured_auth_permits_request_without_header_end_to_end"
+ }
+]

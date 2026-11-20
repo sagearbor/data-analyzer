@@ -1,0 +1,156 @@
+[
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_analysis_service_get_info_does_not_read_a_server_file_named_in_the_content",
+  "name": "Data Analyzer: Data-info request does not read a server file whose path is sent as the data",
+  "objective": "Shows someone cannot trick the service into revealing a file on the server by sending its path in place of data.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Create a temporary file containing the made-up line 'SYNTHETIC_SECRET=canary-value-123'; ask the data-info service about the file's path sent as CSV content.",
+    "data": "Content: the path of that file; format csv",
+    "expected": "Neither the secret line nor the file's second line appears anywhere in the result."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_analysis_service_get_info_does_not_read_a_server_file_named_in_the_content"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_analysis_service_analyze_does_not_read_a_server_file_named_in_the_content",
+  "name": "Data Analyzer: Analysis request does not read a server file whose path is sent as the data",
+  "objective": "Same protection for the analysis service.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Run an analysis with the path of the made-up canary file as the CSV content.",
+    "data": "Content: the path of the file; format csv",
+    "expected": "Neither the secret line nor the second line appears in the result."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_analysis_service_analyze_does_not_read_a_server_file_named_in_the_content"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_analysis_service_json_format_does_not_read_a_server_file",
+  "name": "Data Analyzer: JSON-format data-info request does not read a server file",
+  "objective": "Shows the JSON route is protected the same way.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Write a JSON file containing the made-up value 'canary-json-value'; ask for data info with that file's path as JSON content.",
+    "data": "Content: path of the JSON file; format json",
+    "expected": "The made-up value does not appear in the result."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_analysis_service_json_format_does_not_read_a_server_file"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_mcp_tool_handler_does_not_read_a_server_file_named_in_the_arguments",
+  "name": "Data Analyzer: The tool-server's data-info command does not read a server file named in its arguments",
+  "objective": "Shows the MCP tool interface (the assistant-tool connection) cannot be used to read server files.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Call the tool command 'get_data_info' with the path of the canary file as the data content.",
+    "data": "Content: path of the canary file; format csv",
+    "expected": "The reply text contains neither the secret line nor the second line."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_mcp_tool_handler_does_not_read_a_server_file_named_in_the_arguments"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_a2a_agent_does_not_read_a_server_file_named_in_the_payload",
+  "name": "Data Analyzer: The agent-to-agent interface does not read a server file named in the request",
+  "objective": "Shows the third entry point (agent-to-agent) is protected too.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send a get_info request whose data content is the canary file's path.",
+    "data": "operation get_info; content: path; format csv",
+    "expected": "The result contains no secret line."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_a2a_agent_does_not_read_a_server_file_named_in_the_payload"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_content_that_looks_like_a_path_is_parsed_as_csv_text_by_default",
+  "name": "Data Analyzer: Text that looks like a file path is treated as plain CSV text",
+  "objective": "Shows the loader treats what it is given as data, so the path string itself becomes a column heading.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Load the canary file's path string with the CSV loader.",
+    "data": "Path text",
+    "expected": "The table has exactly one column, named with the path text itself (the file was not opened)."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_content_that_looks_like_a_path_is_parsed_as_csv_text_by_default"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_loader_never_opens_a_path_for_json_or_excel_or_parquet_by_default",
+  "name": "Data Analyzer: JSON, Excel and Parquet loaders refuse path strings by default",
+  "objective": "Shows the other three file-type loaders also do not open a server path.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Pass the canary file's path to each of the JSON, Excel and Parquet loaders.",
+    "data": "Path text",
+    "expected": "Each raises a ValueError (rejected)."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_loader_never_opens_a_path_for_json_or_excel_or_parquet_by_default"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_load_data_is_content_only_unless_paths_are_explicitly_allowed",
+  "name": "Data Analyzer: General data loader is content-only unless paths are explicitly allowed",
+  "objective": "Shows the main loading entry point does not read files by default.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Load the canary file's path as csv via the general loader.",
+    "data": "Path text; csv",
+    "expected": "The secret line is not among the table's column names."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_load_data_is_content_only_unless_paths_are_explicitly_allowed"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_trusted_local_file_loader_still_reads_files_for_the_cli_and_app",
+  "name": "Data Analyzer: The trusted local-file loader still reads real files for command-line and app use",
+  "objective": "Shows the fix did not break legitimate local file loading.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Write a small CSV file (a,b / 1,2) and load it with the trusted local-file loader.",
+    "data": "Made-up file with columns a and b and one row",
+    "expected": "One row is loaded and the columns are a and b."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_trusted_local_file_loader_still_reads_files_for_the_cli_and_app"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_trusted_local_file_loader_rejects_a_missing_file_without_echoing_the_directory",
+  "name": "Data Analyzer: A missing file error does not reveal the folder path",
+  "objective": "Shows error messages do not disclose server folder names.",
+  "precondition": "Server application loaded in the offline test harness with a made-up key; a temporary folder holds the files. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Ask the trusted loader for a file that does not exist in the temporary folder.",
+    "data": "Non-existent nope.csv",
+    "expected": "A ValueError is raised and its text does not contain the folder path."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_trusted_local_file_loader_rejects_a_missing_file_without_echoing_the_directory"
+ },
+ {
+  "id": "tests.test_sec_api_content_only_loader.test_content_only_callers_never_use_the_trusted_loader_or_allow_paths",
+  "name": "Data Analyzer: Server-facing code never calls the file-reading loader or turns on path reading",
+  "objective": "A source-code guard: it protects against someone later wiring the file-reading loader into a web-facing route. It reads source text; it does not run the code.",
+  "precondition": "Source files available. Static text check only.",
+  "steps": [
+   {
+    "action": "Read the text of analysis_service.py, a2a_agent.py, api_server.py and the tool-call handler in mcp_server.py.",
+    "data": "Source files",
+    "expected": "None contains 'load_local_file(' or 'allow_paths=True'."
+   }
+  ],
+  "source": "tests/test_sec_api_content_only_loader.py::test_content_only_callers_never_use_the_trusted_loader_or_allow_paths"
+ }
+]

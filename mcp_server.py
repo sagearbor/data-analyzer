@@ -35,8 +35,53 @@ import mcp.types as types
 #   results = pipeline.run_all_checks()
 # ============================================================================
 
+class DataTooLargeError(ValueError):
+    """Raised when a dataset exceeds a configured size/dimension limit.
+
+    The message is built only from our own limit names and numbers (never from
+    file content), so it is safe to show to a caller.
+    """
+
+
+class JsonShapeError(ValueError):
+    """JSON input has a shape/depth we refuse before pandas sees it. The message
+    is a fixed text (never built from the content), safe to show to a caller."""
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive integer limit from the environment (default if unset/bad)."""
+    try:
+        value = int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+# Defaults for the dataset-shape limits (each overridable by env var; read at
+# call time so a deployment can change them without re-importing this module).
+DEFAULT_MAX_ROWS = 1_000_000
+DEFAULT_MAX_JSON_BYTES = 25 * 1024 * 1024  # 26214400
+JSON_MAX_DEPTH = 20
+DEFAULT_MAX_CELLS = 50_000_000
+JSON_SHAPES_MESSAGE = ("JSON data must be a list of records (every item an object) or an object of "
+                       "columns (every value a list, all the same length).")
+DEFAULT_MAX_COLUMNS = 2_000
+DEFAULT_MAX_EXCEL_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+DEFAULT_MAX_EXCEL_SHEETS = 50
+DEFAULT_MAX_EXCEL_ARCHIVE_MEMBERS = 2_000
+
+
 class DataLoader:
-    """Load and validate data files (CSV, JSON, Excel, Parquet)"""
+    """Load and validate data files (CSV, JSON, Excel, Parquet).
+
+    Content-only by default: a ``str`` argument is ALWAYS treated as data
+    (CSV/JSON text), never as a local file path, so content supplied by a
+    network/agent caller can never make the server read one of its own files.
+    Trusted local callers (CLI, tests) that really want to read a file use
+    ``DataLoader.load_local_file(path, file_format)``, which is the only entry
+    point that opens paths. MCP tool handlers, analysis_service and the A2A
+    agent must never call it.
+    """
 
     # Defense-in-depth against memory-exhaustion DoS: reject in-memory payloads
     # larger than this before handing them to pandas. Override via env var if a
@@ -53,35 +98,316 @@ class DataLoader:
                 f"({DataLoader.MAX_CONTENT_BYTES} bytes)"
             )
 
+    # ------------------------------------------------------------------
+    # Dataset-shape limits (rows / columns / Excel decompression)
+    # ------------------------------------------------------------------
+
     @staticmethod
-    def load_csv(file_path_or_content: Union[str, bytes, io.StringIO], **kwargs) -> pd.DataFrame:
-        """Load CSV from file path, bytes, or StringIO"""
+    def max_rows() -> int:
+        """Row cap (DATA_ANALYZER_MAX_ROWS, default 1,000,000)."""
+        return _env_int("DATA_ANALYZER_MAX_ROWS", DEFAULT_MAX_ROWS)
+
+    @staticmethod
+    def max_columns() -> int:
+        """Column cap (DATA_ANALYZER_MAX_COLUMNS, default 2,000)."""
+        return _env_int("DATA_ANALYZER_MAX_COLUMNS", DEFAULT_MAX_COLUMNS)
+
+    @staticmethod
+    def check_dataframe_limits(df: pd.DataFrame) -> pd.DataFrame:
+        """Raise DataTooLargeError if ``df`` has too many rows or columns."""
+        max_rows, max_cols = DataLoader.max_rows(), DataLoader.max_columns()
+        if len(df) > max_rows:
+            raise DataTooLargeError(
+                f"Dataset has more than the allowed {max_rows} rows "
+                "(DATA_ANALYZER_MAX_ROWS)."
+            )
+        if len(df.columns) > max_cols:
+            raise DataTooLargeError(
+                f"Dataset has {len(df.columns)} columns; the allowed maximum is "
+                f"{max_cols} (DATA_ANALYZER_MAX_COLUMNS)."
+            )
+        DataLoader.check_cells(len(df), len(df.columns))
+        return df
+
+    @staticmethod
+    def max_cells() -> int:
+        """Total-cells cap (DATA_ANALYZER_MAX_CELLS, default 50,000,000) = rows x columns."""
+        return _env_int("DATA_ANALYZER_MAX_CELLS", DEFAULT_MAX_CELLS)
+
+    @staticmethod
+    def check_cells(rows: int, cols: int) -> None:
+        """Raise DataTooLargeError when rows x columns exceeds the cells cap."""
+        if rows * cols > DataLoader.max_cells():
+            raise DataTooLargeError(
+                f"Dataset has {rows} rows x {cols} columns, more than the allowed "
+                f"{DataLoader.max_cells()} cells (DATA_ANALYZER_MAX_CELLS)."
+            )
+
+    # ------------------------------------------------------------------
+    # JSON: bound BEFORE pandas builds a DataFrame
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def max_json_bytes(overall_limit: Optional[int] = None) -> int:
+        """JSON byte cap (DATA_ANALYZER_MAX_JSON_BYTES, default 25 MB), never above
+        the overall limit (`overall_limit`, default the content-size cap)."""
+        overall = overall_limit if overall_limit is not None else DataLoader.MAX_CONTENT_BYTES
+        return min(_env_int("DATA_ANALYZER_MAX_JSON_BYTES", DEFAULT_MAX_JSON_BYTES), overall)
+
+    @staticmethod
+    def _json_depth_ok(obj: Any, max_depth: int = JSON_MAX_DEPTH) -> bool:
+        """Iterative (no recursion) nesting-depth check."""
+        stack = [(obj, 1)]
+        while stack:
+            node, depth = stack.pop()
+            if isinstance(node, (list, dict)):
+                if depth > max_depth:
+                    return False
+                children = node.values() if isinstance(node, dict) else node
+                stack.extend((c, depth + 1) for c in children if isinstance(c, (list, dict)))
+        return True
+
+    @staticmethod
+    def _count_columns(records: list, flatten_level: Optional[int], max_cols: int) -> int:
+        """Columns the build will produce for a list of records, counted as the
+        build names them and stopping as soon as `max_cols` is passed.
+
+        flatten_level None: pd.DataFrame(records) -> distinct top-level keys.
+        flatten_level N: pd.json_normalize(records, max_level=N) -> distinct LEAF
+        PATHS: nested objects are walked while their nesting level < N (an empty
+        object, a list or a scalar is a leaf). Paths are kept as tuples, so the
+        count can only equal or exceed pandas' (names that collide after joining
+        with "." are one column for pandas, still two paths here).
+        """
+        paths: set = set()
+        for rec in records:
+            stack = [((), rec, 0)]
+            while stack:
+                prefix, node, level = stack.pop()
+                for key, value in node.items():
+                    path = prefix + (key,)
+                    if flatten_level is not None and isinstance(value, dict) and value and level < flatten_level:
+                        stack.append((path, value, level + 1))
+                    else:
+                        paths.add(path)
+                        if len(paths) > max_cols:
+                            raise DataTooLargeError(
+                                f"Dataset has more than the allowed {max_cols} columns (DATA_ANALYZER_MAX_COLUMNS).")
+        return len(paths)
+
+    @staticmethod
+    def check_json_shape(obj: Any, flatten_level: Optional[int] = None) -> None:
+        """Check a parsed JSON object BEFORE any DataFrame is built. Exactly two
+        shapes are accepted: (a) a list of records (every item an object) and
+        (b) an object of columns (every value a list, all the same length);
+        everything else is a JsonShapeError (400). Rows, columns (counted as the
+        build will name them, see _count_columns), total cells and nesting depth
+        are bounded -> DataTooLargeError (413). `flatten_level` is the
+        json_normalize max_level used by the build, or None when the build is
+        pd.DataFrame(obj)."""
+        max_rows, max_cols = DataLoader.max_rows(), DataLoader.max_columns()
+        shape_error = JsonShapeError(JSON_SHAPES_MESSAGE)
+        if not DataLoader._json_depth_ok(obj):
+            raise JsonShapeError(f"JSON is nested more than {JSON_MAX_DEPTH} levels deep.")
+        if isinstance(obj, list):
+            if not all(isinstance(item, dict) for item in obj):
+                raise shape_error
+            rows = len(obj)
+            if rows > max_rows:
+                raise DataTooLargeError(
+                    f"Dataset has more than the allowed {max_rows} rows (DATA_ANALYZER_MAX_ROWS).")
+            cols = DataLoader._count_columns(obj, flatten_level, max_cols)
+        elif isinstance(obj, dict):
+            if not all(isinstance(v, list) for v in obj.values()):
+                raise shape_error
+            lengths = {len(v) for v in obj.values()}
+            if len(lengths) > 1:
+                raise shape_error
+            rows, cols = (lengths.pop() if lengths else 0), len(obj)
+            if cols > max_cols:
+                raise DataTooLargeError(
+                    f"Dataset has {cols} columns; the allowed maximum is {max_cols} (DATA_ANALYZER_MAX_COLUMNS).")
+            if rows > max_rows:
+                raise DataTooLargeError(
+                    f"Dataset has more than the allowed {max_rows} rows (DATA_ANALYZER_MAX_ROWS).")
+        else:
+            raise shape_error
+        DataLoader.check_cells(rows, cols)
+
+    @staticmethod
+    def build_json_dataframe(obj: Any, flatten_level: Optional[int] = None) -> pd.DataFrame:
+        """Build the DataFrame from an object that passed check_json_shape (no second
+        parse). Dtypes follow pd.read_json for the common cases (numeric strings ->
+        numbers, all-null columns -> float NaN, date-named columns -> datetimes when
+        they parse) so downstream type checks see what they saw before."""
+        if isinstance(obj, list) and flatten_level is not None:
+            df = pd.json_normalize(obj, max_level=flatten_level)
+        else:
+            df = pd.DataFrame(obj)
+        for col in df.columns:
+            series = df[col]
+            if series.dtype != object and str(series.dtype) != "str":
+                continue
+            try:
+                if series.isna().all():
+                    df[col] = pd.to_numeric(series, errors="raise").astype("float64")
+                    continue
+                if series.map(lambda v: isinstance(v, (str, int, float)) and not isinstance(v, bool)).all():
+                    num = series.astype("float64")  # numeric strings; raises for text
+                    df[col] = num.astype("int64") if num.notna().all() and (num == num.round()).all() else num
+                    continue
+            except (ValueError, TypeError, OverflowError):
+                pass
+            if isinstance(col, str) and (col in ("modified", "date", "datetime") or col.endswith(("_at", "_time"))
+                                         or col.startswith("timestamp")):
+                try:
+                    df[col] = pd.to_datetime(series, errors="raise")
+                except (ValueError, TypeError, OverflowError):
+                    pass
+        return df
+
+    @staticmethod
+    def parse_json_bounded(content: Union[str, bytes], overall_limit: Optional[int] = None) -> Any:
+        """Byte cap, then ONE safe parse (nesting that overflows the parser is a clean
+        JsonShapeError, never a RecursionError). No shape checks."""
+        limit = DataLoader.max_json_bytes(overall_limit)
+        if len(content) > limit:
+            raise DataTooLargeError(
+                f"JSON content is larger than the allowed {limit} bytes (DATA_ANALYZER_MAX_JSON_BYTES).")
+        try:
+            return json.loads(content.decode("utf-8") if isinstance(content, bytes) else content)
+        except RecursionError:
+            raise JsonShapeError(f"JSON is nested more than {JSON_MAX_DEPTH} levels deep.")
+        except (ValueError, UnicodeDecodeError):
+            raise JsonShapeError("The JSON could not be parsed.")
+
+    @staticmethod
+    def precheck_json(content: Union[str, bytes], overall_limit: Optional[int] = None,
+                      flatten_level: Optional[int] = None) -> Any:
+        """parse_json_bounded + check_json_shape. Returns the parsed, checked object
+        that the caller must build the table from (no second parse). One
+        implementation for the multipart route, the JSON route and load_json."""
+        obj = DataLoader.parse_json_bounded(content, overall_limit)
+        DataLoader.check_json_shape(obj, flatten_level)
+        return obj
+
+    @staticmethod
+    def unwrap_nested_records(obj: Any, level: int):
+        """Library/MCP-only third shape (kept because DataLoader.load_json has always
+        accepted it): an object holding a list of records under a key. The FIRST
+        top-level key whose value is a non-empty list of objects is the table
+        (flattened one level less, as before). Returns (object, flatten_level)."""
+        if isinstance(obj, dict):
+            for value in obj.values():
+                if isinstance(value, list) and value and all(isinstance(i, dict) for i in value):
+                    return value, max(level - 1, 0)
+        return obj, level
+
+    @staticmethod
+    def check_excel_archive(content: bytes) -> None:
+        """Refuse an .xlsx whose DECOMPRESSED size or sheet dimensions are too big.
+
+        An .xlsx is a zip: the upload-size check only sees the compressed size,
+        so a small file can expand enormously. This inspects the zip directory
+        (no decompression) for the declared uncompressed sizes and member
+        count, and reads only the first bytes of each worksheet for its
+        ``<dimension ref="A1:Z9999"/>`` so oversize sheets are refused before
+        openpyxl materialises them. Non-zip content (legacy .xls) is left to the
+        post-load row/column check. Limits: DATA_ANALYZER_MAX_EXCEL_UNCOMPRESSED_BYTES,
+        DATA_ANALYZER_MAX_EXCEL_SHEETS, DATA_ANALYZER_MAX_EXCEL_ARCHIVE_MEMBERS,
+        DATA_ANALYZER_MAX_ROWS, DATA_ANALYZER_MAX_COLUMNS.
+        """
+        import re  # noqa: PLC0415
+        import zipfile  # noqa: PLC0415
+
+        if not zipfile.is_zipfile(io.BytesIO(content)):
+            return
+        max_bytes = _env_int(
+            "DATA_ANALYZER_MAX_EXCEL_UNCOMPRESSED_BYTES", DEFAULT_MAX_EXCEL_UNCOMPRESSED_BYTES
+        )
+        max_sheets = _env_int("DATA_ANALYZER_MAX_EXCEL_SHEETS", DEFAULT_MAX_EXCEL_SHEETS)
+        max_members = _env_int(
+            "DATA_ANALYZER_MAX_EXCEL_ARCHIVE_MEMBERS", DEFAULT_MAX_EXCEL_ARCHIVE_MEMBERS
+        )
+        max_rows, max_cols = DataLoader.max_rows(), DataLoader.max_columns()
+
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            infos = zf.infolist()
+            if len(infos) > max_members:
+                raise DataTooLargeError(
+                    f"Excel file contains {len(infos)} internal parts; the allowed "
+                    f"maximum is {max_members} (DATA_ANALYZER_MAX_EXCEL_ARCHIVE_MEMBERS)."
+                )
+            total = sum(i.file_size for i in infos)
+            if total > max_bytes:
+                raise DataTooLargeError(
+                    f"Excel file expands to {total} bytes uncompressed; the allowed "
+                    f"maximum is {max_bytes} (DATA_ANALYZER_MAX_EXCEL_UNCOMPRESSED_BYTES)."
+                )
+            sheets = [i for i in infos if re.match(r"xl/worksheets/[^/]+\.xml$", i.filename)]
+            if len(sheets) > max_sheets:
+                raise DataTooLargeError(
+                    f"Excel file has {len(sheets)} sheets; the allowed maximum is "
+                    f"{max_sheets} (DATA_ANALYZER_MAX_EXCEL_SHEETS)."
+                )
+            dim_re = re.compile(rb'<dimension\s+ref="([A-Za-z]+)(\d+)?(?::([A-Za-z]+)(\d+))?"')
+            for info in sheets:
+                with zf.open(info) as fh:
+                    head = fh.read(4096)
+                m = dim_re.search(head)
+                if not m:
+                    continue
+                last_col = (m.group(3) or m.group(1)).decode().upper()
+                last_row = int(m.group(4) or m.group(2) or 1)
+                col_num = 0
+                for ch in last_col:
+                    col_num = col_num * 26 + (ord(ch) - 64)
+                if last_row > max_rows or col_num > max_cols:
+                    raise DataTooLargeError(
+                        f"An Excel sheet spans {last_row} rows x {col_num} columns; the "
+                        f"allowed maximum is {max_rows} rows x {max_cols} columns "
+                        "(DATA_ANALYZER_MAX_ROWS / DATA_ANALYZER_MAX_COLUMNS)."
+                    )
+
+    @staticmethod
+    def load_csv(file_path_or_content: Union[str, bytes, io.StringIO], *,
+                 allow_paths: bool = False, **kwargs) -> pd.DataFrame:
+        """Load CSV from bytes, text or StringIO.
+
+        A ``str`` is CSV text unless ``allow_paths=True`` (trusted local use
+        only; see ``load_local_file``), in which case an existing path is read.
+        """
         try:
             DataLoader._check_size(file_path_or_content)
+            max_rows = DataLoader.max_rows()
+            kwargs.setdefault("nrows", max_rows + 1)  # bound memory on huge row counts
             if isinstance(file_path_or_content, bytes):
                 # Decode bytes to string and create StringIO
                 content = file_path_or_content.decode('utf-8')
                 if not content.strip():
                     # Return empty DataFrame for empty content
                     return pd.DataFrame()
-                return pd.read_csv(io.StringIO(content), **kwargs)
+                df = pd.read_csv(io.StringIO(content), **kwargs)
             elif isinstance(file_path_or_content, str):
-                if os.path.exists(file_path_or_content):
-                    return pd.read_csv(file_path_or_content, **kwargs)
+                if allow_paths and os.path.exists(file_path_or_content):
+                    df = pd.read_csv(file_path_or_content, **kwargs)
                 else:
                     # Treat as CSV content string
                     if not file_path_or_content.strip():
                         # Return empty DataFrame for empty content
                         return pd.DataFrame()
-                    return pd.read_csv(io.StringIO(file_path_or_content), **kwargs)
+                    df = pd.read_csv(io.StringIO(file_path_or_content), **kwargs)
             else:
-                return pd.read_csv(file_path_or_content, **kwargs)
+                df = pd.read_csv(file_path_or_content, **kwargs)
+            return DataLoader.check_dataframe_limits(df)
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load CSV: {str(e)}")
     
     @staticmethod
     def detect_encoding(file_path: str) -> str:
-        """Detect file encoding for text files"""
+        """Detect file encoding for text files (trusted local paths only)"""
         import chardet
         try:
             with open(file_path, 'rb') as f:
@@ -91,60 +417,63 @@ class DataLoader:
             return 'utf-8'
 
     @staticmethod
-    def load_json(file_path_or_content: Union[str, bytes, dict], max_depth: int = 5) -> pd.DataFrame:
-        """Load JSON data and flatten nested structures up to max_depth levels"""
+    def load_json(file_path_or_content: Union[str, bytes, dict], max_depth: int = 5,
+                  *, allow_paths: bool = False) -> pd.DataFrame:
+        """Load JSON data and flatten nested structures up to max_depth levels.
+
+        A ``str`` is JSON text unless ``allow_paths=True`` (trusted local use).
+        """
         try:
             if isinstance(file_path_or_content, (bytes, str)):
                 DataLoader._check_size(file_path_or_content)
-            # Parse JSON data
+            # Parse ONCE, bound it (bytes, depth, shape, rows, columns, cells) and
+            # build the table from that same checked object.
+            level = max_depth
             if isinstance(file_path_or_content, dict):
                 json_data = file_path_or_content
             elif isinstance(file_path_or_content, bytes):
-                json_data = json.loads(file_path_or_content.decode('utf-8'))
+                json_data = DataLoader.parse_json_bounded(file_path_or_content)
             elif isinstance(file_path_or_content, str):
-                if os.path.exists(file_path_or_content):
+                if allow_paths and os.path.exists(file_path_or_content):
                     with open(file_path_or_content, 'r', encoding='utf-8') as f:
-                        json_data = json.load(f)
+                        json_data = DataLoader.parse_json_bounded(f.read())
                 else:
-                    json_data = json.loads(file_path_or_content)
+                    json_data = DataLoader.parse_json_bounded(file_path_or_content)
             else:
                 raise ValueError("Invalid JSON input type")
+            json_data, level = DataLoader.unwrap_nested_records(json_data, level)
+            DataLoader.check_json_shape(json_data, level)
 
-            # Handle different JSON structures
-            if isinstance(json_data, list):
-                # Array of objects - direct conversion
-                df = pd.json_normalize(json_data, max_level=max_depth)
-            elif isinstance(json_data, dict):
-                # Nested object - normalize with depth control
-                df = pd.json_normalize(json_data, max_level=max_depth)
+            df = DataLoader.build_json_dataframe(json_data, level)
 
-                # If result is a single row, try to extract nested arrays
-                if len(df) == 1 and df.shape[1] > 0:
-                    # Look for columns with list values that could be expanded
-                    for col in df.columns:
-                        if isinstance(df.iloc[0][col], list) and len(df.iloc[0][col]) > 0:
-                            if all(isinstance(item, dict) for item in df.iloc[0][col]):
-                                # Found nested array of objects, use that as main data
-                                df = pd.json_normalize(df.iloc[0][col], max_level=max_depth-1)
-                                break
-            else:
-                # Single value - wrap in dataframe
-                df = pd.DataFrame([json_data])
-
-            return df
+            return DataLoader.check_dataframe_limits(df)
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load JSON: {str(e)}")
 
     @staticmethod
-    def load_excel(file_path_or_content: Union[str, bytes], sheet_name: Optional[str] = None) -> pd.DataFrame:
-        """Load Excel file (.xlsx or .xls), combining all sheets if sheet_name not specified"""
+    def load_excel(file_path_or_content: Union[str, bytes], sheet_name: Optional[str] = None,
+                   *, allow_paths: bool = False) -> pd.DataFrame:
+        """Load Excel file (.xlsx or .xls), combining all sheets if sheet_name not specified.
+
+        Bytes are the normal input. A ``str`` is only accepted (as a path) with
+        ``allow_paths=True`` (trusted local use). Decompressed size, sheet
+        count and sheet dimensions are bounded before loading (see
+        ``check_excel_archive``) and rows/columns after.
+        """
         try:
             if isinstance(file_path_or_content, bytes):
                 DataLoader._check_size(file_path_or_content)
+                DataLoader.check_excel_archive(file_path_or_content)
                 # Load from bytes
                 excel_file = pd.ExcelFile(io.BytesIO(file_path_or_content))
-            elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
-                # Load from file path
+            elif allow_paths and isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
+                # Load from file path (trusted local callers only)
+                with open(file_path_or_content, "rb") as fh:
+                    raw = fh.read(DataLoader.MAX_CONTENT_BYTES + 1)
+                DataLoader._check_size(raw)
+                DataLoader.check_excel_archive(raw)
                 excel_file = pd.ExcelFile(file_path_or_content)
             else:
                 raise ValueError("Excel file not found or invalid input")
@@ -156,58 +485,90 @@ class DataLoader:
                 # Load specific sheet
                 if sheet_name not in sheet_names:
                     raise ValueError(f"Sheet '{sheet_name}' not found. Available sheets: {sheet_names}")
-                return pd.read_excel(excel_file, sheet_name=sheet_name)
+                return DataLoader.check_dataframe_limits(
+                    pd.read_excel(excel_file, sheet_name=sheet_name)
+                )
             else:
                 # Load and combine all sheets
                 dfs = []
+                total_rows = 0
                 for name in sheet_names:
                     df = pd.read_excel(excel_file, sheet_name=name)
+                    total_rows += len(df)
+                    if total_rows > DataLoader.max_rows():
+                        raise DataTooLargeError(
+                            f"Excel sheets together have more than the allowed "
+                            f"{DataLoader.max_rows()} rows (DATA_ANALYZER_MAX_ROWS)."
+                        )
                     df['_sheet_name'] = name  # Add sheet identifier
                     dfs.append(df)
 
                 if len(dfs) == 1:
                     # Single sheet, remove sheet identifier
-                    return dfs[0].drop('_sheet_name', axis=1)
+                    return DataLoader.check_dataframe_limits(dfs[0].drop('_sheet_name', axis=1))
                 else:
                     # Multiple sheets, concatenate with sheet identifier
-                    return pd.concat(dfs, ignore_index=True)
+                    return DataLoader.check_dataframe_limits(pd.concat(dfs, ignore_index=True))
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load Excel: {str(e)}")
 
     @staticmethod
-    def load_parquet(file_path_or_content: Union[str, bytes]) -> pd.DataFrame:
-        """Load Parquet file"""
+    def load_parquet(file_path_or_content: Union[str, bytes], *, allow_paths: bool = False) -> pd.DataFrame:
+        """Load Parquet from bytes (a ``str`` path only with ``allow_paths=True``)."""
         try:
             if isinstance(file_path_or_content, bytes):
                 DataLoader._check_size(file_path_or_content)
                 # Load from bytes
-                return pd.read_parquet(io.BytesIO(file_path_or_content))
-            elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
-                # Load from file path
-                return pd.read_parquet(file_path_or_content)
+                return DataLoader.check_dataframe_limits(
+                    pd.read_parquet(io.BytesIO(file_path_or_content))
+                )
+            elif allow_paths and isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
+                # Load from file path (trusted local callers only)
+                return DataLoader.check_dataframe_limits(pd.read_parquet(file_path_or_content))
             else:
                 raise ValueError("Parquet file not found or invalid input")
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load Parquet: {str(e)}")
 
     @staticmethod
     def load_data(file_path_or_content: Union[str, bytes, io.StringIO, dict],
-                  file_format: str = "csv", **kwargs) -> pd.DataFrame:
-        """Load data from various formats"""
+                  file_format: str = "csv", *, allow_paths: bool = False, **kwargs) -> pd.DataFrame:
+        """Load data from various formats.
+
+        Content-only unless ``allow_paths=True``; prefer ``load_local_file``
+        for trusted local paths.
+        """
         format_lower = file_format.lower()
 
         if format_lower == "csv":
-            return DataLoader.load_csv(file_path_or_content, **kwargs)
+            return DataLoader.load_csv(file_path_or_content, allow_paths=allow_paths, **kwargs)
         elif format_lower == "json":
             max_depth = kwargs.pop('max_depth', 5)
-            return DataLoader.load_json(file_path_or_content, max_depth=max_depth)
+            return DataLoader.load_json(file_path_or_content, max_depth=max_depth, allow_paths=allow_paths)
         elif format_lower in ["excel", "xlsx", "xls"]:
             sheet_name = kwargs.pop('sheet_name', None)
-            return DataLoader.load_excel(file_path_or_content, sheet_name=sheet_name)
+            return DataLoader.load_excel(file_path_or_content, sheet_name=sheet_name, allow_paths=allow_paths)
         elif format_lower == "parquet":
-            return DataLoader.load_parquet(file_path_or_content)
+            return DataLoader.load_parquet(file_path_or_content, allow_paths=allow_paths)
         else:
             raise ValueError(f"Unsupported file format: {file_format}. Supported: CSV, JSON, Excel, Parquet")
+
+    @staticmethod
+    def load_local_file(path: Union[str, "os.PathLike[str]"], file_format: str = "csv", **kwargs) -> pd.DataFrame:
+        """TRUSTED local-file loader for the CLI / Streamlit app / tests.
+
+        Reads ``path`` from this machine's filesystem. Never pass a value that
+        came from a remote caller (MCP tool arguments, A2A payloads, HTTP
+        requests) - those must go through the content-only loaders above.
+        """
+        path_str = os.fspath(path)
+        if not os.path.isfile(path_str):
+            raise ValueError(f"File not found: {os.path.basename(path_str)}")
+        return DataLoader.load_data(path_str, file_format, allow_paths=True, **kwargs)
 
 class DataDictionaryParser:
     """Parse REDCap-style data dictionaries to extract schema and validation rules"""
@@ -442,7 +803,14 @@ class QualityChecker:
                             # If any values failed to parse, this is a type error
                             if failed_count > 0:
                                 raise ValueError(f"Invalid datetime values found: {failed_count} values could not be parsed")
-                    except:
+                        elif expected_type == "bool":
+                            # Object column that should be boolean: every non-null value
+                            # must look like a boolean.
+                            col_vals = self.df[column].dropna()
+                            bad = ~col_vals.astype(str).str.strip().str.lower().isin(self._BOOL_WORDS)
+                            if bad.any():
+                                raise ValueError("Non-boolean values found")
+                    except (ValueError, TypeError):
                         # For datetime issues, provide more specific information
                         if expected_type == "datetime":
                             col_data = self.df[column].dropna()
@@ -456,16 +824,21 @@ class QualityChecker:
                                 "expected_type": expected_type,
                                 "actual_type": actual_dtype,
                                 "invalid_values": invalid_dates.tolist(),
+                                "violating_rows": invalid_dates.index.tolist()[:10],  # first 10
+                                "violation_count": int(len(invalid_dates)),
                                 "valid_sample": col_data[pd.to_datetime(col_data, format='mixed', errors='coerce').notna()].head(2).tolist(),
                                 "description": f"Found {len(invalid_dates)} invalid date values in column '{column}'"
                             })
                         else:
+                            bad_rows = self._type_violating_rows(column, expected_type)
                             type_issues.append({
                                 "column": column,
                                 "issue": "type_mismatch",
                                 "expected_type": expected_type,
                                 "actual_type": actual_dtype,
-                                "sample_values": self.df[column].head(3).tolist()
+                                "sample_values": self.df[column].head(3).tolist(),
+                                "violating_rows": bad_rows[:10],  # first 10
+                                "violation_count": len(bad_rows),
                             })
         
         passed = len(type_issues) == 0
@@ -483,6 +856,64 @@ class QualityChecker:
             
         return result
     
+    _RANGE_RULE_KEYS = ("min", "max", "allowed")
+    _BOOL_WORDS = frozenset({"true", "false", "t", "f", "yes", "no", "y", "n", "1", "0", "1.0", "0.0"})
+
+    def _type_violating_rows(self, column: str, expected_type: str) -> list:
+        """Index labels of the non-null values that do not fit an int/float/bool column."""
+        col = self.df[column]
+        if expected_type in ("int", "float"):
+            bad = col.notna() & pd.to_numeric(col, errors="coerce").isna()
+        elif expected_type == "bool":
+            bad = col.notna() & ~col.astype(str).str.strip().str.lower().isin(self._BOOL_WORDS)
+        else:
+            return []
+        return col.index[bad].tolist()
+
+    @staticmethod
+    def _is_finite_number(value: Any) -> bool:
+        return (isinstance(value, (int, float, np.integer, np.floating))
+                and not isinstance(value, (bool, np.bool_))
+                and bool(np.isfinite(value)))
+
+    @staticmethod
+    def _sorted_for_display(values: Any) -> list:
+        """Sorted copy for the rule text; falls back to string order for mixed types."""
+        try:
+            return sorted(values)
+        except TypeError:
+            return sorted(values, key=str)
+
+    def _normalise_range_rule(self, raw_rule: Any):
+        """Split one column's rule into (applicable_rule, problems).
+
+        problems is a list of (key, reason) with stable reason codes
+        (rule_not_object, unknown_key, min_not_numeric, max_not_numeric,
+        allowed_not_list, allowed_item_not_scalar). Only the keys that are
+        well-formed are returned in applicable_rule.
+        """
+        if not isinstance(raw_rule, dict):
+            return {}, [(None, "rule_not_object")]
+        rule: Dict[str, Any] = {}
+        problems = []
+        for key, value in raw_rule.items():
+            if key not in self._RANGE_RULE_KEYS:
+                problems.append((str(key)[:60], "unknown_key"))
+            elif key in ("min", "max"):
+                if self._is_finite_number(value):
+                    rule[key] = value
+                else:
+                    problems.append((key, f"{key}_not_numeric"))
+            else:  # allowed
+                if not isinstance(value, (list, tuple, set, frozenset)):
+                    problems.append((key, "allowed_not_list"))
+                elif not all(v is None or isinstance(v, (str, int, float, bool, np.integer, np.floating))
+                             for v in value):
+                    problems.append((key, "allowed_item_not_scalar"))
+                else:
+                    rule[key] = list(value)
+        return rule, problems
+
     def check_value_ranges(self) -> Dict[str, Any]:
         """Check if values fall within specified ranges/sets"""
         if not self.rules:
@@ -494,7 +925,19 @@ class QualityChecker:
         
         range_issues = []
         
-        for column, rule in self.rules.items():
+        for column, raw_rule in self.rules.items():
+            # A rule that cannot be applied is reported, never silently dropped.
+            rule, rule_problems = self._normalise_range_rule(raw_rule)
+            for key, reason in rule_problems:
+                range_issues.append({
+                    "column": column,
+                    "rule": "rule_invalid",
+                    "issue": "rule_invalid",
+                    "key": key,
+                    "reason": reason,
+                    "violation_count": 0,
+                })
+
             if column not in self.df.columns:
                 continue
                 
@@ -508,7 +951,7 @@ class QualityChecker:
                     if "min" in rule:
                         violations = numeric_data < rule["min"]
                         if violations.any():
-                            violating_rows = self.df[violations].index.tolist()
+                            violating_rows = numeric_data[violations].index.tolist()
                             range_issues.append({
                                 "column": column,
                                 "rule": f"min >= {rule['min']}",
@@ -519,19 +962,23 @@ class QualityChecker:
                     if "max" in rule:
                         violations = numeric_data > rule["max"]
                         if violations.any():
-                            violating_rows = self.df[violations].index.tolist()
+                            violating_rows = numeric_data[violations].index.tolist()
                             range_issues.append({
                                 "column": column,
                                 "rule": f"max <= {rule['max']}",
                                 "violation_count": violations.sum(),
                                 "violating_rows": violating_rows[:10]  # First 10
                             })
-                except:
+                except (TypeError, ValueError):
+                    # The bounds were validated above, so this is not expected;
+                    # if it ever happens the rule must still be visible.
                     range_issues.append({
                         "column": column,
-                        "rule": "numeric_range",
-                        "issue": "column_not_numeric",
-                        "sample_values": col_data.head(3).tolist()
+                        "rule": "rule_invalid",
+                        "issue": "rule_invalid",
+                        "key": "min/max",
+                        "reason": "comparison_failed",
+                        "violation_count": 0,
                     })
             
             # Check allowed values
@@ -580,7 +1027,7 @@ class QualityChecker:
 
                     range_issues.append({
                         "column": column,
-                        "rule": f"allowed_values: {sorted(rule['allowed'])}",
+                        "rule": f"allowed_values: {self._sorted_for_display(rule['allowed'])}",
                         "invalid_values": sorted([str(v) for v in invalid_values]),
                         "violation_count": invalid_mask.sum(),
                         "violating_rows": violating_rows[:10]  # First 10

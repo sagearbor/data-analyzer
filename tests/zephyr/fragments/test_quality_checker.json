@@ -1,0 +1,226 @@
+[
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_row_count_pass",
+  "name": "Data Analyzer: Row count check passes when enough rows are present",
+  "objective": "Shows a table meeting the minimum row count passes and reports how many rows were found.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check minimum row count of 3",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active)",
+    "expected": "Passed; message contains 'Found 5 rows'"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_row_count_pass"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_row_count_fail",
+  "name": "Data Analyzer: Row count check fails when too few rows are present",
+  "objective": "Shows a table below the minimum fails with a message stating the count and the minimum.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check minimum row count of 10",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active)",
+    "expected": "Failed; message contains 'Found 5 rows (minimum: 10)'"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_row_count_fail"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_row_count_empty_df",
+  "name": "Data Analyzer: Row count check fails for a table with no rows",
+  "objective": "Shows an empty table is reported as failing the row count.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check minimum row count of 1",
+    "data": "Completely empty table",
+    "expected": "Failed; message contains 'Found 0 rows'"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_row_count_empty_df"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_data_types_all_valid",
+  "name": "Data Analyzer: Data type check passes when every column matches its declared type",
+  "objective": "Shows correctly typed columns raise no issues.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check types against a declared set",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active); declared id int, name str, age int, salary float, hire_date str",
+    "expected": "Passed with zero issues"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_data_types_all_valid"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_data_types_with_invalid",
+  "name": "Data Analyzer: Data type check flags a column holding values of the wrong type",
+  "objective": "Shows a column mixing numbers and words (\"1\", 2, \"three\", 4, 5) declared as integer is reported.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Add a mixed column and check types",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active) plus a mixed column declared int",
+    "expected": "Failed; at least one issue, and the mixed column is named among the issues"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_data_types_with_invalid"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_data_types_bool_validation",
+  "name": "Data Analyzer: True/false text is accepted for a yes/no column",
+  "objective": "Shows values \"true\" and \"false\" are valid for a boolean column.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check the is_active column declared as bool",
+    "data": "Values true,false,true,true,false",
+    "expected": "Passed"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_data_types_bool_validation"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_data_types_datetime_validation",
+  "name": "Data Analyzer: Date text is accepted for a date column",
+  "objective": "Shows valid ISO dates pass a datetime check.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check the hire_date column declared as datetime",
+    "data": "Five valid dates, 2023-01-01 to 2023-05-01",
+    "expected": "Passed"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_data_types_datetime_validation"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_value_ranges_numeric_pass",
+  "name": "Data Analyzer: Value range check passes when all numbers are inside their limits",
+  "objective": "Shows in-range numbers raise no issues.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check ranges",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active); age 20 to 50, salary 40000 to 80000",
+    "expected": "Passed with zero issues"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_value_ranges_numeric_pass"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_value_ranges_numeric_fail",
+  "name": "Data Analyzer: Value range check fails when numbers fall outside their limits",
+  "objective": "Shows out-of-range numbers are reported.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check ranges",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active); age 30 to 35, salary at most 50000",
+    "expected": "Failed with at least one issue (the exact issues are not checked)"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_value_ranges_numeric_fail"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_value_ranges_categorical",
+  "name": "Data Analyzer: Allowed-values check passes when every value is in the list",
+  "objective": "Shows text values that are all on the allowed list raise no issues.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Check the name column against an allowed list",
+    "data": "Names Alice, Bob, Charlie, David, Eve; allowed list contains the same five",
+    "expected": "Passed with zero issues"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_value_ranges_categorical"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_value_ranges_empty_rules",
+  "name": "Data Analyzer: Range check is skipped, and passes, when no rules are given",
+  "objective": "Shows an empty rule set is handled and says so.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Run the range check with no rules",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active)",
+    "expected": "Passed; message contains 'No rules provided, skipping range validation'"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_value_ranges_empty_rules"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_check_value_ranges_with_nulls",
+  "name": "Data Analyzer: Blank values are not counted as range violations",
+  "objective": "Shows a missing salary does not make the range check fail.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Blank one salary, then check salary 40000 to 80000",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active)",
+    "expected": "Passed"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_value_ranges_with_nulls"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_get_summary_stats",
+  "name": "Data Analyzer: Summary statistics report size, columns, types and missing values",
+  "objective": "Shows the summary has the expected sections and the right row and column counts.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Request summary statistics",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active)",
+    "expected": "Shape is 5 rows by 6 columns; the summary includes columns, data types, auto-detected types and missing values"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_get_summary_stats"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_get_summary_stats_with_duplicates",
+  "name": "Data Analyzer: Summary statistics count duplicate rows",
+  "objective": "Shows repeated rows are counted.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Request summary statistics",
+    "data": "5 rows: (1,10),(1,10),(2,20),(3,30),(3,30)",
+    "expected": "5 rows; duplicate row count is 2"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_get_summary_stats_with_duplicates"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_get_summary_stats_memory_usage",
+  "name": "Data Analyzer: Summary statistics include a memory usage figure",
+  "objective": "Shows a non-negative memory figure is reported.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Request summary statistics",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active)",
+    "expected": "A memory usage figure in megabytes is present and zero or more"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_get_summary_stats_memory_usage"
+ },
+ {
+  "id": "tests.test_quality_checker.TestQualityChecker.test_auto_detect_types",
+  "name": "Data Analyzer: Column types are detected automatically",
+  "objective": "Shows whole numbers, decimals, text and dates are recognised without a declared schema.",
+  "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
+  "steps": [
+   {
+    "action": "Auto-detect types",
+    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active)",
+    "expected": "id int; name str; age int; salary float; hire_date datetime (is_active is not checked)"
+   }
+  ],
+  "source": "tests/test_quality_checker.py::TestQualityChecker::test_auto_detect_types"
+ }
+]

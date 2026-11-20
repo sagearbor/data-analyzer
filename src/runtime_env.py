@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from typing import List, Mapping, Optional
 from urllib.parse import urlparse
@@ -62,6 +63,44 @@ def _is_loopback_url(url: str) -> bool:
     return host in _LOOPBACK_HOSTS or host.startswith("127.")
 
 
+_SCHEMELESS_HOSTPORT = re.compile(r"^[A-Za-z0-9.-]+(:[0-9]{1,5})?$")
+
+
+def validate_api_url(url: str, deployed: bool) -> Optional[str]:
+    """Return None if `url` is an acceptable API base URL, else a short reason.
+
+    The UI sends the shared API key to this URL, so a malformed value must stop
+    the app rather than be "fixed up" silently:
+      * only http(s), a real host, no credentials/query/fragment, no whitespace;
+      * deployed: https is REQUIRED so the key never travels in clear text. The
+        one exception is a single-label host (no dot, e.g. the docker-compose
+        service name `http://api:8000`), which cannot be a public site;
+      * local dev: http is fine, and a bare `host:port` (legacy) is tolerated.
+    """
+    if not url or any(ch.isspace() or ord(ch) < 32 for ch in url):
+        return "is empty or contains whitespace/control characters"
+    if "://" not in url:
+        if not deployed and _SCHEMELESS_HOSTPORT.match(url):
+            return None
+        return "is not a valid URL (expected https://host[:port])"
+    try:
+        parsed = urlparse(url)
+        parsed.port  # raises ValueError on a bad port
+    except ValueError:
+        return "is not a valid URL"
+    if parsed.scheme not in ("http", "https"):
+        return "must start with https:// (or http:// for local development)"
+    if not parsed.hostname:
+        return "has no host name"
+    if parsed.username is not None or parsed.password is not None:
+        return "must not contain credentials"
+    if parsed.query or parsed.fragment:
+        return "must be a base URL without query or fragment"
+    if deployed and parsed.scheme != "https" and "." in parsed.hostname:
+        return "must use https:// in a deployed environment (the API key is sent to it)"
+    return None
+
+
 def resolve_api_base_url(environ: Optional[Mapping[str, str]] = None) -> str:
     """Return the data-analyzer API base URL the UI should call.
 
@@ -81,6 +120,9 @@ def resolve_api_base_url(environ: Optional[Mapping[str, str]] = None) -> str:
                 "deployed environment, so the UI cannot reach the analysis service. "
                 "Ask the app owner to set it to the API app's https URL."
             )
+        reason = validate_api_url(url, deployed)
+        if reason:
+            raise ApiConfigError(f"Configuration error: DATA_ANALYZER_API_URL {reason}.")
         return url
     if deployed:
         raise ApiConfigError(
@@ -105,6 +147,10 @@ def ui_config_problems(environ: Optional[Mapping[str, str]] = None) -> List[str]
         problems.append("DATA_ANALYZER_API_URL is not set (UI cannot reach the API)")
     elif _is_loopback_url(url):
         problems.append("DATA_ANALYZER_API_URL points at localhost (UI cannot reach the API)")
+    else:
+        reason = validate_api_url(url.rstrip("/"), True)
+        if reason:
+            problems.append(f"DATA_ANALYZER_API_URL {reason}")
     if not (env.get("DATA_ANALYZER_API_KEY") or "").strip():
         problems.append("DATA_ANALYZER_API_KEY is not set (the API will answer 401)")
     return problems

@@ -1,106 +1,40 @@
 """
-Mermaid diagram renderer for Streamlit
-Uses components.html to render Mermaid diagrams
+Diagram display for the About page - fully local, no outside services.
+
+Earlier versions loaded the diagram from a third-party image service and, as
+a fallback, an unpinned script from a public CDN (B-15 / ADP-86). Both are
+gone: the browser now fetches nothing from outside the app.
+
+The diagrams are pre-rendered to PNG files that are committed next to their
+Mermaid sources, and shown with st.image(). If a PNG is missing, the Mermaid
+source is shown as plain text instead (st.text, so it never mixes with the
+API example code blocks that the About page tests count).
+
+To regenerate a PNG after editing a .mmd source (needs the Mermaid CLI `mmdc`
+and a local Chrome; nothing is uploaded anywhere):
+    mmdc -i assets/data_flow_simple.mmd -o assets/data_flow_simple.png -b white -s 2
 """
 
-import streamlit.components.v1 as components
+from pathlib import Path
+from typing import Optional, Union
 
-def render_mermaid(mermaid_code: str, height: int = 600) -> None:
-    """
-    Render a Mermaid diagram in Streamlit using HTML/JavaScript
+import streamlit as st
+
+
+def render_mermaid(mermaid_code: str, height: int = 600,
+                   image_path: Optional[Union[str, Path]] = None) -> None:
+    """Show a data-flow diagram without calling any external service.
 
     Args:
-        mermaid_code: The Mermaid diagram code
-        height: Height of the diagram container in pixels
+        mermaid_code: The Mermaid diagram source (always available as text).
+        height: Unused; kept so existing callers keep working.
+        image_path: Pre-rendered PNG of the diagram. When it exists it is shown
+            as an image, with the source in a collapsed expander.
     """
-
-    import base64
-
-    # Try to use mermaid.ink API first (more reliable with Streamlit's iframe restrictions)
-    # Fallback to embedded mermaid.js if needed
-    try:
-        # Encode mermaid code for URL
-        mermaid_encoded = base64.b64encode(mermaid_code.encode('utf-8')).decode('utf-8')
-        mermaid_url = f"https://mermaid.ink/img/{mermaid_encoded}"
-
-        # Use an image-based approach which doesn't require JavaScript in iframe
-        image_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                body {{
-                    margin: 0;
-                    padding: 20px;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-                    background: white;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                }}
-                img {{
-                    max-width: 100%;
-                    height: auto;
-                }}
-            </style>
-        </head>
-        <body>
-            <img src="{mermaid_url}" alt="Data Flow Diagram" />
-        </body>
-        </html>
-        """
-        components.html(image_html, height=height, scrolling=True)
-
-    except Exception as e:
-        # Fallback to embedded mermaid.js approach
-        mermaid_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <script type="module">
-                import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-                mermaid.initialize({{
-                    startOnLoad: true,
-                    theme: 'default',
-                    securityLevel: 'loose',
-                    themeVariables: {{
-                        primaryColor: '#667eea',
-                        primaryTextColor: '#fff',
-                        primaryBorderColor: '#4c5ed9',
-                        lineColor: '#5a67d8',
-                        secondaryColor: '#f7fafc',
-                        tertiaryColor: '#e2e8f0'
-                    }},
-                    flowchart: {{
-                        htmlLabels: true,
-                        curve: 'basis'
-                    }}
-                }});
-            </script>
-            <style>
-                body {{
-                    margin: 0;
-                    padding: 20px;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-                    background: white;
-                }}
-                .mermaid {{
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    min-height: {height - 40}px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="mermaid">
-                {mermaid_code}
-            </div>
-        </body>
-        </html>
-        """
-        # Note: Streamlit uses srcdoc for components.html, which can cause sandbox warnings
-        # These warnings are expected and don't affect functionality
-        components.html(mermaid_html, height=height, scrolling=True)
+    if image_path and Path(image_path).is_file():
+        st.image(str(image_path), caption="Data flow diagram")
+        with st.expander("Diagram source (Mermaid text)"):
+            st.text(mermaid_code)
+        return
+    st.caption("Diagram source (Mermaid text). The rendered picture is not available in this build.")
+    st.text(mermaid_code)

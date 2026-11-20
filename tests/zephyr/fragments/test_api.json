@@ -1,0 +1,661 @@
+[
+ {
+  "id": "tests.test_api.TestRootEndpoint.test_root_endpoint",
+  "name": "Data Analyzer: Service front page returns name, version and links to docs and health check",
+  "objective": "Shows that the API's front page answers and tells a visitor where to find the documentation and the health check.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request the front page (GET /) with no API key.",
+    "data": "No file; no key.",
+    "expected": "Response is HTTP 200 (success). It contains the fields message, version, docs and health, and health equals /api/v1/health."
+   }
+  ],
+  "source": "tests/test_api.py::TestRootEndpoint::test_root_endpoint"
+ },
+ {
+  "id": "tests.test_api.TestHealthEndpoint.test_health_check_no_auth_required",
+  "name": "Data Analyzer: Health check works without an API key and lists the four internal services",
+  "objective": "Shows that monitoring tools can check the service without credentials and see the status of each internal component.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request the health check (GET /api/v1/health) with no API key.",
+    "data": "No key.",
+    "expected": "HTTP 200. The reply contains status, version, timestamp and services, and services lists llm_client, program_manager, logic_validator and mcp_server."
+   }
+  ],
+  "source": "tests/test_api.py::TestHealthEndpoint::test_health_check_no_auth_required"
+ },
+ {
+  "id": "tests.test_api.TestHealthEndpoint.test_health_check_status_values",
+  "name": "Data Analyzer: Health check reports only 'healthy' or 'degraded'",
+  "objective": "Shows that the overall health status is always one of the two agreed words, never something unexpected.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request the health check.",
+    "data": "No key.",
+    "expected": "The status field is either 'healthy' or 'degraded'."
+   }
+  ],
+  "source": "tests/test_api.py::TestHealthEndpoint::test_health_check_status_values"
+ },
+ {
+  "id": "tests.test_api.TestHealthEndpoint.test_health_check_version",
+  "name": "Data Analyzer: Health check reports the product's real version number",
+  "objective": "Shows that the version in the health reply is taken from the product's single version setting rather than a typed-in value.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request the health check and compare its version with the product's official version number.",
+    "data": "No key.",
+    "expected": "The version in the reply is exactly equal to the product's official version number."
+   }
+  ],
+  "source": "tests/test_api.py::TestHealthEndpoint::test_health_check_version"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_missing_auth",
+  "name": "Data Analyzer: Data check is refused with 401 when no API key is sent",
+  "objective": "Shows that the data-quality check cannot be used anonymously.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. This request carries no key.",
+  "steps": [
+   {
+    "action": "Upload a small CSV to the analyze endpoint with no X-API-Key header.",
+    "data": "Made-up CSV; no key.",
+    "expected": "HTTP 401 (not authorised: credentials missing)."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_missing_auth"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_invalid_auth",
+  "name": "Data Analyzer: Data check is refused with 403 when the API key is wrong",
+  "objective": "Shows that an incorrect key is rejected and the data is not processed.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. This request carries a wrong key.",
+  "steps": [
+   {
+    "action": "Upload a small CSV to the analyze endpoint with the key 'wrong-key'.",
+    "data": "Made-up CSV; wrong key.",
+    "expected": "HTTP 403 (forbidden: credentials present but not valid)."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_invalid_auth"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_valid_csv_with_rules",
+  "name": "Data Analyzer: Data with out-of-range and blank values is reported with the right issue types",
+  "objective": "Shows that the main data check finds range violations and missing values and returns a report in the agreed layout, including the issue-count fields added for long issue lists.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload the made-up data file together with rules: age between 0 and 120, gender allowed values 1, 2, 3.",
+    "data": "Made-up 5-row data file (columns record_id, age, gender, weight_kg) with deliberate errors: ages 150 and -5, gender 4 and one blank gender.",
+    "expected": "HTTP 200. The report has exactly eight parts, no more and no fewer: summary, issues, recommendations, quality_checks, summary_stats, issues_total, issues_returned and issues_truncated (the last three say how many issues were found, how many are listed, and whether the list was cut short)."
+   },
+   {
+    "action": "Read the summary counts.",
+    "data": "Same.",
+    "expected": "total_rows is 5, total_columns is 4 and issues_found is at least 2."
+   },
+   {
+    "action": "Read the individual issues.",
+    "data": "Same.",
+    "expected": "Issue types include range_violation and missing_values, and every issue has a severity of error, warning or info plus a message."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_valid_csv_with_rules"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_with_schema",
+  "name": "Data Analyzer: A text where a date is expected is flagged by the data-type check",
+  "objective": "Shows that when the user says a column should be a date, a non-date value is caught and reported against that column.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a 2-row CSV whose signup_date column holds '2023-01-15' and 'not-a-date', with the schema (expected column types) signup_date = datetime.",
+    "data": "Made-up CSV and schema.",
+    "expected": "HTTP 200. In the raw quality_checks results, the data_types check has passed = false, and its first issue is 'datetime_validation_failed' on column signup_date."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_with_schema"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_no_schema_no_rules",
+  "name": "Data Analyzer: Data check works when no schema and no rules are supplied",
+  "objective": "Shows that the schema and rules are optional and a plain file is still analysed.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a 2-row CSV (id, name) with no schema and no rules.",
+    "data": "Made-up CSV: Alice, Bob.",
+    "expected": "HTTP 200. total_rows is 2 and the issues list is empty."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_no_schema_no_rules"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_clean_data_no_issues",
+  "name": "Data Analyzer: Clean data that meets its rules reports zero issues and 100% completeness",
+  "objective": "Shows that good data is not falsely flagged.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a 3-row CSV with ages 25, 30, 45 and the rule age between 0 and 120.",
+    "data": "Made-up clean CSV.",
+    "expected": "HTTP 200. issues is empty, issues_found is 0, critical_issues is 0 and completeness is 100.0."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_clean_data_no_issues"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_invalid_schema_json",
+  "name": "Data Analyzer: Malformed schema text is rejected with 400 instead of crashing",
+  "objective": "Shows that a broken schema gives a clean client error, not a server failure (500).",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a valid CSV with a schema field containing broken JSON '{not valid json'.",
+    "data": "Made-up CSV; broken schema text.",
+    "expected": "HTTP 400 (bad request)."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_invalid_schema_json"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_schema_not_an_object",
+  "name": "Data Analyzer: A schema given as a list instead of an object is rejected with 400",
+  "objective": "Shows that a schema of the wrong shape is refused cleanly.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a valid CSV with the schema field set to the list [\"age\", \"gender\"].",
+    "data": "Made-up CSV; list instead of key/value schema.",
+    "expected": "HTTP 400."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_schema_not_an_object"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_invalid_rules_json",
+  "name": "Data Analyzer: Malformed rules text is rejected with 400 instead of crashing",
+  "objective": "Shows that broken rules text gives a clean client error.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a valid CSV with the rules field set to the broken text '[1, 2, broken'.",
+    "data": "Made-up CSV; broken rules text.",
+    "expected": "HTTP 400."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_invalid_rules_json"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_unsupported_file_type",
+  "name": "Data Analyzer: A PDF is rejected as a data file with 400",
+  "objective": "Shows that only supported data-file types are accepted.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a file named data.pdf as the data file.",
+    "data": "Made-up bytes beginning '%PDF-1.4'.",
+    "expected": "HTTP 400."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_unsupported_file_type"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_empty_file",
+  "name": "Data Analyzer: A zero-byte data file is rejected with 400",
+  "objective": "Shows that an empty upload gives a clean client error and does not crash the server.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload an empty file named empty.csv.",
+    "data": "0 bytes.",
+    "expected": "HTTP 400."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_empty_file"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_malformed_csv",
+  "name": "Data Analyzer: A CSV that cannot be read is rejected with 400",
+  "objective": "Shows that unreadable CSV content gives a client error rather than a server failure.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a CSV with uneven rows and an unterminated quotation mark.",
+    "data": "Made-up text: 'a,b,c' / '1,2' / '\"unterminated,3,4,5'.",
+    "expected": "HTTP 400."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_malformed_csv"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_json_file",
+  "name": "Data Analyzer: A JSON data file is read and range violations are found",
+  "objective": "Shows that JSON data files are supported as well as CSV.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a data.json file with two records (age 25 and age 999) and the rule age max 120.",
+    "data": "Made-up JSON.",
+    "expected": "HTTP 200. total_rows is 2 and at least one issue is of type range_violation."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_json_file"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_tsv_file",
+  "name": "Data Analyzer: A tab-separated .txt data file is read correctly",
+  "objective": "Shows that tab-separated text files are supported.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload data.txt containing tab-separated values (id, age) with 2 rows.",
+    "data": "Made-up TSV.",
+    "expected": "HTTP 200 and total_rows is 2."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_tsv_file"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_xlsx_file",
+  "name": "Data Analyzer: An Excel .xlsx data file is read and an out-of-range age is flagged",
+  "objective": "Shows that Excel files give the same analysis as an equivalent CSV.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a real .xlsx workbook with 3 rows (ages 25, 150, 45) and rules age 0 to 120.",
+    "data": "Made-up workbook built in memory.",
+    "expected": "HTTP 200. total_rows is 3, total_columns is 2 and at least one issue is a range_violation."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_xlsx_file"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_xls_content_type",
+  "name": "Data Analyzer: A file named .xls is routed to the Excel reader",
+  "objective": "Shows that the server decides how to read a file by its name ending (.xls), as the test sends .xlsx bytes under an .xls name.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload .xlsx-format bytes named data.xls with content type application/vnd.ms-excel.",
+    "data": "Made-up 2-row workbook (id, name).",
+    "expected": "HTTP 200 and total_rows is 2."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_xls_content_type"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_xlsx_multi_sheet",
+  "name": "Data Analyzer: Excel workbook with two sheets is combined into one data set",
+  "objective": "Shows that all sheets of a workbook are analysed together.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload an .xlsx with Sheet1 (ids 1, 2) and Sheet2 (ids 3, 4).",
+    "data": "Made-up workbook.",
+    "expected": "HTTP 200 and total_rows is 4."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_xlsx_multi_sheet"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_malformed_xlsx",
+  "name": "Data Analyzer: A fake .xlsx file is rejected with 400",
+  "objective": "Shows that a file that is not a real Excel workbook gives a client error, not a server failure.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload bytes 'not a real excel file' named bad.xlsx.",
+    "data": "Made-up non-Excel bytes.",
+    "expected": "HTTP 400."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_malformed_xlsx"
+ },
+ {
+  "id": "tests.test_api.TestAnalyzeEndpoint.test_analyze_response_matches_model_fields",
+  "name": "Data Analyzer: Reported issues carry column, row, value and message; summary gives data shape",
+  "objective": "Shows that each issue has the details the dashboard displays.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload the made-up error data with rule age 0 to 120.",
+    "data": "Made-up 5-row data file (columns record_id, age, gender, weight_kg) with deliberate errors: ages 150 and -5, gender 4 and one blank gender.",
+    "expected": "HTTP 200. At least one range_violation issue exists; each has column 'age', a whole-number row, a value and a message."
+   },
+   {
+    "action": "Read summary_stats.",
+    "data": "Same.",
+    "expected": "summary_stats has a shape entry with rows equal to 5."
+   }
+  ],
+  "source": "tests/test_api.py::TestAnalyzeEndpoint::test_analyze_response_matches_model_fields"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_missing_auth",
+  "name": "Data Analyzer: Dictionary upload is refused with 401 when no API key is sent",
+  "objective": "Shows that dictionary upload requires a key.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. This request carries no key.",
+  "steps": [
+   {
+    "action": "Upload a dictionary CSV to the dictionary parse endpoint with no key.",
+    "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
+    "expected": "HTTP 401."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_missing_auth"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_invalid_auth",
+  "name": "Data Analyzer: Dictionary upload is refused with 403 when the API key is wrong",
+  "objective": "Shows that a wrong key is rejected.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. This request carries a wrong key.",
+  "steps": [
+   {
+    "action": "Upload the dictionary with key 'wrong-key'.",
+    "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
+    "expected": "HTTP 403."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_invalid_auth"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_csv_valid",
+  "name": "Data Analyzer: Dictionary CSV upload is accepted (weak check: status only)",
+  "objective": "Shows only that uploading a CSV dictionary does not fail with an error. The test checks the status code and not the content of the reply.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Upload the dictionary CSV with save_program = true.",
+    "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
+    "expected": "HTTP status is 200 or 503 (service unavailable). Nothing else is checked."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_csv_valid"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_unsupported_format",
+  "name": "Data Analyzer: A Word (.docx) dictionary is rejected with 400 and a clear message",
+  "objective": "Shows that unsupported dictionary formats are refused with an explanation.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a file named test.docx as the dictionary.",
+    "data": "Made-up bytes.",
+    "expected": "HTTP 400 and the message contains 'Unsupported file format'."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_unsupported_format"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_pdf_not_implemented",
+  "name": "Data Analyzer: A PDF dictionary gets 'not implemented' or 'service unavailable' (loose check)",
+  "objective": "Shows that PDF dictionaries are not handled as normal data. The test accepts either of two statuses.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Upload a file named test.pdf as the dictionary.",
+    "data": "Made-up bytes beginning '%PDF-1.4'.",
+    "expected": "HTTP status is 501 (not implemented) or 503 (service unavailable)."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_pdf_not_implemented"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_json_valid",
+  "name": "Data Analyzer: Dictionary JSON upload is accepted (weak check: status only)",
+  "objective": "Shows only that a JSON dictionary upload does not fail with an error.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Upload a small made-up FHIR-style questionnaire JSON (two items: Record ID, Age) with save_program = true.",
+    "data": "Made-up JSON.",
+    "expected": "HTTP status is 200 or 503. Nothing else is checked."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_json_valid"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_save_program_false",
+  "name": "Data Analyzer: Dictionary upload with 'do not save' is accepted (weak check: status only)",
+  "objective": "Shows only that the do-not-save option does not cause an error. It does not check that nothing was saved.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Upload the dictionary CSV with save_program = false.",
+    "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
+    "expected": "HTTP status is 200 or 503. Nothing else is checked."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_save_program_false"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_custom_name",
+  "name": "Data Analyzer: Dictionary upload with a custom program name succeeds and passes that name on",
+  "objective": "Shows that a custom program name typed by the user is accepted (HTTP 200) and is actually handed to the program-creation step.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in, so no AI model is called. The stand-in returns a canned, made-up program record named 'my-custom-program'.",
+  "steps": [
+   {
+    "action": "Upload the dictionary CSV with save_program = true and program_name 'my-custom-program'.",
+    "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
+    "expected": "HTTP 200 (exactly; 503 would now fail), and the program-creation step was called with program_name equal to 'my-custom-program'."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_custom_name"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_empty_file",
+  "name": "Data Analyzer: When reading an empty dictionary file fails, the API returns HTTP 500 with a fixed message",
+  "objective": "Shows that a failure while processing an empty dictionary is reported as a controlled error with a generic message, not as success and not with internal wording.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in, so no AI model is called. The stand-in is set to fail with the error 'No fields could be extracted from empty dictionary content'.",
+  "steps": [
+   {
+    "action": "Upload an empty dictionary file empty.csv.",
+    "data": "0 bytes.",
+    "expected": "HTTP 500 exactly, and the reply's error text is exactly 'Dictionary parsing failed.' (the internal error wording is not shown). Note the failure is supplied by the stand-in, so this tests the error handling, not the real parser."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_empty_file"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_malformed_csv",
+  "name": "Data Analyzer: When reading a malformed dictionary CSV fails, the API returns HTTP 500 with a fixed message",
+  "objective": "Shows that a failure while processing a broken dictionary is reported as a controlled error with a generic message.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in, so no AI model is called. The stand-in is set to fail with the error 'Failed to parse malformed CSV dictionary'.",
+  "steps": [
+   {
+    "action": "Upload a malformed CSV dictionary (rows with differing numbers of values).",
+    "data": "Made-up text: 'incomplete,header / row1,value1,extra_value / row2'.",
+    "expected": "HTTP 500 exactly, and the reply's error text is exactly 'Dictionary parsing failed.'. The failure is supplied by the stand-in, so this tests the error handling, not the real parser."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_malformed_csv"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_missing_auth",
+  "name": "Data Analyzer: Fetching a dictionary is refused with 401 when no API key is sent",
+  "objective": "Shows that stored dictionaries cannot be read anonymously.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. This request carries no key.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/test-id with no key.",
+    "data": "Made-up ID.",
+    "expected": "HTTP 401."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_missing_auth"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_invalid_auth",
+  "name": "Data Analyzer: Fetching a dictionary is refused with 403 when the API key is wrong",
+  "objective": "Shows that a wrong key cannot read stored dictionaries.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. This request carries a wrong key.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/test-id with key 'wrong-key'.",
+    "data": "Made-up ID.",
+    "expected": "HTTP 403."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_invalid_auth"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_not_found",
+  "name": "Data Analyzer: Fetching an unknown dictionary gives 'not found' (404) or 503",
+  "objective": "Shows that asking for a dictionary that does not exist does not return one.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that reports that no such program exists, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/nonexistent-id.",
+    "data": "Made-up ID.",
+    "expected": "HTTP status is 404 (not found) or 503."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_not_found"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_deleted",
+  "name": "Data Analyzer: A deleted dictionary is reported as not found (404) or 503",
+  "objective": "Shows that a dictionary marked deleted is not returned.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a program marked as deleted, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/deleted-id.",
+    "data": "Made-up ID.",
+    "expected": "HTTP status is 404 or 503."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_deleted"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_valid_id",
+  "name": "Data Analyzer: Fetching a dictionary by ID succeeds (weak check: status only)",
+  "objective": "Shows only that a known ID does not produce an error. The contents of the reply are not checked.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/test-id-123.",
+    "data": "Stand-in record with 5 fields.",
+    "expected": "HTTP status is 200 or 503."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_valid_id"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_by_name",
+  "name": "Data Analyzer: Fetching a dictionary by name succeeds (weak check: status only)",
+  "objective": "Shows only that a name lookup does not produce an error.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/my-program-name.",
+    "data": "Stand-in record.",
+    "expected": "HTTP status is 200 or 503."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_by_name"
+ },
+ {
+  "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_by_alias",
+  "name": "Data Analyzer: Fetching a dictionary by alias succeeds (weak check: status only)",
+  "objective": "Shows only that an alias lookup does not produce an error. The stand-in returns its record for any name, so the alias matching itself is not tested.",
+  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "steps": [
+   {
+    "action": "Request /api/v1/dictionary/my-alias.",
+    "data": "Stand-in record listing two aliases.",
+    "expected": "HTTP status is 200 or 503."
+   }
+  ],
+  "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_by_alias"
+ },
+ {
+  "id": "tests.test_api.TestOpenAPIEndpoints.test_openapi_json",
+  "name": "Data Analyzer: Machine-readable API description is available",
+  "objective": "Shows that the formal description of the API (OpenAPI) is published.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request /api/v1/openapi.json.",
+    "data": "No key.",
+    "expected": "HTTP 200. The reply contains openapi, info and paths."
+   }
+  ],
+  "source": "tests/test_api.py::TestOpenAPIEndpoints::test_openapi_json"
+ },
+ {
+  "id": "tests.test_api.TestOpenAPIEndpoints.test_docs_endpoint",
+  "name": "Data Analyzer: Interactive documentation page (Swagger) is available",
+  "objective": "Shows that the human-readable API documentation page loads.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request /api/v1/docs.",
+    "data": "No key.",
+    "expected": "HTTP 200 and the content type is a web page (text/html)."
+   }
+  ],
+  "source": "tests/test_api.py::TestOpenAPIEndpoints::test_docs_endpoint"
+ },
+ {
+  "id": "tests.test_api.TestOpenAPIEndpoints.test_redoc_endpoint",
+  "name": "Data Analyzer: Reference documentation page (ReDoc) is available",
+  "objective": "Shows that the second documentation page loads.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request /api/v1/redoc.",
+    "data": "No key.",
+    "expected": "HTTP 200 and the content type is a web page (text/html)."
+   }
+  ],
+  "source": "tests/test_api.py::TestOpenAPIEndpoints::test_redoc_endpoint"
+ },
+ {
+  "id": "tests.test_api.TestErrorHandling.test_404_nonexistent_endpoint",
+  "name": "Data Analyzer: Unknown address returns 404",
+  "objective": "Shows that a mistyped address gives a clear 'not found'.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Request /api/v1/nonexistent.",
+    "data": "No key.",
+    "expected": "HTTP 404."
+   }
+  ],
+  "source": "tests/test_api.py::TestErrorHandling::test_404_nonexistent_endpoint"
+ },
+ {
+  "id": "tests.test_api.TestErrorHandling.test_method_not_allowed",
+  "name": "Data Analyzer: Wrong request type on the health check returns 405",
+  "objective": "Shows that using the wrong HTTP method is refused.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Send a POST (instead of GET) to the health check.",
+    "data": "No body.",
+    "expected": "HTTP 405 (method not allowed)."
+   }
+  ],
+  "source": "tests/test_api.py::TestErrorHandling::test_method_not_allowed"
+ },
+ {
+  "id": "tests.test_api.TestErrorHandling.test_invalid_json_body",
+  "name": "Data Analyzer: Sending text where a file upload is expected returns 400 or 422",
+  "objective": "Shows that a request in the wrong format is refused with a client error.",
+  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "steps": [
+   {
+    "action": "Post the plain text 'not json' with content type application/json to the dictionary parse endpoint.",
+    "data": "Made-up text.",
+    "expected": "HTTP status is 400 or 422 (could not be processed)."
+   }
+  ],
+  "source": "tests/test_api.py::TestErrorHandling::test_invalid_json_body"
+ }
+]

@@ -1,0 +1,226 @@
+[
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_convert_natural_language_gender_male",
+  "name": "Data Analyzer: The condition \"gender is male\" is understood, including short codes",
+  "objective": "Shows a plain-English condition becomes a working check that accepts male, m and 1 and rejects female.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert the text, then apply the condition to a made-up table",
+    "data": "Condition 'gender is male'; gender values male, m, 1, female",
+    "expected": "Result is true, true, true, false in that order"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_convert_natural_language_gender_male"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_convert_natural_language_gender_female",
+  "name": "Data Analyzer: The condition \"gender is female\" is understood, including short codes",
+  "objective": "Shows the female condition accepts female, f and 2 and rejects male.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert the text, then apply it",
+    "data": "Condition 'gender is female'; values female, f, 2, male",
+    "expected": "Result is true, true, true, false"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_convert_natural_language_gender_female"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_convert_natural_language_age_greater_than",
+  "name": "Data Analyzer: The condition \"age >= 18\" is understood",
+  "objective": "Shows a numeric threshold condition is applied correctly at the boundary.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert the text, then apply it",
+    "data": "Condition 'age >= 18'; ages 17, 18, 19",
+    "expected": "Result is false, true, true"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_convert_natural_language_age_greater_than"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_convert_natural_language_pregnant_yes",
+  "name": "Data Analyzer: The condition \"pregnant is yes\" accepts several ways of saying yes",
+  "objective": "Shows yes, y, 1 and true all count as yes, and no does not.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert the text, then apply it",
+    "data": "Condition 'pregnant is yes'; values yes, y, 1, true, no",
+    "expected": "Result is true, true, true, true, false"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_convert_natural_language_pregnant_yes"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_convert_natural_language_custom_value",
+  "name": "Data Analyzer: A condition on any other field, such as \"treatment_arm is control\", is understood",
+  "objective": "Shows conditions on fields without special handling become a straightforward equals-comparison on that field.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert the text, check its form, then apply it",
+    "data": "Condition 'treatment_arm is control'; values control, active",
+    "expected": "It is an equality comparison on the field treatment_arm; result true, false"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_convert_natural_language_custom_value"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_convert_natural_language_contains",
+  "name": "Data Analyzer: The condition \"diagnosis contains cancer\" is understood",
+  "objective": "Shows a text-contains condition works.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert the text, check its form, then apply it",
+    "data": "Condition 'diagnosis contains cancer'; values 'lung cancer', 'healthy'",
+    "expected": "It is a contains comparison; result true, false"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_convert_natural_language_contains"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_convert_natural_language_invalid_returns_false",
+  "name": "Data Analyzer: Unrecognisable condition text is treated as always false (fails safe)",
+  "objective": "Shows condition wording that cannot be understood never accidentally triggers a rule.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert nonsense text",
+    "data": "Text 'some random text'",
+    "expected": "The result is a fixed condition whose value is false"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_convert_natural_language_invalid_returns_false"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_extract_llm_rules_from_field",
+  "name": "Data Analyzer: A field definition with one AI-extracted rule produces one conditional rule",
+  "objective": "Shows an AI-supplied rule is turned into a proper rule with the right type, action and affected field.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract rules from a field definition",
+    "data": "Field pregnancy_status with one skip-if rule: condition 'gender is male', action must be blank",
+    "expected": "One rule; type skip_if; action must_be_blank; affected fields include pregnancy_status; the condition mentions gender"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_extract_llm_rules_from_field"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_extract_llm_rules_multiple_rules",
+  "name": "Data Analyzer: A field with two AI-extracted rules produces two rules in order",
+  "objective": "Shows several rules on one field are all kept, in the order given.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract rules from a field with two rules",
+    "data": "Field alcohol_consumption: show_if 'age >= 18' (must be filled), skip_if 'treatment_arm is control' (must be blank)",
+    "expected": "Two rules; first is show_if, second is skip_if"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_extract_llm_rules_multiple_rules"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_extract_rules_prioritizes_llm_over_format",
+  "name": "Data Analyzer: AI-extracted rules come first when a field also has plain business rules",
+  "objective": "Shows rules from the AI are listed first and carry the standard AI confidence of 0.85.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract rules from a field that has both an AI rule and a text business rule",
+    "data": "Field pregnancy_test with skip-if rule 'gender is male' and business rule 'If male, skip this field'",
+    "expected": "At least one rule returned; the first rule has an identifier containing 'llm' and confidence 0.85"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_extract_rules_prioritizes_llm_over_format"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_extract_llm_rules_no_conditional_rules",
+  "name": "Data Analyzer: A field with no conditional rules yields no rules",
+  "objective": "Shows fields without any AI conditional rules are handled cleanly.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract rules from a plain field",
+    "data": "Field participant_id with no conditional rules",
+    "expected": "Empty list"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_extract_llm_rules_no_conditional_rules"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_extract_llm_rules_handles_malformed_data",
+  "name": "Data Analyzer: Malformed conditional-rule data is ignored without error",
+  "objective": "Shows an AI answer where the rules are not a list does not crash the process.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract rules where the rules entry is plain text",
+    "data": "conditional_rules set to the text 'not a list'",
+    "expected": "Empty list; no error"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_extract_llm_rules_handles_malformed_data"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_extract_llm_rules_skips_invalid_rule_objects",
+  "name": "Data Analyzer: Incomplete or invalid individual rules are skipped",
+  "objective": "Shows bad entries in a rule list (wrong kind, empty, or blank condition) are dropped rather than breaking extraction.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract rules from a list of three bad entries",
+    "data": "A plain text entry, an empty entry, and a rule with a blank condition",
+    "expected": "Empty list; no error"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_extract_llm_rules_skips_invalid_rule_objects"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_comparison_operators",
+  "name": "Data Analyzer: Greater-than, less-than and less-or-equal conditions are applied correctly",
+  "objective": "Shows the comparison wording in conditions behaves correctly at the boundary values.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Convert three conditions and apply each",
+    "data": "'age > 65' on 65,66; 'score < 50' on 49,50; 'count <= 10' on 10,11",
+    "expected": "Results are false,true; true,false; true,false"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_comparison_operators"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_confidence_scores",
+  "name": "Data Analyzer: AI-extracted rules carry a confidence of 0.85",
+  "objective": "Shows AI rules are marked slightly less certain than rules written explicitly in a dictionary.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract a rule and read its confidence",
+    "data": "Field with one skip-if rule 'gender is male'",
+    "expected": "Confidence equals 0.85"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_confidence_scores"
+ },
+ {
+  "id": "tests.test_llm_conditional_extraction.TestLLMConditionalExtraction.test_severity_levels",
+  "name": "Data Analyzer: Skip-if rules are errors and show-if rules are warnings",
+  "objective": "Shows the two rule types get the right seriousness label.",
+  "precondition": "Offline test harness; the condition-rule extractor is used directly with no network and no AI model; the AI's answers are represented by made-up rule descriptions written in the test.",
+  "steps": [
+   {
+    "action": "Extract two rules and read their severity",
+    "data": "One skip_if rule and one show_if rule on the same field",
+    "expected": "First rule severity is error; second is warning"
+   }
+  ],
+  "source": "tests/test_llm_conditional_extraction.py::TestLLMConditionalExtraction::test_severity_levels"
+ }
+]

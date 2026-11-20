@@ -1,0 +1,119 @@
+[
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_every_documented_alias_maps_to_its_canonical_type",
+  "name": "Data Analyzer: Every documented dictionary type name maps to one of the five checked types",
+  "objective": "Proves common dictionary type words (integer, text, date, categorical, ...) are all understood and mapped to int, float, str, bool or datetime. Runs once per target type.",
+  "precondition": "No server needed; the shared type-mapping function is called directly.",
+  "steps": [
+   {
+    "action": "Map each listed name to its checked type.",
+    "data": "int: int, INTEGER, ' Int64 ', bigint. float: float, number, Numeric, decimal, double, float64. str: str, string, TEXT, varchar, categorical, category, dropdown, radio. bool: bool, boolean. datetime: datetime, date, Timestamp, time, datetime64, date_ymd, datetime_dmy",
+    "expected": "Every name in a group maps to that group's type (capitals and surrounding spaces are tolerated)."
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_every_documented_alias_maps_to_its_canonical_type"
+ },
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_an_unknown_type_name_does_not_map",
+  "name": "Data Analyzer: Unknown or empty type names are not mapped",
+  "objective": "Proves unrecognised values are reported as 'no mapping' instead of being guessed. Runs once per value.",
+  "precondition": "No server needed; the shared type-mapping function is called directly.",
+  "steps": [
+   {
+    "action": "Map each unusable value.",
+    "data": "'array', 'calc', empty text, nothing, the number 5, and the list ['int']",
+    "expected": "Every one gives no mapping."
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_an_unknown_type_name_does_not_map"
+ },
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_normalize_schema_leaves_unmappable_columns_out_and_lists_them",
+  "name": "Data Analyzer: Whole-dictionary mapping drops unmappable columns and lists them",
+  "objective": "Proves a dictionary with one odd column is still usable and the odd column is named for reporting.",
+  "precondition": "No server needed; the shared function is called directly.",
+  "steps": [
+   {
+    "action": "Map a three-column dictionary.",
+    "data": "a = date, b = array, c = Integer",
+    "expected": "Result keeps a as datetime and c as int, and lists b as the column that could not be mapped."
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_normalize_schema_leaves_unmappable_columns_out_and_lists_them"
+ },
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_a_date_alias_is_applied_as_a_datetime_check_not_ignored",
+  "name": "Data Analyzer: Date-like type names are really checked as dates",
+  "objective": "Proves a column declared 'date', 'Timestamp' or 'datetime64' is checked, so a bad date is reported. Runs for 3 names on both routes (6 runs).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a made-up CSV with one valid and one invalid date, declaring the column with each name, on both the file-upload and inline-data routes.",
+    "data": "visit column: 2024-01-05 and not-a-date",
+    "expected": "HTTP 200, and the data-type issues list includes an issue for column 'visit'."
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_a_date_alias_is_applied_as_a_datetime_check_not_ignored"
+ },
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_every_alias_family_is_accepted_on_both_routes",
+  "name": "Data Analyzer: Every family of type names is accepted by both routes",
+  "objective": "Proves the type names integer, INT64, number, string, categorical and boolean are not rejected. Runs 6 names on both routes. It checks only the status code.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a made-up two-row numeric CSV declaring column x with each name.",
+    "data": "x = 1, 2",
+    "expected": "HTTP 200 each time. (No check on what was reported.)"
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_every_alias_family_is_accepted_on_both_routes"
+ },
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_an_unknown_type_is_still_a_422_naming_the_column_but_not_the_value",
+  "name": "Data Analyzer: An unknown type name gets HTTP 422 that names the column but not the bad value",
+  "objective": "Proves a truly unknown type is refused clearly and the offending text is not echoed back. Runs on both routes.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a made-up CSV declaring column x with the type 'SECRET-TYPE-NAME'.",
+    "data": "x = 1; type 'SECRET-TYPE-NAME'",
+    "expected": "HTTP 422; the message contains the column name 'x' in quotes; the response text does not contain SECRET-TYPE-NAME."
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_an_unknown_type_is_still_a_422_naming_the_column_but_not_the_value"
+ },
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_the_page_maps_types_and_lists_the_unmappable_one_as_not_checked",
+  "name": "Data Analyzer: The page maps dictionary types and shows a note for a column type it cannot check",
+  "objective": "Proves an analysis still succeeds when one dictionary type (array) cannot be mapped, and the user sees which column was not checked.",
+  "precondition": "Web page loaded in the offline test harness with a made-up API key; the page's call to the service is routed to the in-process server; a private temporary cache folder is used. No network. The AI dictionary reader is replaced by a canned answer with four fields: visit_date (date), count (integer), arm (categorical), tags (array).",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary and a made-up 2-row CSV, then press Run analysis.",
+    "data": "Columns visit_date, count, arm, tags",
+    "expected": "The page raises no exception and shows no 'Analysis failed' error."
+   },
+   {
+    "action": "Read the stored results and the warnings.",
+    "data": "Results summary",
+    "expected": "The not-checked list is exactly ['tags'], and a warning says '1 column type(s) could not be checked' and names tags."
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_the_page_maps_types_and_lists_the_unmappable_one_as_not_checked"
+ },
+ {
+  "id": "tests.test_sec_schema_type_mapping.test_every_builtin_demo_dictionary_with_its_demo_data_analyses_without_a_422",
+  "name": "Data Analyzer: Each built-in demo dictionary analyses with its demo data without an error",
+  "objective": "Proves the shipped demo dictionaries all use type names the system understands. Runs for 5 demo pairs.",
+  "precondition": "Web page loaded in the offline test harness with a made-up API key; the page's call to the service is routed to the in-process server; a private temporary cache folder is used. No network. No AI model is needed.",
+  "steps": [
+   {
+    "action": "Select each demo data set and its demo dictionary and press Run analysis.",
+    "data": "Pairs: CSV Western; CSV Asian; JSON Mixed; CSV Clinical Trial; REDCap Clinical (synthetic, with branching logic)",
+    "expected": "No exception, no 'Analysis failed' error, and the results report more than zero rows."
+   }
+  ],
+  "source": "tests/test_sec_schema_type_mapping.py::test_every_builtin_demo_dictionary_with_its_demo_data_analyses_without_a_422"
+ }
+]

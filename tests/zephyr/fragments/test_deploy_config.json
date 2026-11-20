@@ -1,0 +1,199 @@
+[
+ {
+  "id": "tests.test_deploy_config.test_is_deployed_env",
+  "name": "Data Analyzer: The product decides correctly whether it is running in a live environment",
+  "objective": "Proves that settings identifying production, staging or a cloud container app count as 'deployed', and development/test/empty settings do not. Runs over 10 setting combinations.",
+  "precondition": "Offline test harness; settings are passed in as made-up values, no real server or cloud is contacted.",
+  "steps": [
+   {
+    "action": "Ask whether each made-up settings set is a deployed environment.",
+    "data": "No settings; APP_ENV dev/local/test/development; APP_ENV prod/staging/PROD; APP_ENV dev with a cloud container app name; a cloud container app name alone",
+    "expected": "Not deployed for none and dev/local/test/development. Deployed for prod, staging, PROD (any case), and whenever the cloud container app name is present even if APP_ENV says dev."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_is_deployed_env"
+ },
+ {
+  "id": "tests.test_deploy_config.test_resolve_api_base_url",
+  "name": "Data Analyzer: The web page's backend address is chosen safely",
+  "objective": "Proves that the screen finds the backend (API) address: local default when nothing is set, the configured address (trailing slash removed) when deployed, and an error when deployed with no or blank address.",
+  "precondition": "Offline test harness; settings are passed in as made-up values, no real server or cloud is contacted.",
+  "steps": [
+   {
+    "action": "Resolve the address with no settings, and with production plus an address.",
+    "data": "{} ; APP_ENV prod with https://x/",
+    "expected": "Local default address; then 'https://x' (slash removed)."
+   },
+   {
+    "action": "Resolve the address in production with none, and in a cloud container app with a blank (spaces) one.",
+    "data": "APP_ENV prod; container app name with '  '",
+    "expected": "Each raises a configuration error (ApiConfigError)."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_resolve_api_base_url"
+ },
+ {
+  "id": "tests.test_deploy_config.test_ui_config_problems_and_startup_check",
+  "name": "Data Analyzer: The web page start-up check reports missing connection settings",
+  "objective": "Proves that the start-up check lists what is missing (the API address and key) when deployed, and returns pass/fail exit codes (0 pass, 1 fail, 2 for misuse) accordingly.",
+  "precondition": "Offline test harness; settings are passed in as made-up values, no real server or cloud is contacted. Environment settings are temporarily changed for the test.",
+  "steps": [
+   {
+    "action": "List configuration problems for different settings.",
+    "data": "No settings; APP_ENV prod; prod with an address and key",
+    "expected": "Empty list; exactly 2 problems; empty list."
+   },
+   {
+    "action": "Run the start-up check with --check-ui under several settings.",
+    "data": "prod with nothing; prod with address and key; dev with no address; no option at all",
+    "expected": "Exit codes 1, 0, 0 and 2 respectively."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_ui_config_problems_and_startup_check"
+ },
+ {
+  "id": "tests.test_deploy_config.test_entrypoint_runs_ui_config_check_before_streamlit",
+  "name": "Data Analyzer: The container start script runs the connection check before starting the web page",
+  "objective": "Proves that in the container start script the configuration check line, which stops start-up on failure, appears before the line that launches the web page.",
+  "precondition": "Offline; reads the start script file entrypoint.sh from the code.",
+  "steps": [
+   {
+    "action": "Find positions of the check command and the web-page launch command in the script.",
+    "data": "entrypoint.sh",
+    "expected": "The line 'python -m src.runtime_env --check-ui || exit 1' is present and comes before 'exec streamlit'."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_entrypoint_runs_ui_config_check_before_streamlit"
+ },
+ {
+  "id": "tests.test_deploy_config.test_api_refuses_to_start_without_key_when_deployed",
+  "name": "Data Analyzer: The API refuses to start in a live environment without its access key",
+  "objective": "Proves that when deployed (production, staging, or any cloud container app even with wrong APP_ENV) and no API key is set, the API application will not load. Runs over 4 settings combinations.",
+  "precondition": "Each case starts a separate fresh Python process with no API key set and a made-up allowed web origin.",
+  "steps": [
+   {
+    "action": "Import the API server in a fresh process with deployed-style settings and an empty key.",
+    "data": "APP_ENV prod; APP_ENV staging; cloud container name only; cloud container name with APP_ENV dev",
+    "expected": "The process exits with a failure code and its error output contains 'DATA_ANALYZER_API_KEY is not set'."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_api_refuses_to_start_without_key_when_deployed"
+ },
+ {
+  "id": "tests.test_deploy_config.test_api_starts_without_key_locally",
+  "name": "Data Analyzer: The API may start without a key on a developer machine",
+  "objective": "Proves that the safety stop above does not apply in local testing: with APP_ENV=test and no key, the API loads normally.",
+  "precondition": "A fresh Python process with APP_ENV=test, empty API key.",
+  "steps": [
+   {
+    "action": "Import the API server in a fresh process.",
+    "data": "APP_ENV test",
+    "expected": "The process exits successfully (code 0)."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_api_starts_without_key_locally"
+ },
+ {
+  "id": "tests.test_deploy_config.test_ui_template_wires_api_url_and_key",
+  "name": "Data Analyzer: The web page's deployment template points at the API using a secret reference",
+  "objective": "Proves that the committed web-page deployment template has an https API address, takes the API key from a named secret, lists no secret values itself, and sets production mode.",
+  "precondition": "Offline; reads the committed template deploy/aca/containerapp-ui.yaml.",
+  "steps": [
+   {
+    "action": "Read the template's environment settings and configuration.",
+    "data": "containerapp-ui.yaml",
+    "expected": "API address starts with https://; API key setting refers to the secret 'data-analyzer-api-key' with no inline value; the configuration has no 'secrets' section; APP_ENV is 'prod'."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_ui_template_wires_api_url_and_key"
+ },
+ {
+  "id": "tests.test_deploy_config.test_ui_and_api_share_the_api_key_secret_name",
+  "name": "Data Analyzer: Web page and API templates use the same API-key secret name",
+  "objective": "Proves that both deployment templates refer to the same secret name for the API key, so a key set once works for both.",
+  "precondition": "Offline; reads templates containerapp.yaml and containerapp-ui.yaml.",
+  "steps": [
+   {
+    "action": "Compare the API key secret reference in both templates.",
+    "data": "Two committed templates",
+    "expected": "The secret reference names are identical."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_ui_and_api_share_the_api_key_secret_name"
+ },
+ {
+  "id": "tests.test_deploy_config.test_committed_templates_hold_no_real_infra_ids_or_secrets",
+  "name": "Data Analyzer: Committed deployment templates contain no real infrastructure details or secret values",
+  "objective": "Proves that the two committed templates contain nothing resembling a real cloud subscription path, ID code, registry address, app web address or storage address, and no secret values. Runs once per template.",
+  "precondition": "Offline; reads each committed template (API and web page).",
+  "steps": [
+   {
+    "action": "Search each template's text for patterns of real-looking values, and check any listed secrets.",
+    "data": "containerapp.yaml and containerapp-ui.yaml; five patterns (subscription paths, ID codes, registry names, app addresses, storage addresses)",
+    "expected": "No pattern matches, and no secret entry carries a value."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_committed_templates_hold_no_real_infra_ids_or_secrets"
+ },
+ {
+  "id": "tests.test_deploy_config.test_any_aca_marker_means_deployed_whatever_app_env_says",
+  "name": "Data Analyzer: Any cloud-container marker counts as deployed, whatever APP_ENV says",
+  "objective": "Proves that any of four cloud container markers makes the product treat itself as deployed even if APP_ENV is dev, local, test, empty or absent, so it cannot silently use a local address. Runs over 4 markers x 5 APP_ENV values.",
+  "precondition": "Offline test harness; settings are passed in as made-up values, no real server or cloud is contacted.",
+  "steps": [
+   {
+    "action": "For each combination, test the environment and resolve the API address.",
+    "data": "One cloud marker set to 'x' with APP_ENV absent, dev, local, test or empty",
+    "expected": "It is deployed; resolving the address raises a configuration error; the problems list mentions DATA_ANALYZER_API_URL."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_any_aca_marker_means_deployed_whatever_app_env_says"
+ },
+ {
+  "id": "tests.test_deploy_config.test_explicit_localhost_url_is_refused_when_deployed",
+  "name": "Data Analyzer: A localhost API address is refused when deployed but allowed locally",
+  "objective": "Proves that in a deployed environment an API address pointing to the same machine (localhost, 127.0.0.1, ::1, 0.0.0.0) is rejected because it could never reach the API, while local development still accepts it. Runs over 5 addresses.",
+  "precondition": "Offline test harness; settings are passed in as made-up values, no real server or cloud is contacted.",
+  "steps": [
+   {
+    "action": "Resolve the address when deployed with each localhost-style address.",
+    "data": "localhost, 127.0.0.1, ::1, 0.0.0.0 forms, container name set, key set",
+    "expected": "A configuration error mentioning 'localhost' is raised, and the problems list is exactly ['DATA_ANALYZER_API_URL points at localhost (UI cannot reach the API)']."
+   },
+   {
+    "action": "Resolve the same address locally.",
+    "data": "Same address, no deployed markers",
+    "expected": "The address is returned unchanged apart from any trailing slash removed."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_explicit_localhost_url_is_refused_when_deployed"
+ },
+ {
+  "id": "tests.test_deploy_config.test_compose_service_url_is_not_mistaken_for_localhost",
+  "name": "Data Analyzer: A container-network service name is accepted as an API address",
+  "objective": "Proves that an address such as http://api:8000 (used when services run side by side) is not wrongly rejected as localhost.",
+  "precondition": "Offline test harness; settings are passed in as made-up values, no real server or cloud is contacted.",
+  "steps": [
+   {
+    "action": "Resolve the address and list problems in production with that address and a key.",
+    "data": "APP_ENV prod, address http://api:8000, key k",
+    "expected": "Address is returned as http://api:8000 and the problems list is empty."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_compose_service_url_is_not_mistaken_for_localhost"
+ },
+ {
+  "id": "tests.test_deploy_config.test_local_ui_manifest_wires_api_url_and_key_without_inline_secret",
+  "name": "Data Analyzer: The developer's local web-page template is wired correctly (skipped if the file is absent)",
+  "objective": "Proves that, where a private local deployment template exists on the machine, it has an https non-localhost API address, takes the key from the named secret, and holds only placeholder secret values. The test is skipped if the file is not present, as in automated builds.",
+  "precondition": "Only runs if the private file deploy/aca/containerapp-ui.local.yaml exists; otherwise reported as skipped.",
+  "steps": [
+   {
+    "action": "Read the local template and check its settings.",
+    "data": "containerapp-ui.local.yaml",
+    "expected": "API address starts with https:// and has no 'localhost'; key refers to secret 'data-analyzer-api-key'; any secret value starts with '<' (a placeholder)."
+   }
+  ],
+  "source": "tests/test_deploy_config.py::test_local_ui_manifest_wires_api_url_and_key_without_inline_secret"
+ }
+]

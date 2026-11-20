@@ -1,0 +1,44 @@
+[
+ {
+  "id": "tests.test_llm_integration.test_csv_dictionary",
+  "name": "Data Analyzer: Live AI model reads a simple CSV data dictionary and finds fields",
+  "objective": "Optional live check that the real AI model can parse a small dictionary file into field definitions.",
+  "precondition": "Skipped unless the environment variable RUN_LIVE_LLM_TESTS=1 is set. When run, it needs network access, valid Azure OpenAI sign-in and a live AI model, so it is not part of the offline suite.",
+  "steps": [
+   {
+    "action": "Send the made-up simple CSV dictionary file to the live AI parser",
+    "data": "tests/test_data/dictionaries/simple_csv_dict.csv",
+    "expected": "Result contains a 'fields' entry with at least one field (field contents are not checked)"
+   }
+  ],
+  "source": "tests/test_llm_integration.py::test_csv_dictionary"
+ },
+ {
+  "id": "tests.test_llm_integration.test_pdf_dictionary",
+  "name": "Data Analyzer: Live AI model reads the first pages of a PDF dictionary and finds fields",
+  "objective": "Optional live check that the real AI model can parse text taken from a PDF dictionary.",
+  "precondition": "Skipped unless the environment variable RUN_LIVE_LLM_TESTS=1 is set. When run, it needs network access, valid Azure OpenAI sign-in and a live AI model, so it is not part of the offline suite. The sample PDF and the PDF reading library must be present, otherwise the test is skipped.",
+  "steps": [
+   {
+    "action": "Extract text of the first 3 pages of the sample PDF, then send it to the live AI parser",
+    "data": "LTCPROMISE8314QC.pdf, pages 1-3",
+    "expected": "Result contains a 'fields' entry with at least one field"
+   }
+  ],
+  "source": "tests/test_llm_integration.py::test_pdf_dictionary"
+ },
+ {
+  "id": "tests.test_llm_integration.test_data_validation",
+  "name": "Data Analyzer: Live AI model flags problems in a small deliberately flawed data sample",
+  "objective": "Optional live check that the real AI model reports issues for data that breaks its rules.",
+  "precondition": "Skipped unless the environment variable RUN_LIVE_LLM_TESTS=1 is set. When run, it needs network access, valid Azure OpenAI sign-in and a live AI model, so it is not part of the offline suite.",
+  "steps": [
+   {
+    "action": "Ask the live AI to validate made-up employee rows against a rule set",
+    "data": "4 rows with planted problems (age 150, a blank last name, a minor aged 17, an unlisted department) and rules for ID, age, salary and department",
+    "expected": "Result contains 'issues' or 'summary', and the issues list has at least one entry (which issues are not checked)"
+   }
+  ],
+  "source": "tests/test_llm_integration.py::test_data_validation"
+ }
+]

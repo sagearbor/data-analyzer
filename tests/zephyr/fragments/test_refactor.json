@@ -1,0 +1,16 @@
+[
+ {
+  "id": "tests.test_refactor.test_validation",
+  "name": "Data Analyzer: Live analysis service flags planted errors in demo employee data (smoke test)",
+  "objective": "Optional manual check that the screen-side analyzer, calling a running analysis service, returns results. It prints results and asserts nothing, so it only shows the call does not crash.",
+  "precondition": "Skipped unless RUN_LIVE_API_TESTS is set. Needs the Data Analyzer API server running locally.",
+  "steps": [
+   {
+    "action": "Analyze made-up employee data with and without a dictionary",
+    "data": "5 made-up employees with an age over 65, a salary under 50000 and an unlisted department",
+    "expected": "No assertions. Results are printed for a human to read; the test passes if no error occurs"
+   }
+  ],
+  "source": "tests/test_refactor.py::test_validation"
+ }
+]

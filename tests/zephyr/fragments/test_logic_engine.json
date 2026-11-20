@@ -1,0 +1,624 @@
+[
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_compare_eq_string_normalized",
+  "name": "Data Analyzer: Text equality check ignores upper/lower case",
+  "objective": "Proves that an 'equals' condition on text matches regardless of capital letters.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Test the condition 'column g equals male' on a 3-row table.",
+    "data": "g = Male, female, MALE",
+    "expected": "Result per row is: match, no match, match."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_compare_eq_string_normalized"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_compare_in_list",
+  "name": "Data Analyzer: 'Is one of' condition matches any listed value",
+  "objective": "Proves that an 'is one of' condition matches each value in the list, ignoring case.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Test 'g is one of male, m, 1' on a 4-row table.",
+    "data": "g = 1, m, x, MALE",
+    "expected": "Result per row is: match, match, no match, match."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_compare_in_list"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_compare_numeric",
+  "name": "Data Analyzer: Numeric 'greater than or equal' check handles blanks and text",
+  "objective": "Proves that an 'age is at least 18' condition works on numbers and treats blank and non-numeric entries as not matching rather than failing.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Test 'age is at least 18' on a 5-row table.",
+    "data": "age = 10, 18, 25, blank, 'abc'",
+    "expected": "Result per row is: no, yes, yes, no, no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_compare_numeric"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_compare_missing_column_is_false",
+  "name": "Data Analyzer: A condition on a missing column matches nothing",
+  "objective": "Proves that a condition naming a column that does not exist is quietly false for every row and does not crash.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Test 'nonexistent equals x' on a table that has only column a.",
+    "data": "Two rows",
+    "expected": "Result is no match for both rows."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_compare_missing_column_is_false"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_is_blank_and_not_blank",
+  "name": "Data Analyzer: Blank and not-blank checks treat empty and space-only cells as blank",
+  "objective": "Proves that empty, missing and whitespace-only cells all count as blank, and the opposite check mirrors it.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Run the 'is blank' and 'is not blank' conditions on a 4-row column.",
+    "data": "Values: 'x', missing, three spaces, empty text",
+    "expected": "Is-blank gives: no, yes, yes, yes. Is-not-blank gives: yes, no, no, no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_is_blank_and_not_blank"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_contains",
+  "name": "Data Analyzer: 'Contains text' check is case-insensitive and ignores missing cells",
+  "objective": "Proves that a 'contains' condition finds a word inside longer text regardless of case, and does not match missing cells.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Test 'notes contains diabet' on a 3-row column.",
+    "data": "Diabetic patient, healthy, missing",
+    "expected": "Result per row is: match, no match, no match."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_contains"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_and_or_not",
+  "name": "Data Analyzer: AND, OR and NOT combine conditions correctly",
+  "objective": "Proves that conditions can be combined with AND, OR and NOT and give the expected row-by-row answers.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Test 'g equals m AND age at least 18' on 3 rows.",
+    "data": "g = m, m, f; age = 20, 10, 30",
+    "expected": "Result: yes, no, no."
+   },
+   {
+    "action": "Test 'g equals f OR age at least 18', then 'NOT g equals m'.",
+    "data": "Same rows",
+    "expected": "OR gives yes, no, yes. NOT gives no, no, yes."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_and_or_not"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_const",
+  "name": "Data Analyzer: Fixed true/false conditions apply to every row",
+  "objective": "Proves that a constant 'always true' or 'always false' condition gives the same answer for all rows.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Evaluate constant True and constant False on a 3-row table.",
+    "data": "3 rows",
+    "expected": "True gives yes for all three rows; False gives no for all three."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_const"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionEvaluation.test_invalid_op_rejected",
+  "name": "Data Analyzer: An unknown comparison type is rejected",
+  "objective": "Proves that building a condition with a comparison type that does not exist raises an error immediately, rather than being accepted.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Create a condition using the made-up comparison type 'totally_bogus'.",
+    "data": "Operator totally_bogus",
+    "expected": "A ValueError (invalid value error) is raised."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionEvaluation::test_invalid_op_rejected"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionSerialization.test_roundtrip",
+  "name": "Data Analyzer: A condition survives being saved and reloaded",
+  "objective": "Proves that a nested condition converted to stored form and back behaves identically.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Convert a nested AND/OR/NOT condition to stored form, rebuild it, and evaluate both on the same table.",
+    "data": "2-row table with gender, age, x columns",
+    "expected": "The rebuilt condition gives exactly the same results as the original."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionSerialization::test_roundtrip"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionSerialization.test_legacy_string_condition_is_neutralized",
+  "name": "Data Analyzer: An old code-like text condition is turned into 'always false', never run",
+  "objective": "Security check: old saved data may hold a condition written as program text (here a command that would delete files). Proves it is converted to a harmless always-false condition and not executed.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Rebuild a condition from the text \"os.system('rm -rf /')\".",
+    "data": "That text",
+    "expected": "The result is a constant condition whose value is False. Nothing is executed."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionSerialization::test_legacy_string_condition_is_neutralized"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionSerialization.test_unknown_type_is_neutralized",
+  "name": "Data Analyzer: Unrecognised or empty stored conditions become 'always false'",
+  "objective": "Proves that a stored condition of unknown type, or an empty one, becomes a constant condition instead of failing.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Rebuild conditions from an unknown-type record and from nothing.",
+    "data": "{'type': 'weird'} and None",
+    "expected": "Both results are constant conditions. (The test checks the kind, and does not check the value for these two.)"
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionSerialization::test_unknown_type_is_neutralized"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionalRule.test_creation",
+  "name": "Data Analyzer: A conditional rule can be created with its details",
+  "objective": "Proves that a rule built from made-up details keeps its identifier and holds a structured condition.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Create the sample rule (skip pregnancy questions for male subjects).",
+    "data": "Rule id pregnancy_gender_check",
+    "expected": "The rule id is 'pregnancy_gender_check' and its condition is a structured condition object."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionalRule::test_creation"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionalRule.test_string_condition_coerced_not_executed",
+  "name": "Data Analyzer: A rule given a code-like text condition gets an inert condition",
+  "objective": "Security check: if a rule is created with a condition written as program text (an attempt to run a command), the text is not executed and is replaced by 'always false'.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Create a rule whose condition is the text \"__import__('os').system('boom')\".",
+    "data": "That text",
+    "expected": "The rule's condition is a constant whose value is False."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionalRule::test_string_condition_coerced_not_executed"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionalRule.test_to_from_dict_roundtrip",
+  "name": "Data Analyzer: A rule survives being saved and reloaded",
+  "objective": "Proves that a rule converted to stored form and rebuilt keeps its identifier and condition.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Convert the sample rule to stored form and rebuild it.",
+    "data": "Rule pregnancy_gender_check",
+    "expected": "The rebuilt rule has the same rule id and the same condition."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionalRule::test_to_from_dict_roundtrip"
+ },
+ {
+  "id": "tests.test_logic_engine.TestConditionalRule.test_str_condition_is_readable",
+  "name": "Data Analyzer: A condition can be printed in readable form",
+  "objective": "Proves that showing a condition as text works and mentions the column it checks.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Convert the sample rule's condition to text.",
+    "data": "Condition on the gender column",
+    "expected": "The text contains the word 'gender' (any case)."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestConditionalRule::test_str_condition_is_readable"
+ },
+ {
+  "id": "tests.test_logic_engine.TestLogicViolation.test_to_dict",
+  "name": "Data Analyzer: A rule violation record can be converted to a plain record",
+  "objective": "Proves that a violation (a data row that broke a rule) can be turned into a plain record. Only two of its values are checked.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Convert a made-up violation to a plain record.",
+    "data": "Rule id r, row 0, field f, value x, severity error",
+    "expected": "The record has rule_id 'r' and row_index 0. Other values are not checked."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestLogicViolation::test_to_dict"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRedcapParser.test_simple_equality",
+  "name": "Data Analyzer: REDCap condition text 'column equals value' is understood",
+  "objective": "Proves that a simple REDCap branching expression is turned into a working check.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Parse \"[gender]='2'\" and apply it to 2 rows.",
+    "data": "gender = 2, 1",
+    "expected": "Result: yes, no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRedcapParser::test_simple_equality"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRedcapParser.test_and",
+  "name": "Data Analyzer: REDCap 'and' conditions are understood",
+  "objective": "Proves that an expression joining two checks with 'and' needs both to hold.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Parse \"[diabetes]='1' and [age] >= 18\" and apply it to 3 rows.",
+    "data": "diabetes = 1, 1, 0; age = 20, 10, 20",
+    "expected": "Result: yes, no, no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRedcapParser::test_and"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRedcapParser.test_or",
+  "name": "Data Analyzer: REDCap 'or' conditions are understood",
+  "objective": "Proves that an expression joining two checks with 'or' needs either to hold.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Parse \"[status]='complete' or [status]='partial'\" and apply it to 3 rows.",
+    "data": "status = complete, partial, none",
+    "expected": "Result: yes, yes, no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRedcapParser::test_or"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRedcapParser.test_parentheses",
+  "name": "Data Analyzer: Brackets in REDCap conditions are respected",
+  "objective": "Proves that grouping with parentheses changes evaluation order correctly.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Parse \"([a]='1' or [a]='2') and [b]>=5\" and apply it to 3 rows.",
+    "data": "a = 1, 2, 3; b = 9, 1, 9",
+    "expected": "Result: yes, no, no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRedcapParser::test_parentheses"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRedcapParser.test_unparseable_is_const_false",
+  "name": "Data Analyzer: Text that is not valid REDCap logic becomes 'always false'",
+  "objective": "Security check: text that is program code rather than REDCap logic (a call to read a file) is not run and becomes an always-false condition.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Parse the text \"pd.read_pickle('/tmp/evil.pkl')\".",
+    "data": "That text",
+    "expected": "The result is a constant condition whose value is False."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRedcapParser::test_unparseable_is_const_false"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRedcapParser.test_empty",
+  "name": "Data Analyzer: An empty REDCap condition gives a fixed condition",
+  "objective": "Proves that empty text does not cause an error and yields a constant condition. The value itself is not checked.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Parse empty text.",
+    "data": "Empty string",
+    "expected": "The result is a constant condition."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRedcapParser::test_empty"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_empty_input",
+  "name": "Data Analyzer: No fields means no rules",
+  "objective": "Proves that extracting rules from an empty list of fields returns an empty list.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Extract rules from an empty field list.",
+    "data": "[]",
+    "expected": "The result is an empty list."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_empty_input"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_redcap_branching",
+  "name": "Data Analyzer: A REDCap 'show only if' becomes a 'must be blank otherwise' rule",
+  "objective": "Proves that a field shown only when gender is 2 produces a rule affecting that field, which fires for rows where gender is not 2.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Build a rule for field 'pregnant' from \"[gender]='2'\".",
+    "data": "Field pregnant, branching text [gender]='2'",
+    "expected": "A rule is returned and its affected field list is ['pregnant']."
+   },
+   {
+    "action": "Apply the rule's condition to a male row that still has an answer.",
+    "data": "gender = 1, pregnant = 1",
+    "expected": "The condition is true, meaning the rule applies to that row."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_redcap_branching"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_extract_from_fields",
+  "name": "Data Analyzer: Rules are extracted for each field that has branching logic",
+  "objective": "Proves that extracting rules from a made-up REDCap dictionary produces rules for the fields 'pregnant' and 'weeks_pregnant'.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Extract rules from four made-up fields, two of which have branching logic.",
+    "data": "Fields subject_id, gender, pregnant, weeks_pregnant",
+    "expected": "At least one rule identifier mentions 'pregnant' and at least one mentions 'weeks_pregnant'. (Both words also match the weeks_pregnant rule, so the first check is lenient.)"
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_extract_from_fields"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_business_rule_male_skip",
+  "name": "Data Analyzer: Plain-English 'If male, skip this field' becomes a must-be-blank rule",
+  "objective": "Proves that a simple business-rule sentence is converted to a rule that expects the field to be blank for males.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Build a rule from the sentence 'If male, skip this field' for field 'pregnant'.",
+    "data": "That sentence",
+    "expected": "A rule is returned and its action is 'must_be_blank'."
+   },
+   {
+    "action": "Apply its condition to two rows.",
+    "data": "gender = male, female",
+    "expected": "Result: yes, no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_business_rule_male_skip"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_business_rule_female_required",
+  "name": "Data Analyzer: Plain-English 'Required for female subjects' becomes a must-be-filled rule",
+  "objective": "Proves that a 'required for' sentence is converted to a rule that expects the field to be filled.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Build a rule from 'Required for female subjects' for field 'preg_test'.",
+    "data": "That sentence",
+    "expected": "A rule is returned and its action is 'must_be_filled'."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_business_rule_female_required"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_fhir_enable_when",
+  "name": "Data Analyzer: A FHIR 'enable when' condition becomes a rule",
+  "objective": "Proves that a FHIR questionnaire condition (enabled when gender is female) is converted into a rule that does not fire for female rows.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Build a rule for field 'pregnant' from a made-up FHIR condition and apply it to a female row.",
+    "data": "enableWhen: question gender, operator =, code female; row gender = female, pregnant = 1",
+    "expected": "A rule is returned and its condition gives False (no violation) for the female row."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_fhir_enable_when"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_llm_rules",
+  "name": "Data Analyzer: Rules suggested by the AI in a dictionary are converted",
+  "objective": "Proves that a rule written as 'gender is male' (as an AI model might output it) is turned into a working check. No AI is called; the rule is part of the test input.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Extract rules from a field that carries one pre-written rule.",
+    "data": "Field pregnant, rule 'gender is male' must be blank",
+    "expected": "Exactly one rule is produced, and its condition gives yes for male and no for female."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_llm_rules"
+ },
+ {
+  "id": "tests.test_logic_engine.TestRuleExtractor.test_natural_language_variants",
+  "name": "Data Analyzer: Plain-English conditions are understood in three forms",
+  "objective": "Proves that 'age >= 18', 'status is not active' and 'notes contains diabetes' each become correct checks.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Convert three plain-English conditions and apply each to a 2-row table.",
+    "data": "age 20/10; status active/closed; notes 'has diabetes'/'none'",
+    "expected": "Results: age check yes,no; status check no,yes; notes check yes,no."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestRuleExtractor::test_natural_language_variants"
+ },
+ {
+  "id": "tests.test_logic_engine.TestLogicValidator.test_no_rules",
+  "name": "Data Analyzer: Validating with no rules finds no problems",
+  "objective": "Proves that giving the validator no rules returns no violations.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Validate a 1-row table with an empty rule list.",
+    "data": "[] rules",
+    "expected": "The result is an empty list."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestLogicValidator::test_no_rules"
+ },
+ {
+  "id": "tests.test_logic_engine.TestLogicValidator.test_empty_df",
+  "name": "Data Analyzer: Validating an empty table finds no problems",
+  "objective": "Proves that an empty data table does not cause an error and returns no violations.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Validate an empty table against two sample rules.",
+    "data": "Empty table",
+    "expected": "The result is an empty list."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestLogicValidator::test_empty_df"
+ },
+ {
+  "id": "tests.test_logic_engine.TestLogicValidator.test_valid_data_no_violations",
+  "name": "Data Analyzer: Correct data produces no violations",
+  "objective": "Proves that data that follows the rules is not flagged.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Validate a 3-row table that follows both sample rules (males blank on pregnancy, adults have consent).",
+    "data": "Made-up subjects 001-003",
+    "expected": "The result is an empty list."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestLogicValidator::test_valid_data_no_violations"
+ },
+ {
+  "id": "tests.test_logic_engine.TestLogicValidator.test_violations_detected",
+  "name": "Data Analyzer: Data that breaks a 'must be blank' rule is flagged",
+  "objective": "Proves that every offending cell is reported as a violation of error severity.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Validate two male rows that wrongly have pregnancy answers.",
+    "data": "Row 0: pregnant Yes, weeks 12; row 1: pregnant No",
+    "expected": "Exactly 3 violations are reported (2 for row 0, 1 for row 1), all with severity 'error'."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestLogicValidator::test_violations_detected"
+ },
+ {
+  "id": "tests.test_logic_engine.TestLogicValidator.test_required_if_violation",
+  "name": "Data Analyzer: A missing required answer is flagged",
+  "objective": "Proves that an 'adults need consent' rule flags an adult with a blank consent and ignores a child.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Validate two rows against the rule 'age at least 18 requires consent'.",
+    "data": "age 25 and 10; consent blank for both",
+    "expected": "Exactly one violation is reported, for row 0."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestLogicValidator::test_required_if_violation"
+ },
+ {
+  "id": "tests.test_logic_engine.TestLogicValidator.test_one_bad_rule_does_not_abort_others",
+  "name": "Data Analyzer: Validation continues past a problem rule (weakly tested)",
+  "objective": "Intended to prove one faulty rule does not stop others. As written only a single valid rule is supplied (no faulty rule), so it really proves a normal rule reports at least one violation.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Validate two male rows against one valid 'must be blank' rule.",
+    "data": "Rule: gender equals Male, pregnant must be blank",
+    "expected": "At least one violation is reported."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestLogicValidator::test_one_bad_rule_does_not_abort_others"
+ },
+ {
+  "id": "tests.test_logic_engine.TestSecurityNoCodeExecution.test_pickle_gadget_in_branching_logic_does_not_execute",
+  "name": "Data Analyzer: Malicious dictionary logic that would run a command is not executed",
+  "objective": "Security check: a data dictionary whose 'branching logic' is an attack (loading a booby-trapped file that would create a marker file) must not run.",
+  "precondition": "Offline test harness; a temporary folder holds a booby-trapped file that would create a marker file named PWNED.txt if loaded.",
+  "steps": [
+   {
+    "action": "Extract rules from a dictionary field whose branching logic loads the booby-trapped file, then validate a small table.",
+    "data": "Field 'dose' with logic pd.read_pickle(<temporary file>)",
+    "expected": "No error; extraction and validation complete."
+   },
+   {
+    "action": "Check for the marker file and the shape of the resulting rule.",
+    "data": "",
+    "expected": "The marker file does not exist. The rule's condition is a NOT around a constant False, so it is inert."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestSecurityNoCodeExecution::test_pickle_gadget_in_branching_logic_does_not_execute"
+ },
+ {
+  "id": "tests.test_logic_engine.TestSecurityNoCodeExecution.test_os_system_in_llm_condition_does_not_execute",
+  "name": "Data Analyzer: AI-style rule text containing a system command is not executed",
+  "objective": "Security check: a rule whose condition text tries to run an operating-system command must not run it.",
+  "precondition": "Offline test harness; temporary folder; the command would create a marker file named PWNED2.txt.",
+  "steps": [
+   {
+    "action": "Extract rules from a field whose rule text is a command, then validate a table.",
+    "data": "Condition text \"__import__('os').system('echo x > <file>')\"",
+    "expected": "The marker file does not exist (the command was not run)."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestSecurityNoCodeExecution::test_os_system_in_llm_condition_does_not_execute"
+ },
+ {
+  "id": "tests.test_logic_engine.TestSecurityNoCodeExecution.test_no_exec_eval_in_module",
+  "name": "Data Analyzer: The logic engine's source contains no code-execution calls",
+  "objective": "Security check: the source file of the logic engine must not contain the text 'exec(' or 'eval('. A plain text search, so it also would flag a comment that contains those words.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Read the logic engine source file and search it.",
+    "data": "Source file src/logic_engine.py",
+    "expected": "The text 'exec(' is absent and the text 'eval(' is absent."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestSecurityNoCodeExecution::test_no_exec_eval_in_module"
+ },
+ {
+  "id": "tests.test_logic_engine.TestSecurityNoCodeExecution.test_malformed_field_does_not_abort_other_fields",
+  "name": "Data Analyzer: One badly formed dictionary field does not stop the others",
+  "objective": "Proves that fields with unusable logic (a number, a list) do not prevent rules being extracted for the good fields.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Extract rules from four fields, two with valid logic and two with a number or list as logic.",
+    "data": "legit_a [gender]='2'; evil 123; legit_b [age]>=18; also_bad a list",
+    "expected": "Rules exist for legit_a and for legit_b. No error is raised."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestSecurityNoCodeExecution::test_malformed_field_does_not_abort_other_fields"
+ },
+ {
+  "id": "tests.test_logic_engine.TestSecurityNoCodeExecution.test_non_dict_field_is_skipped",
+  "name": "Data Analyzer: Entries that are not proper fields are skipped",
+  "objective": "Proves that stray items in a field list (text, empty) are ignored and the valid field still gives a rule.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Extract rules from a list containing text, nothing, and one valid field.",
+    "data": "'not a dict', None, field 'ok' with logic [g]='1'",
+    "expected": "A rule whose identifier mentions 'ok' is produced; no error is raised."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestSecurityNoCodeExecution::test_non_dict_field_is_skipped"
+ },
+ {
+  "id": "tests.test_logic_engine.TestSecurityNoCodeExecution.test_malicious_condition_via_from_dict_is_inert",
+  "name": "Data Analyzer: A saved rule holding file-reading code is made inert",
+  "objective": "Security check: a stored rule whose condition is program text (reading a system password file) is rebuilt as an always-false condition and not run.",
+  "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
+  "steps": [
+   {
+    "action": "Rebuild a rule from stored form with condition text \"open('/etc/passwd').read()\".",
+    "data": "That stored rule",
+    "expected": "The rule's condition is a constant whose value is False."
+   }
+  ],
+  "source": "tests/test_logic_engine.py::TestSecurityNoCodeExecution::test_malicious_condition_via_from_dict_is_inert"
+ }
+]

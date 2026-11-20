@@ -1,0 +1,147 @@
+[
+ {
+  "id": "tests.test_web_app_state.TestDemoDictionarySelectedThenAnalyze.test_demo_dictionary_selection_is_used",
+  "name": "Data Analyzer: Choosing a demo dictionary makes it the active dictionary",
+  "objective": "Shows the dictionary chosen from the demo list becomes the one used for analysis.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Demo choice = REDCap demo, built demo dictionary supplied, no uploaded file, nothing previously active",
+    "expected": "Result equals the REDCap demo dictionary"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestDemoDictionarySelectedThenAnalyze::test_demo_dictionary_selection_is_used"
+ },
+ {
+  "id": "tests.test_web_app_state.TestDemoDictionarySelectedThenAnalyze.test_demo_dictionary_selection_replaces_previous_none",
+  "name": "Data Analyzer: Choosing a demo dictionary after having none gives that dictionary",
+  "objective": "Shows the result is present and carries the demo dictionary rules (the same scenario as the previous test with slightly different checks).",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Same inputs: REDCap demo chosen, nothing previously active",
+    "expected": "Result is not empty and its rules equal the REDCap demo rules"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestDemoDictionarySelectedThenAnalyze::test_demo_dictionary_selection_replaces_previous_none"
+ },
+ {
+  "id": "tests.test_web_app_state.TestDemoDictionaryResetToNone.test_reset_to_none_clears_stale_demo_dictionary",
+  "name": "Data Analyzer: Setting the demo list back to None clears the old demo dictionary",
+  "objective": "Regression check for a reported bug: a previously chosen demo dictionary used to linger after the user reset the list to None.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Demo choice = None, no uploaded file, REDCap demo previously active",
+    "expected": "Result is none (no dictionary)"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestDemoDictionaryResetToNone::test_reset_to_none_clears_stale_demo_dictionary"
+ },
+ {
+  "id": "tests.test_web_app_state.TestDemoDictionaryResetToNone.test_reset_to_none_with_no_prior_dictionary_stays_none",
+  "name": "Data Analyzer: Demo list at None with nothing loaded stays empty",
+  "objective": "Shows no dictionary appears from nothing.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Demo choice = None, no uploaded file, nothing previously active",
+    "expected": "Result is none"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestDemoDictionaryResetToNone::test_reset_to_none_with_no_prior_dictionary_stays_none"
+ },
+ {
+  "id": "tests.test_web_app_state.TestSwitchingBetweenDemoDictionaries.test_switch_from_redcap_to_western_fully_replaces",
+  "name": "Data Analyzer: Switching demo dictionaries fully replaces the first with the second",
+  "objective": "Shows no rules from the first dictionary leak into the second.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Choose the REDCap demo",
+    "data": "REDCap demo chosen",
+    "expected": "Result equals the REDCap demo dictionary"
+   },
+   {
+    "action": "Then switch to the Western demo",
+    "data": "Western demo chosen, REDCap previously active",
+    "expected": "Result equals the Western dictionary; it shares no rule names with REDCap; filename is Western"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestSwitchingBetweenDemoDictionaries::test_switch_from_redcap_to_western_fully_replaces"
+ },
+ {
+  "id": "tests.test_web_app_state.TestUploadedDictionaryTakesPrecedenceOverDemoNone.test_uploaded_dictionary_wins_when_demo_selector_is_none",
+  "name": "Data Analyzer: An uploaded dictionary is kept when the demo list is None",
+  "objective": "Shows choosing nothing in the demo list does not wipe out a dictionary the user uploaded.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Demo choice = None, a file is uploaded, uploaded dictionary currently active",
+    "expected": "Result equals the uploaded dictionary"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestUploadedDictionaryTakesPrecedenceOverDemoNone::test_uploaded_dictionary_wins_when_demo_selector_is_none"
+ },
+ {
+  "id": "tests.test_web_app_state.TestUploadedDictionaryTakesPrecedenceOverDemoNone.test_uploaded_dictionary_wins_even_if_demo_selector_has_stale_value",
+  "name": "Data Analyzer: An uploaded dictionary beats a demo choice",
+  "objective": "Shows upload takes priority over a demo selection if both are present.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Demo choice = REDCap, a file is uploaded, uploaded dictionary currently active",
+    "expected": "Result equals the uploaded dictionary, not the REDCap one"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestUploadedDictionaryTakesPrecedenceOverDemoNone::test_uploaded_dictionary_wins_even_if_demo_selector_has_stale_value"
+ },
+ {
+  "id": "tests.test_web_app_state.TestUploadedDictionaryTakesPrecedenceOverDemoNone.test_removing_uploaded_file_and_demo_none_clears_dictionary",
+  "name": "Data Analyzer: Removing the uploaded file with the demo list at None clears the dictionary",
+  "objective": "Shows an old uploaded dictionary does not linger once the file is removed.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Demo choice = None, no file uploaded, uploaded dictionary previously active",
+    "expected": "Result is none"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestUploadedDictionaryTakesPrecedenceOverDemoNone::test_removing_uploaded_file_and_demo_none_clears_dictionary"
+ },
+ {
+  "id": "tests.test_web_app_state.TestReturnValueIsNotMutatedCopy.test_demo_dictionary_object_identity_preserved",
+  "name": "Data Analyzer: The chosen demo dictionary is returned as is, not rebuilt or merged",
+  "objective": "Shows the rule picks one of its inputs and does not alter or copy it.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "REDCap demo chosen, no upload",
+    "expected": "Result is the very same dictionary object supplied"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestReturnValueIsNotMutatedCopy::test_demo_dictionary_object_identity_preserved"
+ },
+ {
+  "id": "tests.test_web_app_state.TestReturnValueIsNotMutatedCopy.test_uploaded_dictionary_object_identity_preserved",
+  "name": "Data Analyzer: The uploaded dictionary is returned as is, not rebuilt or merged",
+  "objective": "Shows the uploaded dictionary is passed through untouched.",
+  "precondition": "Offline test; the page's dictionary-choice rule is called directly, no Streamlit screen and no network.",
+  "steps": [
+   {
+    "action": "Resolve the active dictionary",
+    "data": "Demo choice = None, file uploaded, uploaded dictionary active",
+    "expected": "Result is the very same dictionary object supplied"
+   }
+  ],
+  "source": "tests/test_web_app_state.py::TestReturnValueIsNotMutatedCopy::test_uploaded_dictionary_object_identity_preserved"
+ }
+]

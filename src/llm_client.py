@@ -10,6 +10,7 @@ from dataclasses import dataclass, asdict
 import re
 import time
 import requests  # For Responses API calls
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 import tiktoken
 
@@ -39,6 +40,54 @@ MODEL_OUTPUT_LIMITS = {
     'gpt-5-mini': 128000,
     'gpt-5-codex': 128000,
 }
+
+
+# ---- Safety limits (ADP-73 / ADP-76 / ADP-83); all overridable by env var -------------
+# One dictionary must not be able to trigger unbounded model calls or input.
+DEFAULT_MAX_CHUNKS = 20            # LLM_MAX_CHUNKS: max chunks (= model calls) per parse
+DEFAULT_MAX_INPUT_CHARS = 500_000  # LLM_MAX_INPUT_CHARS: max dictionary text size per parse
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """Read a positive integer env var; fall back to the default if unset/invalid."""
+    raw = os.getenv(name, "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _store_flag_for_request() -> Optional[bool]:
+    """Value for the Responses API ``store`` field, or None to omit it.
+
+    LLM_RESPONSES_STORE: ``false`` (default) asks the service not to retain the
+    request/response; ``true`` lets it retain; ``omit`` leaves the field out
+    (escape hatch if a model/API version rejects ``store``).
+    """
+    mode = os.getenv("LLM_RESPONSES_STORE", "false").strip().lower()
+    if mode == "omit":
+        return None
+    return mode in ("true", "1", "yes")
+
+
+def _endpoint_problem(endpoint: Optional[str]) -> Optional[str]:
+    """Return an error_class if the endpoint is unsafe for a credential-bearing call, else None.
+
+    https is required unless LLM_ALLOW_INSECURE_ENDPOINT=1 (explicit local-dev override).
+    """
+    parsed = urlparse(endpoint or "")
+    if not parsed.hostname:
+        return "endpoint_invalid"
+    if parsed.scheme == "https":
+        return None
+    if parsed.scheme == "http" and os.getenv("LLM_ALLOW_INSECURE_ENDPOINT", "").strip() == "1":
+        return None
+    return "endpoint_not_https"
+
+
+class _RedirectRefused(Exception):
+    """Internal: the model endpoint answered with a 3xx; treated as a failed call."""
 
 
 class LLMCallError(RuntimeError):
@@ -78,12 +127,16 @@ def llm_failure(message: str, *, operation: str, model: Optional[str], error_cla
 def max_output_tokens_for(deployment: str) -> int:
     """Output-token budget for a deployment.
 
-    Known models use their documented ceiling; unknown ones (e.g. gpt-5.4-*)
-    get 128000. Reasoning models are never capped below 32000 (HARD RULE:
-    thinking tokens come out of this budget).
+    Known models use their documented ceiling; unknown ones (e.g. gpt-5.4-*,
+    grok-*, DeepSeek-*, Kimi-*) get 128000. HARD RULE: a reasoning model is
+    never capped below DEFAULT_MAX_COMPLETION_TOKENS (40000), because thinking
+    tokens come out of this budget. Any deployment can be a reasoning model, so
+    the floor applies to every name except the documented non-reasoning
+    gpt-4* family (e.g. gpt-4o-mini, capped at 16384 by the model itself).
     """
-    limit = MODEL_OUTPUT_LIMITS.get((deployment or "").lower(), 128000)
-    if re.match(r"^(gpt-5|o\d)", (deployment or "").lower()):
+    name = (deployment or "").lower()
+    limit = MODEL_OUTPUT_LIMITS.get(name, 128000)
+    if not name.startswith("gpt-4"):
         limit = max(limit, DEFAULT_MAX_COMPLETION_TOKENS)
     return limit
 
@@ -118,6 +171,45 @@ def get_available_deployments() -> List[str]:
             deduped.append(name)
 
     return deduped
+
+
+def _log_safe(value: object, limit: int = 64) -> str:
+    """Make a caller-supplied name safe for a single log line and an error message."""
+    return re.sub(r"[^\w.\-:/]", "?", str(value))[:limit]
+
+
+def require_allowed_deployment(deployment: Optional[str], operation: str = "llm_call") -> None:
+    """Refuse a per-call deployment override that is not on the server-side allow-list.
+
+    The allow-list is get_available_deployments() (AZURE_OPENAI_DEPLOYMENTS,
+    falling back to AZURE_OPENAI_DEPLOYMENT), read at call time. None / empty
+    means "use the configured default" and is not checked here.
+
+    Raises:
+        LLMCallError: error_class="deployment_not_allowed". Raised before any
+            network call is made.
+    """
+    if not deployment:
+        return
+    allowed = get_available_deployments()
+    if deployment not in allowed:
+        safe = _log_safe(deployment)
+        raise llm_failure(
+            f"Model '{safe}' is not enabled on this server. Allowed models: {', '.join(allowed)}",
+            operation=operation, model=safe, error_class="deployment_not_allowed",
+        )
+
+
+def resolve_deployment_choice(current: Optional[str], options: List[str]) -> Optional[str]:
+    """Pick the model to show selected in the UI.
+
+    Keeps ``current`` when it is still in ``options``; otherwise (nothing chosen
+    yet, or a stale session value for a model that is no longer offered) falls
+    back to the first option. Returns None when there are no options.
+    """
+    if current and current in options:
+        return current
+    return options[0] if options else None
 
 
 @dataclass
@@ -159,6 +251,11 @@ class LLMDictionaryParser:
 
         if not self.endpoint:
             raise ValueError("AZURE_OPENAI_ENDPOINT is not set")
+        if _endpoint_problem(self.endpoint):
+            raise ValueError(
+                "AZURE_OPENAI_ENDPOINT must be an https URL "
+                "(set LLM_ALLOW_INSECURE_ENDPOINT=1 only for local development)"
+            )
 
         # Note: Using Responses API via requests library (not OpenAI SDK).
         # Auth headers come from dcri_llm.auth_headers(): managed-identity bearer
@@ -180,6 +277,12 @@ class LLMDictionaryParser:
         only, never prompt or completion text). Raises LLMCallError on HTTP
         errors, truncation (finish_reason=length) or empty output.
         """
+        problem = _endpoint_problem(self.endpoint)
+        if problem:
+            raise llm_failure(
+                "LLM endpoint is not an allowed https URL",
+                operation=operation, model=deployment, error_class=problem,
+            )
         url = f"{self.endpoint.rstrip('/')}/openai/v1/responses"
         request_body = {
             "model": deployment,
@@ -188,6 +291,9 @@ class LLMDictionaryParser:
             "reasoning": {"effort": "low"},  # GPT-5: low/medium/high
             "text": {"verbosity": "medium"},  # minimal/medium/verbose
         }
+        store = _store_flag_for_request()
+        if store is not None:
+            request_body["store"] = store  # False: ask the service not to retain this call
         base = {
             "api": "responses",
             "endpoint_host": url,
@@ -198,27 +304,35 @@ class LLMDictionaryParser:
             "streamed": False,
         }
         t0 = time.monotonic()
+        status_code = None
         try:
             response = requests.post(
                 url,
                 headers={**auth_headers(), "Content-Type": "application/json"},
                 json=request_body,
                 timeout=120,
+                allow_redirects=False,  # credential-bearing call: never follow a redirect
             )
+            status_code = getattr(response, "status_code", None)
+            if isinstance(status_code, int) and 300 <= status_code < 400:
+                raise _RedirectRefused(f"unexpected redirect (HTTP {status_code})")
             response.raise_for_status()
             data = response.json()
         except Exception as e:
             status = getattr(getattr(e, "response", None), "status_code", None)
+            if isinstance(e, _RedirectRefused):
+                status = status_code
+            err_class = "redirect_refused" if isinstance(e, _RedirectRefused) else type(e).__name__
             record_llm_call(
                 **base,
                 latency_ms=int((time.monotonic() - t0) * 1000),
                 outcome="timeout" if isinstance(e, requests.Timeout) else "error",
-                error_type=type(e).__name__,
+                error_type=err_class,
                 http_status=status,
             )
             raise llm_failure(
-                f"LLM call failed: {type(e).__name__} (HTTP {status})",
-                operation=operation, model=deployment, error_class=type(e).__name__,
+                f"LLM call failed: {err_class} (HTTP {status})",
+                operation=operation, model=deployment, error_class=err_class,
             ) from e
 
         usage = usage_from_responses_json(data)
@@ -522,6 +636,7 @@ Return JSON object with "fields" array:"""
                 a different deployment per request.
         """
         prompt = self.create_extraction_prompt(text_chunk, is_continuation)
+        require_allowed_deployment(deployment, operation="parse_dictionary")
         active_deployment = deployment or self.deployment
         max_output = max_output_tokens_for(active_deployment)
 
@@ -590,6 +705,19 @@ Return JSON object with "fields" array:"""
         import time
         start_time = time.time()
 
+        # Refuse a disallowed model up front, before token counting/chunking.
+        require_allowed_deployment(deployment, operation="parse_dictionary")
+
+        # Bound the work one dictionary can trigger (fail loudly, never truncate silently).
+        max_input_chars = _env_positive_int("LLM_MAX_INPUT_CHARS", DEFAULT_MAX_INPUT_CHARS)
+        if len(dictionary_text) > max_input_chars:
+            raise llm_failure(
+                f"Dictionary text is too large for AI parsing ({len(dictionary_text)} characters; "
+                f"limit {max_input_chars}). Split the dictionary or raise LLM_MAX_INPUT_CHARS.",
+                operation="parse_dictionary", model=deployment or self.deployment,
+                error_class="input_too_large",
+            )
+
         # Log to console for browser debugging
         print(f"[LLM] Starting dictionary parsing - {len(dictionary_text)} characters at {time.strftime('%H:%M:%S')}")
         logger.info(f"Parsing dictionary with {len(dictionary_text)} characters")
@@ -629,6 +757,14 @@ Return JSON object with "fields" array:"""
 
         # Otherwise, use chunking for very large dictionaries
         chunks = self.chunk_text(dictionary_text)
+        max_chunks = _env_positive_int("LLM_MAX_CHUNKS", DEFAULT_MAX_CHUNKS)
+        if len(chunks) > max_chunks:
+            raise llm_failure(
+                f"Dictionary needs {len(chunks)} AI calls; the limit is {max_chunks}. "
+                "Split the dictionary or raise LLM_MAX_CHUNKS.",
+                operation="parse_dictionary", model=deployment or self.deployment,
+                error_class="too_many_chunks",
+            )
         print(f"[LLM] ⚠️ Using CHUNKED mode ({len(chunks)} chunks) - dictionary too large for single call")
         logger.info(f"Split into {len(chunks)} chunks")
 

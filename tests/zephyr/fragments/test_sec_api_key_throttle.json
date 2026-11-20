@@ -1,0 +1,157 @@
+[
+ {
+  "id": "tests.test_sec_api_key_throttle.test_repeated_wrong_keys_are_answered_with_429_after_the_configured_number_of_failures",
+  "name": "Data Analyzer: Too many wrong API keys in a row are locked out with HTTP 429",
+  "objective": "Proves a caller cannot keep guessing keys: after the allowed number of failures, further wrong keys are refused with HTTP 429 (too many requests) instead of 403.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send 8 analysis requests in a row, each with a different wrong API key.",
+    "data": "8 requests with keys wrong-0 to wrong-7 and a tiny made-up CSV",
+    "expected": "The first 5 answers are HTTP 403 (forbidden); the last 3 are HTTP 429."
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_repeated_wrong_keys_are_answered_with_429_after_the_configured_number_of_failures"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_the_429_for_too_many_failures_tells_the_client_when_to_retry",
+  "name": "Data Analyzer: The lockout response tells the caller how long to wait (60 seconds)",
+  "objective": "Proves the lockout answer carries a Retry-After header so a well-behaved client knows when to try again.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make 5 wrong-key requests, then a 6th wrong-key request.",
+    "data": "Wrong keys wrong-0 to wrong-4, then wrong-again",
+    "expected": "The 6th answer is HTTP 429 and its Retry-After header is exactly 60 (seconds)."
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_the_429_for_too_many_failures_tells_the_client_when_to_retry"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_on_a_shared_peer_address_a_correct_key_is_served_even_after_the_limit_but_wrong_keys_get_429",
+  "name": "Data Analyzer: On a shared address, the correct key still works after a lockout; wrong keys stay blocked",
+  "objective": "Proves that when many users may share one network address (caller's own address unknown), a legitimate user with the right key is never locked out by someone else's guessing.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make 5 wrong-key requests to reach the limit.",
+    "data": "Wrong keys wrong-0 to wrong-4",
+    "expected": "Each is refused (counted as a failure)."
+   },
+   {
+    "action": "Send one request with the correct key, then one with a wrong key.",
+    "data": "Correct key; then wrong-again",
+    "expected": "The correct key gets HTTP 200 (served). The wrong key gets HTTP 429 with Retry-After 60."
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_on_a_shared_peer_address_a_correct_key_is_served_even_after_the_limit_but_wrong_keys_get_429"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_correct_keys_never_count_as_failures",
+  "name": "Data Analyzer: Correct API keys are never counted as failed attempts",
+  "objective": "Proves normal use with the right key, however often, never triggers a lockout.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send 12 requests with the correct key.",
+    "data": "12 requests, correct key",
+    "expected": "All 12 answers are HTTP 200."
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_correct_keys_never_count_as_failures"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_missing_keys_do_not_lock_the_client_out",
+  "name": "Data Analyzer: Requests with no API key get 401 and do not cause a lockout",
+  "objective": "Proves that leaving out the key is reported as 'not authorised' and is not counted as a wrong guess.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send 8 requests with no API key header.",
+    "data": "8 requests, no key",
+    "expected": "All 8 answers are HTTP 401 (not authorised)."
+   },
+   {
+    "action": "Then send one request with the correct key.",
+    "data": "Correct key",
+    "expected": "HTTP 200 (served)."
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_missing_keys_do_not_lock_the_client_out"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_failures_are_counted_per_client_address",
+  "name": "Data Analyzer: Failed attempts are counted separately for each caller address",
+  "objective": "Proves one address being locked out does not lock out a different address.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make 5 wrong-key requests from the test client's own address.",
+    "data": "wrong-0 to wrong-4",
+    "expected": "Failures are recorded against that address."
+   },
+   {
+    "action": "Call the lockout check directly for a different, made-up address (203.0.113.9) and for the offending address.",
+    "data": "Two stand-in requests that differ only by address",
+    "expected": "The different address passes the check without any error; the offending address is refused with HTTP 429."
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_failures_are_counted_per_client_address"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_the_failure_limit_and_window_are_configurable",
+  "name": "Data Analyzer: The allowed number of wrong attempts can be changed by a setting",
+  "objective": "Proves the limit is read from the environment setting rather than fixed in the code.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Change the limit setting to 2, reset counters, and send 4 wrong-key requests.",
+    "data": "Setting DATA_ANALYZER_AUTH_FAIL_LIMIT=2; keys w0 to w3",
+    "expected": "The answers are 403, 403, 429, 429 in that order. (The test only changes the limit; it does not check the window length.)"
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_the_failure_limit_and_window_are_configurable"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_the_health_endpoint_is_not_affected_by_a_lockout",
+  "name": "Data Analyzer: The health check keeps working while a caller is locked out",
+  "objective": "Proves monitoring of the service is not blocked by a key-guessing lockout.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make 6 wrong-key requests, then ask the health endpoint for its status.",
+    "data": "6 wrong keys; GET of the health address with no key",
+    "expected": "The health check answers HTTP 200."
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_the_health_endpoint_is_not_affected_by_a_lockout"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_non_ascii_api_key_gets_403_not_a_server_error",
+  "name": "Data Analyzer: A key containing non-English characters gets a clean 403, not a crash",
+  "objective": "Proves an oddly encoded key is rejected politely instead of causing a server error.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send a request whose API key header is the accented word 'cafe' with an accent.",
+    "data": "Key 'caf\u00e9' sent as raw Latin-1 bytes",
+    "expected": "HTTP 403, and the error message is exactly 'Invalid credentials provided.'"
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_non_ascii_api_key_gets_403_not_a_server_error"
+ },
+ {
+  "id": "tests.test_sec_api_key_throttle.test_failed_attempt_log_line_names_the_client_but_not_the_key",
+  "name": "Data Analyzer: The log records a failed login but never writes the wrong key itself",
+  "objective": "Proves the guessed key does not leak into the service log.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key. The allowed number of wrong-key attempts is set to 5 within a 60-second window and the counters are reset first. No trusted-proxy setting is configured, so the caller's address is the one the test client connects from. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send one request with the wrong key 'very-secret-wrong-guess' while capturing warning-level log lines.",
+    "data": "Made-up wrong key",
+    "expected": "A log line containing 'auth_failure' exists; no log line contains the guessed key text. (The test checks the key is absent, not that the client address is present.)"
+   }
+  ],
+  "source": "tests/test_sec_api_key_throttle.py::test_failed_attempt_log_line_names_the_client_but_not_the_key"
+ }
+]

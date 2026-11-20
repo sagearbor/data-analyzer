@@ -1,0 +1,86 @@
+[
+ {
+  "id": "tests.test_sec_ui_excel_formulas.test_formula_like_text_in_data_cells_is_written_as_literal_text",
+  "name": "Data Analyzer: Excel export stores formula-looking cell text as plain text",
+  "objective": "Proves that cell contents starting like a formula (a known way to run commands or leak data when a spreadsheet is opened) are saved as text, unchanged, and not as live formulas.",
+  "precondition": "Offline. A spreadsheet is created in memory from made-up data and read back with a spreadsheet-reading library; no spreadsheet program is opened.",
+  "steps": [
+   {
+    "action": "Export a table with one column of 8 hostile strings and one of numbers",
+    "data": "'=HYPERLINK(...)', '+1+1', '-2+3', '@SUM(A1:A2)', and the same with leading spaces, tab, carriage return and newline before '='",
+    "expected": "Every cell in the Data sheet is stored as text and its value equals the original (a carriage return comes back as a line break). No cell in any sheet is a formula"
+   }
+  ],
+  "source": "tests/test_sec_ui_excel_formulas.py::test_formula_like_text_in_data_cells_is_written_as_literal_text"
+ },
+ {
+  "id": "tests.test_sec_ui_excel_formulas.test_formula_like_column_headers_are_written_as_literal_text",
+  "name": "Data Analyzer: Excel export stores formula-looking column headers as plain text",
+  "objective": "Proves hostile column names are also safe.",
+  "precondition": "Offline. A spreadsheet is created in memory from made-up data and read back with a spreadsheet-reading library; no spreadsheet program is opened.",
+  "steps": [
+   {
+    "action": "Export a table with headers '=HYPERLINK(\"http://x\",\"c\")', '+evil', '@bad', 'ok'",
+    "data": "4 headers",
+    "expected": "All four header cells are stored as text and the first keeps its original text"
+   }
+  ],
+  "source": "tests/test_sec_ui_excel_formulas.py::test_formula_like_column_headers_are_written_as_literal_text"
+ },
+ {
+  "id": "tests.test_sec_ui_excel_formulas.test_formula_like_text_in_the_issues_sheet_is_literal_text",
+  "name": "Data Analyzer: Excel 'Issues' sheet stores formula-looking text as plain text",
+  "objective": "Proves the list of found problems is safe even when the problem value or message is hostile.",
+  "precondition": "Offline. A spreadsheet is created in memory from made-up data and read back with a spreadsheet-reading library; no spreadsheet program is opened.",
+  "steps": [
+   {
+    "action": "Export a one-cell table with one issue whose value is \"=cmd|' /C calc'!A0\" and message is '=Bad value'",
+    "data": "1 issue",
+    "expected": "An 'Issues' sheet exists, no cell anywhere is a formula, and both hostile strings appear unchanged in that sheet"
+   }
+  ],
+  "source": "tests/test_sec_ui_excel_formulas.py::test_formula_like_text_in_the_issues_sheet_is_literal_text"
+ },
+ {
+  "id": "tests.test_sec_ui_excel_formulas.test_genuine_numbers_and_dates_stay_typed_including_negative_numbers",
+  "name": "Data Analyzer: Real numbers, dates and yes/no values stay typed in the Excel export",
+  "objective": "Proves the protection does not turn genuine data, including negative numbers, into text.",
+  "precondition": "Offline. A spreadsheet is created in memory from made-up data and read back with a spreadsheet-reading library; no spreadsheet program is opened.",
+  "steps": [
+   {
+    "action": "Export a table with negatives (-5, -0.25, 3), three dates and True/False values",
+    "data": "3 rows",
+    "expected": "Numbers keep their values and numeric type, the date cell is a real date, and the yes/no cell is true"
+   }
+  ],
+  "source": "tests/test_sec_ui_excel_formulas.py::test_genuine_numbers_and_dates_stay_typed_including_negative_numbers"
+ },
+ {
+  "id": "tests.test_sec_ui_excel_formulas.test_highlighting_and_comments_still_work_on_neutralised_cells",
+  "name": "Data Analyzer: Highlight colours and comments still work on protected cells",
+  "objective": "Proves the safety change does not remove the export's colour coding and notes.",
+  "precondition": "Offline. A spreadsheet is created in memory from made-up data and read back with a spreadsheet-reading library; no spreadsheet program is opened.",
+  "steps": [
+   {
+    "action": "Export a two-row table ('=1+1', 'fine') with an error issue on row 0 and a warning on row 1",
+    "data": "2 issues",
+    "expected": "Cell A2 is text '=1+1' with red-ish fill (FFCCCB); A3 has orange-ish fill (FFE5B4); A2 carries the comment 'bad one'"
+   }
+  ],
+  "source": "tests/test_sec_ui_excel_formulas.py::test_highlighting_and_comments_still_work_on_neutralised_cells"
+ },
+ {
+  "id": "tests.test_sec_ui_excel_formulas.test_looks_like_formula",
+  "name": "Data Analyzer: Formula-detection helper gives the right yes/no for 10 sample values",
+  "objective": "Proves the helper that decides whether text looks like a formula is correct for typical and non-text inputs.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Ask the helper about each value",
+    "data": "'=1', '+1', '-1', '@x', ' \\t=x' (should be yes); 'hello', 'a=b', empty text, the number 5, nothing (should be no)",
+    "expected": "Yes for the first five and no for the other five"
+   }
+  ],
+  "source": "tests/test_sec_ui_excel_formulas.py::test_looks_like_formula"
+ }
+]

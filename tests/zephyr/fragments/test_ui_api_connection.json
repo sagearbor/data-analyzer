@@ -1,0 +1,161 @@
+[
+ {
+  "id": "tests.test_ui_api_connection.test_deployed_without_api_url_is_a_clear_config_error",
+  "name": "Data Analyzer: In a deployed environment, a missing API address gives a one-line error and no call",
+  "objective": "Shows that deployed copies (prod, staging, or any cloud container) never silently fall back to the local address; they stop with a clear message and log it. Run for three environments.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Create the analyser with APP_ENV = prod, then staging, then dev inside a container (container name set), with no API address.",
+    "data": "Three environment settings.",
+    "expected": "No API address is held; the config error contains 'DATA_ANALYZER_API_URL is not set', is a single line, and an 'ui_config_error' log entry is written."
+   },
+   {
+    "action": "Try to run an analysis.",
+    "data": "Made-up 2-row table.",
+    "expected": "A configuration error naming DATA_ANALYZER_API_URL is raised and no network call is made."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_deployed_without_api_url_is_a_clear_config_error"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_local_env_keeps_localhost_default",
+  "name": "Data Analyzer: On a developer machine, the local address default still works",
+  "objective": "Shows local development is unaffected by the new strict rule.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Create the analyser with no deployment settings and run an analysis.",
+    "data": "Made-up 2-row table.",
+    "expected": "No config error; the call goes to http://localhost:8000/api/v1/analyze."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_local_env_keeps_localhost_default"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_deployed_with_url_and_key_calls_api",
+  "name": "Data Analyzer: In a deployed environment with address and key set, the API is called correctly",
+  "objective": "Shows a correctly configured deployment calls the right address with the key.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Set APP_ENV = prod, an example API address (trailing slash) and key 'k', then run an analysis.",
+    "data": "Made-up values.",
+    "expected": "The call goes to <address>/api/v1/analyze (slash handled) with header X-API-Key = k."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_deployed_with_url_and_key_calls_api"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_uses_90s_timeout",
+  "name": "Data Analyzer: UI waits up to 90 seconds for the API",
+  "objective": "Shows the wait is long enough for a cold-starting service.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Run an analysis and inspect the call's timeout.",
+    "data": "Made-up 2-row table.",
+    "expected": "The timeout is 90 seconds."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_uses_90s_timeout"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_cold_start_retries_once_and_notifies",
+  "name": "Data Analyzer: On a first failure the UI retries once and shows a 'starting' notice",
+  "objective": "Shows that a sleeping service gets one retry and the user is told. Run for four first failures: refused connection, read timeout, HTTP 503, HTTP 504.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Make the first call fail in each of the four ways and the second succeed.",
+    "data": "Four failure types.",
+    "expected": "Exactly two calls are made, the final result is returned (2 rows), and exactly one notice containing 'Starting the analysis service' is shown."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_cold_start_retries_once_and_notifies"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_second_failure_raises_one_line_error_and_logs",
+  "name": "Data Analyzer: Two failures in a row give one clear line and two log entries",
+  "objective": "Shows the UI gives up after one retry with a plain message and logs both failures.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Make both calls fail with 'Connection refused'.",
+    "data": "Simulated failure.",
+    "expected": "Exactly two calls; error contains 'Could not connect' and 'Retried once', is one line, and 'api_call_failed' is logged twice."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_second_failure_raises_one_line_error_and_logs"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_auth_error_is_not_retried",
+  "name": "Data Analyzer: A 401 (not authorised) reply is not retried",
+  "objective": "Shows authentication problems fail at once, because retrying cannot fix them.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Make the API answer HTTP 401.",
+    "data": "Canned 401.",
+    "expected": "A runtime error mentioning 'HTTP 401' is raised after exactly one call."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_auth_error_is_not_retried"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_logic_validation_error_is_surfaced_and_logged",
+  "name": "Data Analyzer: A failure in the conditional-logic check is shown to the user and logged",
+  "objective": "Shows that if the rule-checking step breaks, the result carries a visible warning rather than hiding it. Skipped if the logic engine is unavailable.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated. The rule extractor is replaced by one that fails with 'bad branching expression'.",
+  "steps": [
+   {
+    "action": "Run an analysis with a dictionary having one field.",
+    "data": "One made-up field.",
+    "expected": "logic_validation_error contains 'Conditional-logic checks could not run' and 'ValueError', and 'logic_validation_failed' is logged."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_logic_validation_error_is_surfaced_and_logged"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_no_logic_error_when_logic_validation_ok",
+  "name": "Data Analyzer: No logic warning is shown when the logic check is fine",
+  "objective": "Shows no false warning appears normally.",
+  "precondition": "Web-page component loaded offline with the API call replaced by a canned reply; the waiting time between retries is skipped; deployment settings are cleared and APP_ENV is set to dev unless stated.",
+  "steps": [
+   {
+    "action": "Run an analysis with no dictionary.",
+    "data": "Made-up 2-row table.",
+    "expected": "logic_validation_error is empty (none)."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_no_logic_error_when_logic_validation_ok"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_model_label_reads_deployment_from_config",
+  "name": "Data Analyzer: AI model label on the page comes from configuration",
+  "objective": "Shows the label follows the configured AI deployment name rather than a fixed one.",
+  "precondition": "No UI page needed; only the label function is called with environment settings.",
+  "steps": [
+   {
+    "action": "Set the deployment name to 'gpt-5-nano', then to 'some-other-deployment', and read the label each time.",
+    "data": "Two names.",
+    "expected": "The label equals each name in turn."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_model_label_reads_deployment_from_config"
+ },
+ {
+  "id": "tests.test_ui_api_connection.test_no_hardcoded_model_name_in_llm_banner",
+  "name": "Data Analyzer: Page source no longer contains the old fixed 'GPT-4' banner text",
+  "objective": "A text search of the page's source code, not a behaviour test: it confirms the old wording is gone and the label function is used.",
+  "precondition": "Source file of the UI page available for reading.",
+  "steps": [
+   {
+    "action": "Search the UI source for the text 'GPT-4 for intelligent' and for 'llm_model_label()'.",
+    "data": "Source text.",
+    "expected": "The old text is absent and the label call is present."
+   }
+  ],
+  "source": "tests/test_ui_api_connection.py::test_no_hardcoded_model_name_in_llm_banner"
+ }
+]

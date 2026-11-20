@@ -1,0 +1,77 @@
+[
+ {
+  "id": "tests.test_sec_ui_rule_coverage.test_a_dictionary_with_a_supported_and_an_unsupported_rule_gives_an_explicit_partial_result",
+  "name": "Data Analyzer: Dictionary with one readable and one unreadable rule gives an explicit partial result",
+  "objective": "Proves the results record that one of two rules could not be checked.",
+  "precondition": "Offline: no network, no AI. The AI dictionary parser and the API request are replaced by fakes; a made-up dictionary has fields gender, pregnant (shown only when gender is Male: supported) and smoker (condition '[zz_marker] ~~ not a valid expression': unsupported). A made-up 2-row table is used.",
+  "steps": [
+   {
+    "action": "Run the page's analysis function with the made-up dictionary",
+    "data": "3 fields, 2 conditional rules",
+    "expected": "Rule coverage reports 2 total, 1 evaluated, 1 not checked, complete is false, and the unsupported list is only rule 'smoker_show_if' with reason 'unsupported_condition'; the summary also shows 1 rule not checked"
+   }
+  ],
+  "source": "tests/test_sec_ui_rule_coverage.py::test_a_dictionary_with_a_supported_and_an_unsupported_rule_gives_an_explicit_partial_result"
+ },
+ {
+  "id": "tests.test_sec_ui_rule_coverage.test_a_dictionary_with_only_supported_rules_reports_complete_coverage",
+  "name": "Data Analyzer: Analysis of a dictionary with only readable rules reports complete coverage",
+  "objective": "Proves no false 'partial' warning appears when everything can be checked.",
+  "precondition": "Offline: no network, no AI. The AI dictionary parser and the API request are replaced by fakes; a made-up dictionary has fields gender, pregnant (shown only when gender is Male: supported) and smoker (condition '[zz_marker] ~~ not a valid expression': unsupported). A made-up 2-row table is used.",
+  "steps": [
+   {
+    "action": "Run the analysis with only the first two fields",
+    "data": "gender and pregnant",
+    "expected": "Coverage complete is true and the summary shows 0 rules not checked"
+   }
+  ],
+  "source": "tests/test_sec_ui_rule_coverage.py::test_a_dictionary_with_only_supported_rules_reports_complete_coverage"
+ },
+ {
+  "id": "tests.test_sec_ui_rule_coverage.test_the_page_says_how_many_rules_could_not_be_checked_and_that_the_result_is_partial",
+  "name": "Data Analyzer: The page warns 'Partial result' and says how many rules could not be checked",
+  "objective": "Proves a user sees the warning in the screen, with the rule name safely escaped, and the saved results carry the count.",
+  "precondition": "Offline: no network, no AI. The AI dictionary parser and the API request are replaced by fakes; a made-up dictionary has fields gender, pregnant (shown only when gender is Male: supported) and smoker (condition '[zz_marker] ~~ not a valid expression': unsupported). A made-up 2-row table is used. The page is run in a headless test harness (no browser).",
+  "steps": [
+   {
+    "action": "Open the page, upload a dictionary file and a data CSV, then press the analysis button",
+    "data": "d.txt (any bytes) and a CSV of the made-up table",
+    "expected": "No exception occurs; a warning containing 'Partial result' appears and contains '1 of 2'"
+   },
+   {
+    "action": "Look at the displayed text and stored results",
+    "data": "same",
+    "expected": "The rule id appears escaped as 'smoker\\_show\\_if'; stored results show 1 rule not checked; the same figure survives converting to JSON"
+   }
+  ],
+  "source": "tests/test_sec_ui_rule_coverage.py::test_the_page_says_how_many_rules_could_not_be_checked_and_that_the_result_is_partial"
+ },
+ {
+  "id": "tests.test_sec_ui_rule_coverage.test_the_excel_export_has_a_rule_coverage_sheet_that_says_partial",
+  "name": "Data Analyzer: Excel export has a 'Rule coverage' sheet that says PARTIAL",
+  "objective": "Proves the spreadsheet export reports that some rules were not checked.",
+  "precondition": "Offline: no network, no AI. The AI dictionary parser and the API request are replaced by fakes; a made-up dictionary has fields gender, pregnant (shown only when gender is Male: supported) and smoker (condition '[zz_marker] ~~ not a valid expression': unsupported). A made-up 2-row table is used.",
+  "steps": [
+   {
+    "action": "Analyse, then export the table to Excel with the coverage information",
+    "data": "coverage from the made-up dictionary",
+    "expected": "The 'Rule coverage' sheet contains the text 'PARTIAL - 1 of 2 rules could not be checked' and the rule id 'smoker_show_if'"
+   }
+  ],
+  "source": "tests/test_sec_ui_rule_coverage.py::test_the_excel_export_has_a_rule_coverage_sheet_that_says_partial"
+ },
+ {
+  "id": "tests.test_sec_ui_rule_coverage.test_a_hostile_rule_id_in_the_excel_coverage_sheet_is_stored_as_text_not_a_formula",
+  "name": "Data Analyzer: A hostile rule name in the Excel coverage sheet is stored as text",
+  "objective": "Proves rule names taken from an uploaded dictionary cannot become live spreadsheet formulas.",
+  "precondition": "Offline. A hand-made coverage record with one unsupported rule whose id is =HYPERLINK(\"http://x.invalid\").",
+  "steps": [
+   {
+    "action": "Export to Excel and find the cell starting with '=HYPERLINK' on the 'Rule coverage' sheet",
+    "data": "rule id '=HYPERLINK(\"http://x.invalid\")'",
+    "expected": "That cell is stored as text, not as a formula"
+   }
+  ],
+  "source": "tests/test_sec_ui_rule_coverage.py::test_a_hostile_rule_id_in_the_excel_coverage_sheet_is_stored_as_text_not_a_formula"
+ }
+]

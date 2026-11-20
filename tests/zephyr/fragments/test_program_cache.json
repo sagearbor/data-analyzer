@@ -1,0 +1,764 @@
+[
+ {
+  "id": "tests.test_program_cache.TestValidationProgram.test_validation_program_defaults",
+  "name": "Data Analyzer: A new saved validation program starts with sensible default values",
+  "objective": "Proves that optional properties of a saved validation program (use count, status, rule counts, last-used date, AI model name) get the correct starting values when not supplied.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Create a validation program record supplying only the required properties.",
+    "data": "Made-up program with id test-123, name TestProgram, source test.csv, no aliases, no rules",
+    "expected": "The record is created without error."
+   },
+   {
+    "action": "Read the optional properties.",
+    "data": "",
+    "expected": "Use count is 0, status is active, field count / basic-rule count / logic-rule count are all 0, last-used date is empty, and the AI model name is gpt-5-nano."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestValidationProgram::test_validation_program_defaults"
+ },
+ {
+  "id": "tests.test_program_cache.TestValidationProgram.test_validation_program_to_dict",
+  "name": "Data Analyzer: A saved validation program can be converted to a plain record for storage",
+  "objective": "Proves that converting a program to a plain key/value record keeps its identifying details and turns the creation date into text.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Convert the sample program to a plain record.",
+    "data": "One made-up saved program (name 20241202-143022-TestProgram, source test_dict.csv, REDCap CSV format, one field)",
+    "expected": "The record holds the same program id (test-uuid-1234), name, one alias (testAlias1), source file, dictionary fingerprint (hash), format, creator (testuser) and status (active)."
+   },
+   {
+    "action": "Check the creation date.",
+    "data": "",
+    "expected": "The creation date in the record is text rather than a date object."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestValidationProgram::test_validation_program_to_dict"
+ },
+ {
+  "id": "tests.test_program_cache.TestValidationProgram.test_validation_program_from_dict",
+  "name": "Data Analyzer: A validation program can be rebuilt from stored values",
+  "objective": "Proves that a program record can be constructed from stored values (including a text date turned back into a real date) and keeps every value. This exercises the record's constructor; the product has no dedicated 'load from record' function.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Build a program from a made-up stored record, converting the creation date text into a date.",
+    "data": "Made-up record: id test-uuid-5678, two aliases, FHIR JSON format, 2 fields, 5 basic rules, 2 logic rules, use count 3",
+    "expected": "The program has the same id, name, two aliases, use count 3, field count 2, basic-rule count 5 and logic-rule count 2."
+   },
+   {
+    "action": "Check the creation date.",
+    "data": "",
+    "expected": "The creation date is a real date value."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestValidationProgram::test_validation_program_from_dict"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_init_creates_tables",
+  "name": "Data Analyzer: Opening the program database creates the three expected tables",
+  "objective": "Proves that a new program database is set up with places to store programs, their nicknames (aliases) and their run history.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Open a new program database, then inspect the tables it contains.",
+    "data": "Empty temporary database file",
+    "expected": "Tables named programs, aliases and execution_history all exist."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_init_creates_tables"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_init_enables_wal_mode",
+  "name": "Data Analyzer: Program database uses the safer multi-user write mode",
+  "objective": "Proves that the database is switched to write-ahead logging (WAL), a setting that lets several users read and write at the same time.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Open a new program database, then ask the database engine which journal mode it is using.",
+    "data": "Empty temporary database file",
+    "expected": "The journal mode is WAL."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_init_enables_wal_mode"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_init_creates_programs_directory",
+  "name": "Data Analyzer: Opening the program database keeps a programs folder available",
+  "objective": "Proves that the folder used to hold program files exists after the database is opened.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model. The temporary folder already contains an empty programs folder.",
+  "steps": [
+   {
+    "action": "Open the program database in the temporary folder.",
+    "data": "Temporary folder with a programs subfolder",
+    "expected": "A programs folder exists and is a folder. (The folder was already created by the test set-up, so this does not prove the product creates it from nothing.)"
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_init_creates_programs_directory"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_save_and_load_program_by_id",
+  "name": "Data Analyzer: A saved program can be loaded back by its id",
+  "objective": "Proves that a program saved to the database comes back with the same details when requested by its id.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program.",
+    "data": "One made-up saved program (name 20241202-143022-TestProgram, source test_dict.csv, REDCap CSV format, one field)",
+    "expected": "The save reports success (True)."
+   },
+   {
+    "action": "Load the program using its id.",
+    "data": "Id test-uuid-1234",
+    "expected": "A program is returned with the same id, name, dictionary hash, generated code and field count."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_save_and_load_program_by_id"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_load_program_by_name",
+  "name": "Data Analyzer: A saved program can be loaded back by its name",
+  "objective": "Proves a program can be found by its full name as well as its id.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program, then load it using its name.",
+    "data": "Name 20241202-143022-TestProgram",
+    "expected": "The program returned has the same id and name as the one saved."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_load_program_by_name"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_load_program_by_alias",
+  "name": "Data Analyzer: A saved program can be loaded back by a nickname (alias)",
+  "objective": "Proves that a nickname given to a program can be used to find it.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program and give it the nickname myTestAlias.",
+    "data": "Alias myTestAlias created by testuser",
+    "expected": "The nickname is created."
+   },
+   {
+    "action": "Load the program using the nickname.",
+    "data": "myTestAlias",
+    "expected": "The program returned is the same program (same id)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_load_program_by_alias"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_load_program_nonexistent",
+  "name": "Data Analyzer: Asking for a program that does not exist returns nothing",
+  "objective": "Proves that looking up an unknown program gives an empty answer rather than an error or a wrong program.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Load a program using an id that was never saved.",
+    "data": "nonexistent-program-id",
+    "expected": "The result is empty (None)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_load_program_nonexistent"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_search_programs_by_dictionary_hash",
+  "name": "Data Analyzer: Programs can be found by the fingerprint of their data dictionary",
+  "objective": "Proves that a saved program is found when searching by the fingerprint (hash) of the data dictionary it was built from.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program, then search by its dictionary hash.",
+    "data": "Hash abc123def456",
+    "expected": "Exactly one program is found and it is the saved one."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_search_programs_by_dictionary_hash"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_search_programs_by_format",
+  "name": "Data Analyzer: Programs can be found by the name of their dictionary file",
+  "objective": "Proves that when two programs are saved, searching by source file name returns only the matching one. Note: despite its title this test searches by source file name (test2.json), not by format, because the format filter is not what is exercised.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save two made-up programs: one from test1.csv (REDCap CSV) and one from test2.json (FHIR JSON).",
+    "data": "Two programs, ids prog1 and prog2",
+    "expected": "Both saves succeed."
+   },
+   {
+    "action": "Search by source file name.",
+    "data": "test2.json",
+    "expected": "Exactly one program is returned and it is prog2."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_search_programs_by_format"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_search_programs_returns_active_only",
+  "name": "Data Analyzer: Deleted programs no longer appear in search results",
+  "objective": "Proves that after a program is deleted by an administrator, a general search does not list it.",
+  "precondition": "Offline test harness; temporary empty program database; the administrator password is set to a made-up value for this test.",
+  "steps": [
+   {
+    "action": "Save the sample program, then delete it using the correct administrator password.",
+    "data": "Admin password: the made-up value set up by the test",
+    "expected": "The deletion is carried out."
+   },
+   {
+    "action": "Search for all programs with no filter.",
+    "data": "No filter",
+    "expected": "The deleted program's id is not among the results."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_search_programs_returns_active_only"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_list_all_programs_ordering",
+  "name": "Data Analyzer: Listing all programs returns every saved program",
+  "objective": "Proves that listing returns all saved programs. Note: the title and description say the list is ordered by use count, but the test only checks that 3 programs come back, not their order.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save three made-up programs with use counts 1, 10 and 5, then list all programs.",
+    "data": "Programs LowUsage (1), HighUsage (10), MediumUsage (5)",
+    "expected": "The list contains exactly 3 programs. The order is not checked."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_list_all_programs_ordering"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_create_alias_success",
+  "name": "Data Analyzer: A new nickname can be created for a program",
+  "objective": "Proves that a nickname can be attached to a saved program and then used to find it.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program and create the nickname newAlias.",
+    "data": "Alias newAlias by testuser",
+    "expected": "Creation reports success (True)."
+   },
+   {
+    "action": "Load the program by that nickname.",
+    "data": "newAlias",
+    "expected": "The same program is returned."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_create_alias_success"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_create_alias_duplicate_fails",
+  "name": "Data Analyzer: The same nickname cannot be used twice",
+  "objective": "Proves that a nickname already in use is refused, so one nickname cannot point at two programs by accident.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Create the nickname uniqueAlias for the sample program.",
+    "data": "Alias uniqueAlias by user1",
+    "expected": "Reports success (True)."
+   },
+   {
+    "action": "Try to create the same nickname again.",
+    "data": "Alias uniqueAlias by user2",
+    "expected": "Reports failure (False)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_create_alias_duplicate_fails"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_create_alias_for_nonexistent_program",
+  "name": "Data Analyzer: A nickname cannot be created for a program that does not exist",
+  "objective": "Proves that attaching a nickname to an unknown program is refused.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Try to create a nickname for a program id that was never saved.",
+    "data": "Program id nonexistent-id, alias someAlias",
+    "expected": "Reports failure (False)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_create_alias_for_nonexistent_program"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_delete_alias",
+  "name": "Data Analyzer: A nickname can be removed and then stops working",
+  "objective": "Proves that deleting a nickname succeeds and that the program can no longer be found by it.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program, create nickname tempAlias, and confirm it finds the program.",
+    "data": "Alias tempAlias",
+    "expected": "The program is found by the nickname."
+   },
+   {
+    "action": "Delete the nickname, then try to load by it again.",
+    "data": "tempAlias",
+    "expected": "Deletion reports success (True) and the later lookup returns nothing."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_delete_alias"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_delete_alias_nonexistent",
+  "name": "Data Analyzer: Removing a nickname that does not exist is reported as a failure",
+  "objective": "Proves that deleting an unknown nickname gives a clear negative answer.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Delete a nickname that was never created.",
+    "data": "nonexistent-alias",
+    "expected": "Reports failure (False)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_delete_alias_nonexistent"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_increment_use_count",
+  "name": "Data Analyzer: Each use of a program raises its use counter by one",
+  "objective": "Proves that the counter showing how often a program has been used starts at 0 and goes up by one each time.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program and read its use count.",
+    "data": "Use count starts at 0",
+    "expected": "Use count is 0."
+   },
+   {
+    "action": "Record one use, then another, reloading the program each time.",
+    "data": "Two uses",
+    "expected": "Use count is 1 after the first and 2 after the second."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_increment_use_count"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_record_execution",
+  "name": "Data Analyzer: A run of a program is written to the run history",
+  "objective": "Proves that recording a run creates an entry in the run history for that program. It checks that a row exists, not what values it holds.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program and record one run.",
+    "data": "Made-up run: user testuser, file test_data.csv, 100 rows, 3 field problems, 2 logic problems, 2.5 seconds",
+    "expected": "A row for this program exists in the run history table. Its contents are not checked."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_record_execution"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_delete_program_wrong_password",
+  "name": "Data Analyzer: Deleting a program with a wrong administrator password is refused",
+  "objective": "Proves that only someone with the administrator password can delete a program.",
+  "precondition": "Offline test harness; temporary empty program database; administrator password set to a made-up value.",
+  "steps": [
+   {
+    "action": "Try to delete the sample program using an incorrect password.",
+    "data": "Wrong password supplied",
+    "expected": "The system raises a permission error (PermissionError) whose message says 'Invalid admin password'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_delete_program_wrong_password"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_delete_program_success",
+  "name": "Data Analyzer: A program is deleted (marked deleted) when the correct password is given",
+  "objective": "Proves that an administrator can delete a program, and that it is kept in the database but marked as deleted rather than erased.",
+  "precondition": "Offline test harness; temporary empty program database; administrator password set to a made-up value.",
+  "steps": [
+   {
+    "action": "Delete the sample program using the correct administrator password.",
+    "data": "Correct made-up password, reason 'Testing deletion'",
+    "expected": "Deletion reports success (True)."
+   },
+   {
+    "action": "Read the program's status straight from the database.",
+    "data": "",
+    "expected": "A record still exists and its status is 'deleted'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_delete_program_success"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_delete_program_nonexistent",
+  "name": "Data Analyzer: Deleting an unknown program is reported as a failure",
+  "objective": "Proves that attempting to delete a program that does not exist gives a negative answer instead of an error.",
+  "precondition": "Offline test harness; temporary empty program database; administrator password set to a made-up value.",
+  "steps": [
+   {
+    "action": "Delete a program id that was never saved, with the correct password.",
+    "data": "nonexistent-id",
+    "expected": "Reports failure (False)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_delete_program_nonexistent"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_restore_program",
+  "name": "Data Analyzer: A deleted program can be restored by an administrator",
+  "objective": "Proves that a program marked deleted can be brought back to active status with the correct password.",
+  "precondition": "Offline test harness; temporary empty program database; administrator password set to a made-up value.",
+  "steps": [
+   {
+    "action": "Save and then delete the sample program.",
+    "data": "Correct made-up password",
+    "expected": "The program is marked deleted."
+   },
+   {
+    "action": "Restore the program with the correct password, then read its status from the database.",
+    "data": "",
+    "expected": "Restore reports success (True) and the stored status is 'active'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_restore_program"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_restore_program_wrong_password",
+  "name": "Data Analyzer: Restoring a program with a wrong password is refused",
+  "objective": "Proves that restoring a deleted program also requires the administrator password.",
+  "precondition": "Offline test harness; temporary empty program database; administrator password set to a made-up value.",
+  "steps": [
+   {
+    "action": "Save and delete the sample program using the correct password, then try to restore it with a wrong password.",
+    "data": "Wrong password: wrongPassword",
+    "expected": "A permission error (PermissionError) is raised with the message 'Invalid admin password'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_restore_program_wrong_password"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_verify_admin_env_variable",
+  "name": "Data Analyzer: The administrator password is read from the DATA_ANALYZER_ADMIN_PASSWORD setting",
+  "objective": "Proves that the password check accepts the password configured in the DATA_ANALYZER_ADMIN_PASSWORD environment setting and rejects any other.",
+  "precondition": "Offline test harness; DATA_ANALYZER_ADMIN_PASSWORD is set to a made-up value for this test.",
+  "steps": [
+   {
+    "action": "Check the configured password and an incorrect one.",
+    "data": "Correct made-up value, then 'incorrect-password'",
+    "expected": "The correct password is accepted (True); the incorrect one is rejected (False)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_verify_admin_env_variable"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_generate_name_format",
+  "name": "Data Analyzer: Auto-generated program names start with a date and time",
+  "objective": "Proves that a program name begins with an eight-digit date, a dash, a six-digit time and another dash.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Generate a name for a made-up dictionary with fields patient_id and diagnosis.",
+    "data": "Two made-up fields",
+    "expected": "Characters 1-8 are digits, character 9 is a dash, characters 10-15 are digits and character 16 is a dash. The descriptive part after that is not checked."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_generate_name_format"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_generate_description_clinical",
+  "name": "Data Analyzer: A clinical-looking dictionary is labelled ClinicalData",
+  "objective": "Proves that when field names suggest clinical research, the program description is ClinicalData.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Generate a description for a dictionary with clinical field names.",
+    "data": "Fields patient_id, diagnosis_code, treatment_arm, visit_date",
+    "expected": "The description is exactly 'ClinicalData'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_generate_description_clinical"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_generate_description_employee",
+  "name": "Data Analyzer: A staff-record dictionary is labelled EmployeeData",
+  "objective": "Proves that when field names suggest employee records, the program description is EmployeeData.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Generate a description for a dictionary with employee field names.",
+    "data": "Fields employee_id, department, salary, hire_date",
+    "expected": "The description is exactly 'EmployeeData'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_generate_description_employee"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_generate_description_generic",
+  "name": "Data Analyzer: An unrecognised dictionary gets a generic label",
+  "objective": "Proves that when no domain is recognised, the description falls back to DataValidation.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Generate a description for a dictionary with neutral field names.",
+    "data": "Fields id and value",
+    "expected": "The description is exactly 'DataValidation'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_generate_description_generic"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_detect_format_redcap",
+  "name": "Data Analyzer: REDCap data dictionaries are recognised",
+  "objective": "Proves that text with the REDCap column headings is identified as REDCap CSV.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Detect the format of a made-up dictionary starting with 'Variable / Field Name,Form Name,Field Type,Field Label'.",
+    "data": "Two-line made-up REDCap CSV text",
+    "expected": "The format is 'REDCap CSV'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_detect_format_redcap"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_detect_format_fhir",
+  "name": "Data Analyzer: FHIR questionnaires are recognised",
+  "objective": "Proves that JSON text declaring a FHIR Questionnaire is identified as FHIR JSON.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Detect the format of a made-up FHIR Questionnaire.",
+    "data": "{\"resourceType\": \"Questionnaire\", \"item\": [{\"linkId\": \"q1\"}]}",
+    "expected": "The format is 'FHIR JSON'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_detect_format_fhir"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_detect_format_json",
+  "name": "Data Analyzer: Other JSON content is recognised as generic JSON",
+  "objective": "Proves that JSON that is not a FHIR Questionnaire is labelled plain JSON.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Detect the format of a made-up JSON document.",
+    "data": "{\"data\": [{\"id\": 1}, {\"id\": 2}]}",
+    "expected": "The format is 'JSON'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_detect_format_json"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_detect_format_csv_fallback",
+  "name": "Data Analyzer: Unrecognised content is treated as CSV",
+  "objective": "Proves that text matching no known format falls back to CSV.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Detect the format of arbitrary text.",
+    "data": "The sentence 'random content that doesn't match any pattern'",
+    "expected": "The format is 'CSV'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_detect_format_csv_fallback"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_clean_name_sanitization",
+  "name": "Data Analyzer: Special characters are removed from program names",
+  "objective": "Proves that punctuation and spaces are stripped from a name while letters and digits survive.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Clean the name 'My Test@Program#2024!'.",
+    "data": "My Test@Program#2024!",
+    "expected": "The result contains no @, #, ! or space, and still contains 'Test' (or 'test') and '2024'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_clean_name_sanitization"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_clean_name_length_limit",
+  "name": "Data Analyzer: Program names are limited to 30 characters",
+  "objective": "Proves that very long names are shortened.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Clean a name made of 50 letter A's.",
+    "data": "50 characters",
+    "expected": "The result is 30 characters or fewer."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_clean_name_length_limit"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_clean_name_preserves_alphanumeric",
+  "name": "Data Analyzer: Plain letters and digits in a name are left unchanged",
+  "objective": "Proves that cleaning does not alter an already-clean name.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Clean the name 'Test123Program'.",
+    "data": "Test123Program",
+    "expected": "The result is exactly 'Test123Program'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_clean_name_preserves_alphanumeric"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_manager_init_without_llm",
+  "name": "Data Analyzer: Program manager can be created without an AI client (no real check)",
+  "objective": "Intended to show the manager can start without an AI client. As written the test passes whether or not creation succeeds, because any error is swallowed; it therefore only shows the test code runs.",
+  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "steps": [
+   {
+    "action": "Try to create the program manager with no AI client.",
+    "data": "No AI client",
+    "expected": "Nothing is asserted: success or any error both let the test pass."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_manager_init_without_llm"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_execute_program_returns_dict",
+  "name": "Data Analyzer: Running a saved program returns a result record",
+  "objective": "Proves that running a saved program on a small table returns a dictionary-style result. The check is weak: it only requires the result to contain a 'program' or an 'error' entry, not that validation worked.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model. The program manager is built without an AI client.",
+  "steps": [
+   {
+    "action": "Save the sample program, then run it on a made-up 3-row table.",
+    "data": "One column field1 with values 1, 2, 3",
+    "expected": "The result is a dictionary containing either a 'program' entry or an 'error' entry. Its content is not checked."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_execute_program_returns_dict"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_execute_program_not_found",
+  "name": "Data Analyzer: Running a program that does not exist reports 'program_not_found'",
+  "objective": "Proves that asking to run an unknown program returns a clear error rather than failing.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model. The program manager is built without an AI client.",
+  "steps": [
+   {
+    "action": "Run a program id that was never saved on a made-up 3-row table.",
+    "data": "nonexistent-id",
+    "expected": "The result is a dictionary whose error value is 'program_not_found'."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_execute_program_not_found"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_execute_program_deleted",
+  "name": "Data Analyzer: Running a deleted program is refused",
+  "objective": "Proves that a program an administrator has deleted cannot be run.",
+  "precondition": "Offline test harness; temporary empty program database; made-up administrator password; program manager built without an AI client.",
+  "steps": [
+   {
+    "action": "Save the sample program, delete it, then try to run it on a made-up 3-row table.",
+    "data": "Table with column field1 = 1, 2, 3",
+    "expected": "The result is an error entry whose value is either 'program_deleted' or 'program_not_found' (either is accepted)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_execute_program_deleted"
+ },
+ {
+  "id": "tests.test_program_cache.TestIntegration.test_full_workflow_create_alias_use_delete_restore",
+  "name": "Data Analyzer: Full life of a program: save, nickname, use, record run, delete, restore",
+  "objective": "Proves the main database steps work together in order and the program ends up active again with its usage recorded.",
+  "precondition": "Offline test harness; temporary empty program database; made-up administrator password.",
+  "steps": [
+   {
+    "action": "Save a made-up program, give it the nickname workflowAlias, and load it by that nickname.",
+    "data": "Program id workflow-test-123",
+    "expected": "Each step succeeds and the nickname finds the same program."
+   },
+   {
+    "action": "Record one use and one run (100 rows, no problems found), then reload.",
+    "data": "Use count raised once",
+    "expected": "Use count is 1."
+   },
+   {
+    "action": "Delete the program with the correct password and read its stored status.",
+    "data": "",
+    "expected": "Deletion succeeds and the stored status is 'deleted'."
+   },
+   {
+    "action": "Restore it with the correct password and load it again.",
+    "data": "",
+    "expected": "Restore succeeds; the program loads with status 'active' and a use count of at least 1."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestIntegration::test_full_workflow_create_alias_use_delete_restore"
+ },
+ {
+  "id": "tests.test_program_cache.TestIntegration.test_multiple_aliases_same_program",
+  "name": "Data Analyzer: One program can have several nicknames",
+  "objective": "Proves that three different nicknames can be attached to the same program and each finds it.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program and create nicknames alias1, alias2 and alias3.",
+    "data": "Three nicknames",
+    "expected": "All three creations succeed."
+   },
+   {
+    "action": "Load the program by each nickname.",
+    "data": "",
+    "expected": "Each lookup returns the same program id."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestIntegration::test_multiple_aliases_same_program"
+ },
+ {
+  "id": "tests.test_program_cache.TestIntegration.test_search_and_load_by_hash",
+  "name": "Data Analyzer: A program can be found again by its dictionary fingerprint",
+  "objective": "Proves that a program saved with a dictionary fingerprint is found by searching for that fingerprint (the way a repeat upload of the same dictionary is matched).",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save a made-up program with fingerprint unique-hash-12345 and search for that fingerprint.",
+    "data": "Hash unique-hash-12345",
+    "expected": "Exactly one program is returned, with that hash and the id hash-test-1."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestIntegration::test_search_and_load_by_hash"
+ },
+ {
+  "id": "tests.test_program_cache.TestIntegration.test_concurrent_use_count_increments",
+  "name": "Data Analyzer: Ten successive uses give a use count of ten",
+  "objective": "Proves the use counter adds up correctly over ten uses. Note: despite the name, the ten uses are made one after another, not at the same time.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program, record ten uses in a row, then reload it.",
+    "data": "10 uses",
+    "expected": "Use count is exactly 10."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestIntegration::test_concurrent_use_count_increments"
+ },
+ {
+  "id": "tests.test_program_cache.TestIntegration.test_execution_history_tracking",
+  "name": "Data Analyzer: Several program runs are all kept in the run history",
+  "objective": "Proves that three separately recorded runs are all stored for the program.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Save the sample program and record three runs by users user1, user2 and user3.",
+    "data": "Made-up runs of 100, 200 and 150 rows",
+    "expected": "All three recordings are accepted."
+   },
+   {
+    "action": "Count the run-history rows for this program.",
+    "data": "",
+    "expected": "The count is exactly 3."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestIntegration::test_execution_history_tracking"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramDatabase.test_verify_admin_refuses_everything_when_password_not_configured",
+  "name": "Data Analyzer: With no administrator password configured, every password attempt is refused",
+  "objective": "Proves there is no built-in default administrator password: when none is configured, no attempt (including the former default, a wrong one or a blank one) is accepted.",
+  "precondition": "Offline test harness; both administrator-password settings (the documented DATA_ANALYZER_ADMIN_PASSWORD and the old ADMIN_PW) are removed for this test.",
+  "steps": [
+   {
+    "action": "Check three password attempts against the program database's admin check.",
+    "data": "The former built-in default password text, 'wrong-password', and an empty text",
+    "expected": "All three are rejected (False)."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramDatabase::test_verify_admin_refuses_everything_when_password_not_configured"
+ }
+]

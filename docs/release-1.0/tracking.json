@@ -1,0 +1,108 @@
+{
+ "epic": "ADP-48",
+ "epic_id": "219584",
+ "issues": {
+  "security-review": {
+   "key": "ADP-49",
+   "id": "219585",
+   "type": "Story",
+   "summary": "Security review before release (two independent reviews)"
+  },
+  "api-json": {
+   "key": "ADP-50",
+   "id": "219586",
+   "type": "Story",
+   "summary": "Programmatic JSON API merged into the release (from ST-358)"
+  },
+  "about-api": {
+   "key": "ADP-51",
+   "id": "219587",
+   "type": "Story",
+   "summary": "About page: copy-and-paste blocks for calling the tool from code"
+  },
+  "model-choice": {
+   "key": "ADP-52",
+   "id": "219588",
+   "type": "Story",
+   "summary": "Let the user choose a stronger AI model"
+  },
+  "site-test": {
+   "key": "ADP-53",
+   "id": "219589",
+   "type": "Story",
+   "summary": "Full test of the site, recorded in Zephyr"
+  },
+  "sdlc-docs": {
+   "key": "ADP-54",
+   "id": "219590",
+   "type": "Documentation",
+   "summary": "SDLC release documents for Data Analyzer 1.0"
+  },
+  "deploy": {
+   "key": "ADP-55",
+   "id": "219591",
+   "type": "Task",
+   "summary": "Deploy release 1.0 to the development environment and verify"
+  },
+  "range-nulls": {
+   "key": "ADP-88",
+   "id": "219626",
+   "type": "Task",
+   "summary": "Range checks missed violations in columns with missing values (fixed)"
+  },
+  "weak-tests": {
+   "key": "ADP-89",
+   "id": "219627",
+   "type": "Task",
+   "summary": "Strengthen automated tests that prove little or cannot fail"
+  },
+  "nav-contrast": {
+   "key": "ADP-90",
+   "id": "219628",
+   "type": "Task",
+   "summary": "Selected tab label on the top bar is hard to read"
+  },
+  "release-request": {
+   "key": "ADP-91",
+   "id": "219629",
+   "type": "Change Request",
+   "summary": "Data Analyzer.1.0 - release request (first production release)"
+  }
+ },
+ "pages": {
+  "parent": {
+   "id": "6259540076",
+   "title": "Data Analyzer 1.0 - SDLC Documentation (DRAFT)"
+  },
+  "VP": {
+   "id": "6259474534",
+   "title": "DRAFT INT.Data Analyzer 1.0_VP",
+   "template": "4439736460"
+  },
+  "RS": {
+   "id": "6259605598",
+   "title": "DRAFT INT.Data Analyzer 1.0_RS",
+   "template": "4600299521"
+  },
+  "IQC": {
+   "id": "6259802184",
+   "title": "DRAFT INT.Data Analyzer 1.0_IQC",
+   "template": "4439736564"
+  },
+  "PQ": {
+   "id": "6258917494",
+   "title": "DRAFT INT.Data Analyzer 1.0_PQ",
+   "template": "4439736820"
+  },
+  "VRRAF": {
+   "id": "6260031563",
+   "title": "DRAFT INT.Data Analyzer 1.0_VRRAF",
+   "template": "4439736480"
+  },
+  "TSRA": {
+   "id": "6259998790",
+   "title": "DRAFT Data Analyzer 1.0_TSRA",
+   "template": "4771020831"
+  }
+ }
+}

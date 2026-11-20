@@ -1,7 +1,13 @@
 # .github/workflows/deploy-cloudrun.yml
 #
 # Manual GitHub Actions workflow to build and deploy the data-analyzer API
-# to Google Cloud Run as a public (unauthenticated) endpoint.
+# to Google Cloud Run with IAM-authenticated ingress.
+#
+# ######################################################################
+# # NOT USED FOR THE RELEASE. The supported production target is Azure #
+# # Container Apps (deploy/aca/). This path is kept only pending an    #
+# # owner retire/keep decision (ADP-81).                               #
+# ######################################################################
 #
 # ============================================================
 # REQUIRED GITHUB SECRET
@@ -33,13 +39,16 @@
 #   instead of credentials_json to adopt WIF.
 #
 # ============================================================
-# ALLOW-UNAUTHENTICATED WARNING
+# AUTHENTICATION
 # ============================================================
-# This workflow deploys with --allow-unauthenticated, making the Cloud Run
-# service reachable by anyone on the public internet. This is fine for a
-# temporary demo. Before processing real or sensitive data, add authentication:
-#   - Cloud Run IAM (remove allUsers binding, add invoker role per identity)
-#   - Google Cloud Endpoints / API Gateway with an API key or JWT
+# The service is deployed with --no-allow-unauthenticated (callers need
+# roles/run.invoker), APP_ENV=prod, and DATA_ANALYZER_API_KEY bound from a
+# Secret Manager secret named by the api_key_secret input. Never add
+# --allow-unauthenticated.
+#
+# Dispatch inputs are passed to steps through env variables (never expanded
+# inside run: scripts) and validated first. Actions are pinned by major version
+# tag, not commit SHA; pin by SHA before any real use.
 # ============================================================
 
 name: Deploy to Cloud Run
@@ -61,6 +70,17 @@ on:
         required: false
         default: 'data-analyzer-api'
         type: string
+      api_key_secret:
+        description: 'Secret Manager secret name holding the API key (bound as DATA_ANALYZER_API_KEY)'
+        required: true
+        type: string
+
+# Dispatch inputs reach shell only as environment variables.
+env:
+  PROJECT_ID: ${{ inputs.project_id }}
+  REGION: ${{ inputs.region }}
+  SERVICE: ${{ inputs.service }}
+  API_KEY_SECRET: ${{ inputs.api_key_secret }}
 
 jobs:
   deploy:
@@ -71,6 +91,16 @@ jobs:
       id-token: write   # needed if/when switching to Workload Identity Federation
 
     steps:
+      # ------------------------------------------------------------------
+      # 0. Validate dispatch inputs before they are used anywhere
+      # ------------------------------------------------------------------
+      - name: Validate inputs
+        run: |
+          [[ "$PROJECT_ID" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || { echo "invalid project_id"; exit 1; }
+          [[ "$REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || { echo "invalid region"; exit 1; }
+          [[ "$SERVICE" =~ ^[a-z][a-z0-9-]{0,48}[a-z0-9]$ ]] || { echo "invalid service"; exit 1; }
+          [[ "$API_KEY_SECRET" =~ ^[A-Za-z0-9_-]{1,255}$ ]] || { echo "invalid api_key_secret"; exit 1; }
+
       # ------------------------------------------------------------------
       # 1. Checkout source
       # ------------------------------------------------------------------
@@ -100,7 +130,7 @@ jobs:
       # ------------------------------------------------------------------
       - name: Configure Docker for Artifact Registry
         run: |
-          gcloud auth configure-docker "${{ inputs.region }}-docker.pkg.dev" --quiet
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
       # ------------------------------------------------------------------
       # 5. Ensure Artifact Registry repository 'apps' exists (idempotent)
@@ -109,8 +139,8 @@ jobs:
         run: |
           gcloud artifacts repositories create apps \
             --repository-format=docker \
-            --location="${{ inputs.region }}" \
-            --project="${{ inputs.project_id }}" \
+            --location="${REGION}" \
+            --project="${PROJECT_ID}" \
             --description="Container images for deployed services" \
             2>&1 || true
 
@@ -124,33 +154,35 @@ jobs:
           gcloud builds submit \
             --config=cloudbuild.yaml \
             --substitutions="_IMAGE=${IMAGE}" \
-            --project="${{ inputs.project_id }}" \
+            --project="${PROJECT_ID}" \
             .
 
       # ------------------------------------------------------------------
-      # 7. Deploy to Cloud Run (public, unauthenticated)
+      # 7. Deploy to Cloud Run (IAM-authenticated, API key bound, APP_ENV=prod)
       # ------------------------------------------------------------------
       - name: Deploy to Cloud Run
         env:
           IMAGE: "${{ inputs.region }}-docker.pkg.dev/${{ inputs.project_id }}/apps/${{ inputs.service }}:${{ github.sha }}"
         run: |
-          gcloud run deploy "${{ inputs.service }}" \
+          gcloud run deploy "${SERVICE}" \
             --image="${IMAGE}" \
-            --region="${{ inputs.region }}" \
+            --region="${REGION}" \
             --platform=managed \
-            --allow-unauthenticated \
-            --port=8080 \
-            --project="${{ inputs.project_id }}"
+            --no-allow-unauthenticated \
+            --port=8000 \
+            --set-env-vars="APP_ENV=prod" \
+            --set-secrets="DATA_ANALYZER_API_KEY=${API_KEY_SECRET}:latest" \
+            --project="${PROJECT_ID}"
 
       # ------------------------------------------------------------------
-      # 8. Retrieve and print the public service URL
+      # 8. Retrieve and print the service URL
       # ------------------------------------------------------------------
       - name: Get service URL
         id: get-url
         run: |
-          SERVICE_URL=$(gcloud run services describe "${{ inputs.service }}" \
-            --region="${{ inputs.region }}" \
-            --project="${{ inputs.project_id }}" \
+          SERVICE_URL=$(gcloud run services describe "${SERVICE}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
             --format='value(status.url)')
           echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
           echo "Service deployed at: ${SERVICE_URL}"
@@ -159,25 +191,18 @@ jobs:
       # 9. Write URL to job summary
       # ------------------------------------------------------------------
       - name: Write summary
+        env:
+          SERVICE_URL: ${{ steps.get-url.outputs.service_url }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           {
             echo "## Cloud Run Deployment"
             echo ""
             echo "| Field | Value |"
             echo "|-------|-------|"
-            echo "| Service | \`${{ inputs.service }}\` |"
-            echo "| Region | \`${{ inputs.region }}\` |"
-            echo "| Project | \`${{ inputs.project_id }}\` |"
-            echo "| Commit | \`${{ github.sha }}\` |"
-            echo "| **Public URL** | ${{ steps.get-url.outputs.service_url }} |"
-            echo ""
-            echo "### Quick smoke test"
-            echo "\`\`\`bash"
-            echo "curl ${{ steps.get-url.outputs.service_url }}/health"
-            echo "\`\`\`"
-            echo ""
-            echo "### End-to-end A2A check"
-            echo "\`\`\`bash"
-            echo "python3 scripts/e2e_a2a_check.py --url ${{ steps.get-url.outputs.service_url }}"
-            echo "\`\`\`"
+            echo "| Service | \`${SERVICE}\` |"
+            echo "| Region | \`${REGION}\` |"
+            echo "| Project | \`${PROJECT_ID}\` |"
+            echo "| Commit | \`${COMMIT_SHA}\` |"
+            echo "| **URL (IAM-authenticated, not public)** | ${SERVICE_URL} |"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,176 @@
+[
+ {
+  "id": "tests.test_sec_build_workflows.test_cloud_run_workflow_never_interpolates_dispatch_inputs_into_shell",
+  "name": "Data Analyzer: Cloud Run deploy workflow never pastes user-supplied inputs into shell commands",
+  "objective": "Proves the alternative Google Cloud Run deployment workflow cannot be tricked into running injected commands through its manually entered inputs.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Parse .github/workflows/deploy-cloudrun.yml and look at every shell 'run' step",
+    "data": "deploy-cloudrun.yml",
+    "expected": "No shell script contains a '${{' template placeholder (the GitHub syntax for pasting a value into a command)"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_cloud_run_workflow_never_interpolates_dispatch_inputs_into_shell"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_cloud_run_paths_do_not_allow_unauthenticated_access",
+  "name": "Data Analyzer: Cloud Run deployment paths never make the service public",
+  "objective": "Proves both Cloud Run deployment routes (script and workflow) only ever request that unauthenticated access be refused.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "For each of deploy/cloudrun.sh and deploy-cloudrun.yml, remove comment lines and find every allow-unauthenticated flag",
+    "data": "deploy/cloudrun.sh; .github/workflows/deploy-cloudrun.yml",
+    "expected": "At least one such flag is present in each file, and every one is the 'no-allow-unauthenticated' form"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_cloud_run_paths_do_not_allow_unauthenticated_access"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_cloud_run_paths_set_app_env_and_bind_the_api_key_secret",
+  "name": "Data Analyzer: Cloud Run deployment sets production mode and attaches the API key secret",
+  "objective": "Proves both Cloud Run deployment routes configure the service as production and supply the API key from a secret store.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read deploy/cloudrun.sh and deploy-cloudrun.yml",
+    "data": "the two files",
+    "expected": "Each file contains the setting 'APP_ENV=prod' and a 'DATA_ANALYZER_API_KEY=' binding"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_cloud_run_paths_set_app_env_and_bind_the_api_key_secret"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_cloud_run_script_refuses_to_deploy_without_an_api_key_secret_binding",
+  "name": "Data Analyzer: Cloud Run script stops if no API key secret is named",
+  "objective": "Proves the Cloud Run script has a guard that aborts the deployment when the API key secret name is missing.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read deploy/cloudrun.sh",
+    "data": "deploy/cloudrun.sh",
+    "expected": "The script contains the required-variable check for API_KEY_SECRET (the shell form that exits with an error when it is empty). The check is looked for as text; the script is not run"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_cloud_run_script_refuses_to_deploy_without_an_api_key_secret_binding"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_cloud_run_files_carry_a_not_used_for_the_release_banner",
+  "name": "Data Analyzer: Cloud Run files are labelled as not used for the release",
+  "objective": "Proves the alternative Cloud Run files are clearly marked so nobody mistakes them for the release deployment route.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read the first 900 characters of each Cloud Run file",
+    "data": "deploy/cloudrun.sh; deploy-cloudrun.yml",
+    "expected": "The text 'NOT USED FOR THE RELEASE' appears near the top of both files"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_cloud_run_files_carry_a_not_used_for_the_release_banner"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_ci_workflow_runs_tests_and_has_a_separate_hygiene_job",
+  "name": "Data Analyzer: Automatic checks run on pushes and pull requests, as a tests job and a hygiene job",
+  "objective": "Proves the automatic check workflow starts on both pushes and pull requests and consists of exactly two jobs: tests and repository hygiene.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Parse .github/workflows/ci.yml and read its triggers",
+    "data": "ci.yml",
+    "expected": "Both 'pull_request' and 'push' are triggers"
+   },
+   {
+    "action": "List the job names",
+    "data": "ci.yml",
+    "expected": "The set of jobs is exactly 'tests' and 'repo-hygiene'"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_ci_workflow_runs_tests_and_has_a_separate_hygiene_job"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_gitignore_blocks_sidecar_and_key_files_but_not_env_example",
+  "name": "Data Analyzer: Git ignore list blocks key and secret files but still allows the example settings file",
+  "objective": "Proves files that could hold secrets (keys, certificates, settings files, download-marker files) are excluded from version control while the example settings file stays trackable.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read .gitignore line by line",
+    "data": "Patterns '*.pem', '*.key', '.env', '.env.*', '!.env.example'",
+    "expected": "Each of these exact lines is present"
+   },
+   {
+    "action": "Look for download-marker file patterns",
+    "data": "Lines ending ':sec.endpointdlp' and ':Zone.Identifier'",
+    "expected": "At least one line of each kind is present"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_gitignore_blocks_sidecar_and_key_files_but_not_env_example"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_ui_image_runtime_stage_has_no_compilers_git_or_ssh_client",
+  "name": "Data Analyzer: Web-page container final image has no compilers, git or SSH client and runs as a non-admin user",
+  "objective": "Proves the final stage of the web-page (UI) container build installs none of the build tools an attacker could misuse and runs as an unprivileged user.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read the Dockerfile and take the final stage, looking only at the part before it copies from the builder stage",
+    "data": "Dockerfile",
+    "expected": "None of the words build-essential, gcc, git or openssh-client appear as installed software"
+   },
+   {
+    "action": "Check the user setting",
+    "data": "Dockerfile final stage",
+    "expected": "It contains 'USER appuser' (a non-admin account)"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_ui_image_runtime_stage_has_no_compilers_git_or_ssh_client"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_api_image_does_not_install_the_ui_requirements",
+  "name": "Data Analyzer: Service (API) container does not install the web-page package list",
+  "objective": "Proves the API container build installs only the API and server package lists, not the larger web-page one.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read Dockerfile.api and list every requirements file it installs",
+    "data": "Dockerfile.api",
+    "expected": "The web-page list 'requirements.txt' is not installed; 'api_requirements.txt' and 'mcp_requirements.txt' both are"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_api_image_does_not_install_the_ui_requirements"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_api_requirements_exclude_ui_only_packages",
+  "name": "Data Analyzer: API package list excludes web-page-only packages and includes the ones the API needs",
+  "objective": "Proves the API's package list is slim (no charts, PDF or web-page libraries) yet still has what the service needs.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read api_requirements.txt and extract package names",
+    "data": "api_requirements.txt",
+    "expected": "None of streamlit, plotly, matplotlib, pypdf, env-banner is listed"
+   },
+   {
+    "action": "Check required packages",
+    "data": "api_requirements.txt",
+    "expected": "fastapi, slowapi, openai, tiktoken, azure-identity and requests are all listed"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_api_requirements_exclude_ui_only_packages"
+ },
+ {
+  "id": "tests.test_sec_build_workflows.test_pip_trusted_hosts_are_a_build_argument_defaulting_to_current_behaviour",
+  "name": "Data Analyzer: Package-download trust setting is an overridable build option with the current value as default",
+  "objective": "Proves both container builds expose the package-site trust setting as a build argument that keeps today's behaviour unless changed.",
+  "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
+  "steps": [
+   {
+    "action": "Read Dockerfile and Dockerfile.api",
+    "data": "the two files",
+    "expected": "Each contains the build argument PIP_TRUSTED_HOSTS defaulting to trusting pypi.org and files.pythonhosted.org, and each uses ${PIP_TRUSTED_HOSTS} in its install command"
+   }
+  ],
+  "source": "tests/test_sec_build_workflows.py::test_pip_trusted_hosts_are_a_build_argument_defaulting_to_current_behaviour"
+ }
+]

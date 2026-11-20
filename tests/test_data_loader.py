@@ -38,7 +38,7 @@ class TestDataLoader:
     @pytest.mark.unit
     def test_load_csv_from_file(self, create_test_csv):
         """Test loading CSV from file path"""
-        df = DataLoader.load_csv(create_test_csv)
+        df = DataLoader.load_local_file(create_test_csv, 'csv')
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 10  # sample data has 10 rows
         assert list(df.columns) == ['id', 'name', 'age', 'department', 'salary', 'hire_date', 'is_active']
@@ -102,7 +102,7 @@ class TestDataLoader:
         with open(test_file, 'w') as f:
             f.write(content)
 
-        df = DataLoader.load_csv(test_file, sep=';')
+        df = DataLoader.load_local_file(test_file, 'csv', sep=';')
         assert len(df) == 2
         assert list(df.columns) == ['name', 'age', 'city']
 

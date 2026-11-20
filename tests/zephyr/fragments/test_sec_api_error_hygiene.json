@@ -1,0 +1,198 @@
+[
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_unparseable_excel_upload_returns_a_fixed_message_without_library_text",
+  "name": "Data Analyzer: A corrupt Excel upload gets a fixed, safe error message",
+  "objective": "Shows internal library wording is never shown to the caller.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Upload a file named x.xlsx whose bytes are not a real Excel file.",
+    "data": "Text 'not really an excel file'",
+    "expected": "HTTP 400 with the exact error 'Failed to parse the uploaded .xlsx file. Check that it is a valid file of that type.' and no mention of 'engine' or 'openpyxl' in the reply."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_unparseable_excel_upload_returns_a_fixed_message_without_library_text"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_unexpected_analysis_failure_returns_a_fixed_message_plus_a_request_id",
+  "name": "Data Analyzer: An unexpected analysis crash gives a fixed message and a request ID, not internal details",
+  "objective": "Shows the real error text stays hidden but support can trace it using the ID.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make the checks fail with an error whose text includes a made-up sensitive value, then upload a tiny CSV.",
+    "data": "Error text includes PHI-VALUE-4242",
+    "expected": "HTTP 500; the value is absent from the reply; the error is 'Unexpected error while analysing the data.'; the reply carries a request_id equal to the X-Request-ID response header."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_unexpected_analysis_failure_returns_a_fixed_message_plus_a_request_id"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_request_id_is_generated_by_the_server_not_echoed_from_the_client",
+  "name": "Data Analyzer: The request ID is made by the server, not copied from the caller",
+  "objective": "Shows a caller cannot forge log lines by supplying their own ID containing line breaks.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send a request with a wrong API key and an X-Request-ID containing a fake log line.",
+    "data": "Header: 'forged' newline 'INFO fake log line'",
+    "expected": "HTTP 403; the returned request_id differs from the forged one and matches the response header."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_request_id_is_generated_by_the_server_not_echoed_from_the_client"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_logs_for_a_failed_parse_contain_no_file_name_or_cell_values",
+  "name": "Data Analyzer: Logs of failed uploads contain no file name and no data values",
+  "objective": "Shows private information (such as participant IDs in file names) does not end up in logs.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Upload a badly formed CSV with a sensitive-looking file name and cell value, then a bad xlsx with the same name pattern.",
+    "data": "File name subject-9876-jane.csv; value PHI-VALUE-4242",
+    "expected": "The collected logs contain neither the file name, 'subject-9876', nor the value, but do contain the safe marker 'analysis_parse_failed'."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_logs_for_a_failed_parse_contain_no_file_name_or_cell_values"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_logs_for_a_successful_analysis_contain_no_file_name",
+  "name": "Data Analyzer: Logs of a successful analysis contain no file name",
+  "objective": "Shows the file name is kept out of logs even when everything works.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Upload a tiny valid CSV with a sensitive-looking file name.",
+    "data": "File name subject-9876-jane.csv",
+    "expected": "HTTP 200 and the logs do not contain 'subject-9876'."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_logs_for_a_successful_analysis_contain_no_file_name"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_dictionary_parse_logs_and_errors_omit_the_uploaded_file_name",
+  "name": "Data Analyzer: Dictionary upload errors and logs omit the file name and AI error text",
+  "objective": "Shows a failing dictionary parse neither logs the file name nor returns the AI service's message.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make dictionary creation fail with an error containing a made-up sensitive value and upload a dictionary with a sensitive-looking name.",
+    "data": "File subject-9876-jane.csv; error text with PHI-VALUE-4242",
+    "expected": "HTTP 500, error 'Dictionary parsing failed.', the value is absent from the reply, and neither 'subject-9876' nor the value is in the logs."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_dictionary_parse_logs_and_errors_omit_the_uploaded_file_name"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_dictionary_lookup_log_strips_newlines_from_the_caller_supplied_id",
+  "name": "Data Analyzer: Dictionary lookups strip line breaks from the requested ID in logs",
+  "objective": "Shows a caller cannot insert a forged log line through the ID in the web address.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Request a dictionary whose ID contains an encoded line break and fake log text (the store reports not found).",
+    "data": "ID: abc, newline, INFO forged entry",
+    "expected": "HTTP 404; the log has the text on one line ('abc?INFO forged entry') and no line break after 'abc'."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_dictionary_lookup_log_strips_newlines_from_the_caller_supplied_id"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_lookup_database_failure_returns_a_fixed_message",
+  "name": "Data Analyzer: A database failure during lookup returns a fixed message",
+  "objective": "Shows disk paths and internal wording are not leaked on a database error.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Make the program store fail with a message holding a made-up path and value, then look up a dictionary.",
+    "data": "Error text contains /secret/PHI-VALUE-4242",
+    "expected": "HTTP 500, error 'Database error.', and the value is absent."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_lookup_database_failure_returns_a_fixed_message"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_bad_schema_form_field_gets_a_fixed_message",
+  "name": "Data Analyzer: A malformed 'schema' field gets a generic rejection without echoing the input",
+  "objective": "Shows invalid JSON typed in the schema box is rejected without repeating it back.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Upload a CSV with a schema field that is not valid JSON and contains a made-up sensitive value.",
+    "data": "schema: '{not json PHI-VALUE-4242'",
+    "expected": "HTTP 400 and the value does not appear in the reply."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_bad_schema_form_field_gets_a_fixed_message"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_invalid_base64_gets_a_fixed_message",
+  "name": "Data Analyzer: Invalid base64 data gets a fixed message",
+  "objective": "Shows badly encoded inline data is refused with a clear, stable message.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Send inline-data analysis with encoding base64 but data that is not base64.",
+    "data": "data_content '***not-base64***'",
+    "expected": "HTTP 400 with the error \"Invalid base64 in 'data_content'.\""
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_invalid_base64_gets_a_fixed_message"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_stray_value_error_does_not_leak_its_text_to_the_client",
+  "name": "Data Analyzer: A stray internal ValueError is turned into a generic 'Invalid input'",
+  "objective": "Shows an unexpected input error never exposes its own wording.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Add a test-only web address that raises a ValueError containing a made-up value, then call it.",
+    "data": "Error text contains PHI-VALUE-4242",
+    "expected": "HTTP 400, error 'Invalid input', value absent."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_stray_value_error_does_not_leak_its_text_to_the_client"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_debug_true_does_not_reveal_exception_text_in_a_deployed_environment",
+  "name": "Data Analyzer: Debug mode does not reveal error details when deployed",
+  "objective": "Shows turning on DEBUG by mistake in production still hides internal errors.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set DEBUG=true and APP_ENV=prod, add a test-only address that raises an error with a made-up value, and call it.",
+    "data": "KeyError containing PHI-VALUE-4242",
+    "expected": "HTTP 500, the value is absent, and the detail is exactly 'An unexpected error occurred'."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_debug_true_does_not_reveal_exception_text_in_a_deployed_environment"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_debug_true_still_gives_detail_on_a_local_developer_machine",
+  "name": "Data Analyzer: Debug mode still gives details on a developer's own machine",
+  "objective": "Shows the safety measure does not break normal developer debugging.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set DEBUG=true with every deployed-environment setting removed, add a test-only address raising an error, and call it.",
+    "data": "KeyError('local-detail')",
+    "expected": "HTTP 500 and the detail text includes 'local-detail'."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_debug_true_still_gives_detail_on_a_local_developer_machine"
+ },
+ {
+  "id": "tests.test_sec_api_error_hygiene.test_the_413_response_also_carries_a_server_generated_request_id",
+  "name": "Data Analyzer: The 'file too large' (HTTP 413) reply also has a server-made request ID",
+  "objective": "Shows even size-limit refusals are traceable and cannot be given a forged ID.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key; analysis steps that would call out are replaced by stand-ins. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Set the upload limit to 100 bytes and upload a larger CSV with a client-chosen request ID.",
+    "data": "about 1000 bytes; X-Request-ID 'client-chosen'",
+    "expected": "HTTP 413 and the returned request_id is not 'client-chosen'."
+   }
+  ],
+  "source": "tests/test_sec_api_error_hygiene.py::test_the_413_response_also_carries_a_server_generated_request_id"
+ }
+]

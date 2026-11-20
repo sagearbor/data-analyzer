@@ -15,6 +15,7 @@ import sqlite3
 import json
 import logging
 import hashlib
+import secrets
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -266,10 +267,11 @@ class ProgramDatabase:
             True if successful, False otherwise
         """
         conn = self._get_connection()
+        code_filename = f"{program.program_id}.py"
+        code_path = self.programs_dir / code_filename
+        code_existed = code_path.exists()  # never delete a pre-existing program's file
         try:
             # Write generated code to file
-            code_filename = f"{program.program_id}.py"
-            code_path = self.programs_dir / code_filename
 
             with open(code_path, 'w', encoding='utf-8') as f:
                 f.write(program.generated_code)
@@ -325,13 +327,26 @@ class ProgramDatabase:
 
         except sqlite3.IntegrityError as e:
             logger.error(f"Program with name '{program.name}' already exists: {e}")
+            conn.rollback()
+            if not code_existed:
+                self._discard_code_file(code_path)
             return False
         except Exception as e:
             logger.error(f"Error saving program: {e}")
             conn.rollback()
+            if not code_existed:
+                self._discard_code_file(code_path)
             return False
         finally:
             conn.close()
+
+    @staticmethod
+    def _discard_code_file(code_path: Path) -> None:
+        """Remove the code file written for a program whose DB insert failed."""
+        try:
+            Path(code_path).unlink(missing_ok=True)
+        except OSError as e:  # pragma: no cover - best effort
+            logger.warning(f"Could not remove orphaned program code file: {e}")
 
     def load_program(self, id_or_name_or_alias: str) -> Optional[ValidationProgram]:
         """
@@ -697,16 +712,29 @@ class ProgramDatabase:
 
     def _verify_admin(self, password: str) -> bool:
         """
-        Verify admin password against environment variable.
+        Verify the admin password against DATA_ANALYZER_ADMIN_PASSWORD.
+
+        Fails closed: if the variable is unset/empty, or the supplied value is
+        not a non-empty string, the check returns False (there is no default
+        password). The comparison is constant-time.
 
         Args:
             password: Password to verify
 
         Returns:
-            True if password matches, False otherwise
+            True only if a password is configured and matches exactly
         """
-        admin_password = os.getenv("ADMIN_PW", "dataAnalyzerAdmin666")
-        return password == admin_password
+        admin_password = os.getenv("DATA_ANALYZER_ADMIN_PASSWORD", "")
+        if not admin_password:
+            logger.error(
+                "DATA_ANALYZER_ADMIN_PASSWORD is not set - refusing admin operation"
+            )
+            return False
+        if not isinstance(password, str) or not password:
+            return False
+        return secrets.compare_digest(
+            password.encode("utf-8"), admin_password.encode("utf-8")
+        )
 
     def delete_program(
         self,

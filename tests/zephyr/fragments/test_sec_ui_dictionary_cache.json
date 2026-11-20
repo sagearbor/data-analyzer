@@ -1,0 +1,194 @@
+[
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_a_new_session_cannot_read_entries_written_by_another_session",
+  "name": "Data Analyzer: One session cannot read another session's saved dictionary",
+  "objective": "Proves cached parsed dictionaries are private to the browser session that created them.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Session A stores a made-up rule set under a key; session B asks for the same key",
+    "data": "rules {'age': {'min': 1}}",
+    "expected": "Session B gets nothing"
+   },
+   {
+    "action": "Session A asks for the same key",
+    "data": "same",
+    "expected": "Session A gets its rule set back"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_a_new_session_cannot_read_entries_written_by_another_session"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_clear_removes_only_the_current_sessions_entries",
+  "name": "Data Analyzer: Clearing the cache removes only the current session's entries",
+  "objective": "Proves one user's 'clear' does not delete another's data.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Each session stores one entry; session A clears",
+    "data": "two entries",
+    "expected": "Clear reports 1 removed and session A's count is 0"
+   },
+   {
+    "action": "Session B asks for its entry",
+    "data": "same",
+    "expected": "Session B's entry is still there"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_clear_removes_only_the_current_sessions_entries"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_count_reports_only_the_current_session",
+  "name": "Data Analyzer: Entry count covers only the current session",
+  "objective": "Proves the count does not reveal how many entries other sessions hold.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Session A stores 1 entry and session B stores 2; each asks for its count",
+    "data": "3 entries total",
+    "expected": "Session A sees 1 and session B sees 2"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_count_reports_only_the_current_session"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_old_shared_cache_entries_in_the_legacy_layout_are_never_read",
+  "name": "Data Analyzer: Old shared-folder cache files are never read",
+  "objective": "Proves entries left in the earlier shared layout (including ones named with the old and the new hash) cannot be loaded.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Put two files directly in the cache folder named by the MD5 and SHA-256 hashes of made-up bytes, each holding a rule set 'evil'; then look up that content in a session",
+    "data": "made-up bytes 'legacy dictionary'",
+    "expected": "Nothing is returned and the session's count is 0"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_old_shared_cache_entries_in_the_legacy_layout_are_never_read"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_keys_are_sha256_not_md5",
+  "name": "Data Analyzer: Cache keys use SHA-256, not the weaker MD5",
+  "objective": "Proves cache keys are 64-character SHA-256 fingerprints, with a '_llm' suffix for AI-parsed results.",
+  "precondition": "No files needed.",
+  "steps": [
+   {
+    "action": "Make a key for the bytes 'abc', with and without the AI marker",
+    "data": "b'abc'",
+    "expected": "Plain key equals the SHA-256 of 'abc' and is 64 characters; with the AI marker it is that key plus '_llm'"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_keys_are_sha256_not_md5"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_expired_entries_are_not_returned_and_are_deleted",
+  "name": "Data Analyzer: Expired cache entries are not returned and are deleted",
+  "objective": "Proves old entries stop being served and are removed from disk.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions. Lifetime set to 60 seconds.",
+  "steps": [
+   {
+    "action": "Store an entry, backdate its file by an hour, and ask for it",
+    "data": "entry aged 3600 s, lifetime 60 s",
+    "expected": "Nothing is returned and the file no longer exists"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_expired_entries_are_not_returned_and_are_deleted"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_expired_entries_of_other_sessions_are_pruned_but_fresh_ones_stay",
+  "name": "Data Analyzer: Housekeeping removes other sessions' expired entries and keeps fresh ones",
+  "objective": "Proves old data from any session is cleaned up without touching recent entries.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions. Lifetime 60 seconds.",
+  "steps": [
+   {
+    "action": "Session B stores a 'stale' and a 'fresh' entry; the stale file is backdated an hour; session A runs prune",
+    "data": "2 entries",
+    "expected": "Prune reports 1 removed; the stale file is gone and the fresh file remains"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_expired_entries_of_other_sessions_are_pruned_but_fresh_ones_stay"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_ttl_is_configurable_by_environment",
+  "name": "Data Analyzer: Cache lifetime can be set by an environment variable",
+  "objective": "Proves UI_CACHE_TTL_HOURS controls how long entries live.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Set UI_CACHE_TTL_HOURS to 2 and create a cache",
+    "data": "2 hours",
+    "expected": "The lifetime is 7200 seconds"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_ttl_is_configurable_by_environment"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_session_ids_that_could_escape_the_cache_folder_are_rejected",
+  "name": "Data Analyzer: Session identifiers that could escape the cache folder are rejected",
+  "objective": "Proves a crafted session id cannot be used to reach other folders.",
+  "precondition": "A temporary folder as cache folder.",
+  "steps": [
+   {
+    "action": "Create a cache with each bad session id",
+    "data": "'../etc', 'short', 32 characters containing 'G' (not hexadecimal), empty text, nothing at all",
+    "expected": "A ValueError is raised each time"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_session_ids_that_could_escape_the_cache_folder_are_rejected"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_cache_keys_that_could_escape_the_session_folder_are_rejected",
+  "name": "Data Analyzer: Cache keys that could escape the session folder are rejected",
+  "objective": "Proves a crafted key cannot write outside the session's folder.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Try to store under each bad key",
+    "data": "'../../x', 'abc', 64 characters followed by '/../x'",
+    "expected": "A ValueError is raised each time"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_cache_keys_that_could_escape_the_session_folder_are_rejected"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_cache_files_are_owner_only",
+  "name": "Data Analyzer: Cache files are readable only by their owner",
+  "objective": "Proves saved cache files are not accessible to other users of the machine.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Store an entry and read the file's permission bits",
+    "data": "empty rule set",
+    "expected": "No permission is granted to group or others (the 'group/other' bits are zero)"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_cache_files_are_owner_only"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_a_corrupt_entry_is_a_miss_not_a_crash",
+  "name": "Data Analyzer: A damaged cache file is treated as not found, not as a crash",
+  "objective": "Proves invalid file contents cause a normal 'not cached' result.",
+  "precondition": "A temporary folder is used as the cache folder. Two made-up 32-character session identifiers (all 'a' and all 'b') stand for two browser sessions.",
+  "steps": [
+   {
+    "action": "Write the broken text '{not json' as an entry file and ask for it",
+    "data": "'{not json'",
+    "expected": "Nothing is returned and no error is raised"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_a_corrupt_entry_is_a_miss_not_a_crash"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_cache.test_the_ui_never_exposes_the_cache_path_or_uses_the_shared_folder",
+  "name": "Data Analyzer: Page source no longer shows the cache location or uses the shared/legacy cache",
+  "objective": "Proves the page code has dropped the shared cache folder, the path display, the 'clear all' button, MD5 and pickle.",
+  "precondition": "The page source web_app.py is read as text, not run.",
+  "steps": [
+   {
+    "action": "Search web_app.py for old strings",
+    "data": ".data_analyzer_cache, 'Cache location', 'Clear All Cache', 'md5' (any case), 'pickle', '.pkl'",
+    "expected": "None of them appears"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_cache.py::test_the_ui_never_exposes_the_cache_path_or_uses_the_shared_folder"
+ }
+]

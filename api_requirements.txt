@@ -1,5 +1,11 @@
 # FastAPI REST API Requirements
-# For api_server.py - programmatic access to data analysis functionality
+# For api_server.py - programmatic access to data analysis functionality.
+#
+# SELF-CONTAINED: this is the complete runtime dependency set of the API image
+# (Dockerfile.api installs this file and mcp_requirements.txt ONLY). It
+# deliberately excludes the UI-only packages (streamlit, plotly, matplotlib,
+# pypdf, env-banner). Derived from the imports of api_server.py, mcp_server.py and
+# the src/ modules they load.
 
 # Core FastAPI framework
 fastapi>=0.104.0
@@ -16,5 +22,18 @@ slowapi>=0.1.9
 # Data validation and serialization (FastAPI dependency)
 pydantic>=2.0.0
 
-# Inherit requirements from main application
-# Install with: pip install -r requirements.txt -r api_requirements.txt
+# Data loading / analysis (mcp_server.py DataLoader, logic_engine)
+pandas>=2.0.0
+numpy>=1.24.0
+chardet>=5.2.0
+openpyxl>=3.1.2
+xlrd>=2.0.1
+pyarrow>=14.0.0
+
+# LLM dictionary parsing (src/llm_client.py, src/dcri_llm.py)
+requests>=2.31.0
+openai>=1.0.0
+tiktoken>=0.5.0
+azure-identity>=1.17.0
+azure-storage-blob>=12.19.0
+python-dotenv>=1.0.0

@@ -1,0 +1,96 @@
+[
+ {
+  "id": "tests.test_sec_issue_counts_and_about_accuracy.test_range_and_allowed_value_violations_beyond_ten_rows_are_counted_and_flagged",
+  "name": "Data Analyzer: Issue totals count every violation, not just the first ten listed per finding",
+  "objective": "Proves the reported totals are the true totals even though only the first rows of each finding are listed, and the response says the list is cut short. Runs on both analyze routes (file upload and inline data).",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a made-up file of 30 rows (age 500, c 'bad') with rules: age at most 100, c only 'ok'.",
+    "data": "30 rows x 2 rule violations",
+    "expected": "Issues found and the issue total are both 60; critical issues is 60; the per-type totals are 30 range violations and 30 invalid category values."
+   },
+   {
+    "action": "Read how many issues are listed.",
+    "data": "Issue list",
+    "expected": "20 issues are returned (10 per finding), the returned count equals the list length, and the 'truncated' flag is true."
+   }
+  ],
+  "source": "tests/test_sec_issue_counts_and_about_accuracy.py::test_range_and_allowed_value_violations_beyond_ten_rows_are_counted_and_flagged"
+ },
+ {
+  "id": "tests.test_sec_issue_counts_and_about_accuracy.test_a_finding_with_no_more_than_ten_rows_is_not_flagged_as_truncated",
+  "name": "Data Analyzer: A short finding is not marked as cut short",
+  "objective": "Proves the 'truncated' flag is not raised when everything is listed. Uses the inline-data route only.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key and the request-rate counters reset. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Analyse a 2-row file (age 500 and 5) with age at most 100.",
+    "data": "Rows 500 and 5",
+    "expected": "Issues found is 1 and the truncated flag is false."
+   }
+  ],
+  "source": "tests/test_sec_issue_counts_and_about_accuracy.py::test_a_finding_with_no_more_than_ten_rows_is_not_flagged_as_truncated"
+ },
+ {
+  "id": "tests.test_sec_issue_counts_and_about_accuracy.test_the_page_shows_the_true_totals_with_a_note_that_only_the_first_rows_are_listed",
+  "name": "Data Analyzer: The page shows the true issue total and a note that only the first 10 rows are listed",
+  "objective": "Proves a user sees 30 issues (not 10) and is told the list is partial.",
+  "precondition": "Web page loaded in the offline test harness with a made-up API key. No network. The AI dictionary reader is replaced by a canned dictionary (age as integer, maximum 100); the page's call to the service goes to the in-process server; private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary and a made-up file with 30 rows of age 500, then press Run analysis.",
+    "data": "30 rows, age 500",
+    "expected": "No exception is raised."
+   },
+   {
+    "action": "Read the results on screen.",
+    "data": "Metrics, section headings, information notes",
+    "expected": "The 'Issues Found' figure is 30; a section 'Range Violation (30 issues)' exists; an information note says 'Showing the first 10 of 30 issues'."
+   }
+  ],
+  "source": "tests/test_sec_issue_counts_and_about_accuracy.py::test_the_page_shows_the_true_totals_with_a_note_that_only_the_first_rows_are_listed"
+ },
+ {
+  "id": "tests.test_sec_issue_counts_and_about_accuracy.test_the_about_page_no_longer_claims_checks_the_engine_does_not_perform",
+  "name": "Data Analyzer: The About page no longer claims checks the tool does not perform",
+  "objective": "Proves removed claims (detecting suspicious entries, flagging test data) are really gone from the page.",
+  "precondition": "Web page loaded in the offline test harness with a made-up API key. No network. The service address is set to a placeholder.",
+  "steps": [
+   {
+    "action": "Open the About page and read all its text.",
+    "data": "Page text",
+    "expected": "The text does not contain 'Detects entries like', 'Suspicious Values' as a listed check, or 'Flags test data'."
+   }
+  ],
+  "source": "tests/test_sec_issue_counts_and_about_accuracy.py::test_the_about_page_no_longer_claims_checks_the_engine_does_not_perform"
+ },
+ {
+  "id": "tests.test_sec_issue_counts_and_about_accuracy.test_the_about_page_lists_what_the_tool_does_not_check",
+  "name": "Data Analyzer: The About page lists what the tool does not check",
+  "objective": "Proves the page is honest about limits.",
+  "precondition": "Web page loaded in the offline test harness with a made-up API key. No network. The service address is set to a placeholder.",
+  "steps": [
+   {
+    "action": "Open the About page and read all its text.",
+    "data": "Page text",
+    "expected": "The text contains the heading 'What It Does Not Check' and the phrases 'n/a', 'Duplicate rows are only counted', 'Required' and 'Text columns'."
+   }
+  ],
+  "source": "tests/test_sec_issue_counts_and_about_accuracy.py::test_the_about_page_lists_what_the_tool_does_not_check"
+ },
+ {
+  "id": "tests.test_sec_issue_counts_and_about_accuracy.test_the_about_page_does_not_imply_the_tool_is_validated_for_real_study_data",
+  "name": "Data Analyzer: The About page says the tool is not validated for real study data",
+  "objective": "Proves the page carries the required disclaimer.",
+  "precondition": "Web page loaded in the offline test harness with a made-up API key. No network. The service address is set to a placeholder.",
+  "steps": [
+   {
+    "action": "Open the About page and read all its text.",
+    "data": "Page text",
+    "expected": "The text contains 'has not been validated or approved for use with real study data'."
+   }
+  ],
+  "source": "tests/test_sec_issue_counts_and_about_accuracy.py::test_the_about_page_does_not_imply_the_tool_is_validated_for_real_study_data"
+ }
+]

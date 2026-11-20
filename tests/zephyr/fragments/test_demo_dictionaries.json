@@ -1,0 +1,212 @@
+[
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDictionary.test_redcap_dictionary_registered",
+  "name": "Data Analyzer: The REDCap demo dictionary is listed among the built-in demo dictionaries",
+  "objective": "Shows the clinical demo dictionary is available for users to select.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Look for the REDCap clinical demo label in the demo dictionary list",
+    "data": "Label 'REDCap - Clinical (synthetic, with branching logic)'",
+    "expected": "The label is present in the list"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDictionary::test_redcap_dictionary_registered"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDictionary.test_redcap_dictionary_not_empty",
+  "name": "Data Analyzer: The REDCap demo dictionary has content",
+  "objective": "Shows the demo dictionary returns real text, including a Column heading.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Fetch the demo dictionary text",
+    "data": "REDCap clinical demo label",
+    "expected": "Text is not empty and contains the word 'Column'"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDictionary::test_redcap_dictionary_not_empty"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDictionary.test_redcap_dictionary_parses_as_csv",
+  "name": "Data Analyzer: The REDCap demo dictionary has the standard seven column headings",
+  "objective": "Shows the demo dictionary follows the same layout as every other demo dictionary.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Read the demo dictionary text as a table",
+    "data": "REDCap clinical demo label",
+    "expected": "Headings are exactly Column, Type, Required, Min, Max, Description, Allowed_Values, in that order"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDictionary::test_redcap_dictionary_parses_as_csv"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDictionary.test_redcap_dictionary_has_16_fields",
+  "name": "Data Analyzer: The REDCap demo dictionary describes 16 fields",
+  "objective": "Shows no field was lost or added when the demo dictionary was built.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Read the demo dictionary as a table and count its rows",
+    "data": "REDCap clinical demo label",
+    "expected": "Exactly 16 rows"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDictionary::test_redcap_dictionary_has_16_fields"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDictionary.test_redcap_dictionary_field_names_match_source",
+  "name": "Data Analyzer: The REDCap demo dictionary field names match the expected list",
+  "objective": "Shows the demo dictionary contains exactly the expected clinical field names.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Collect the field names from the Column heading",
+    "data": "Expected set of 16 names: subject_id, age, gender, pregnant, weeks_pregnant, due_date, treatment_arm, dosage_mg, placebo_type, diabetes, diabetes_type, insulin_dependent, lab_glucose, adverse_event, ae_description, ae_severity",
+    "expected": "The set of names is identical to the expected set (the test compares against a list written in the test, it does not open the original source file)"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDictionary::test_redcap_dictionary_field_names_match_source"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDictionary.test_redcap_dictionary_preserves_branching_logic_context",
+  "name": "Data Analyzer: The REDCap demo dictionary keeps its branching-logic wording",
+  "objective": "Shows the conditional-display conditions from the original dictionary are still present as descriptive text.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Search the demo dictionary text",
+    "data": "REDCap clinical demo label",
+    "expected": "The text contains the word 'Branching' and the condition fragment gender='Female'"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDictionary::test_redcap_dictionary_preserves_branching_logic_context"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDictionary.test_redcap_dictionary_loads_via_ui_quick_parser",
+  "name": "Data Analyzer: REDCap demo dictionary converts into per-field rules as the quick-load screen does",
+  "objective": "Shows the demo dictionary yields 16 field rules with the right allowed values and age range. The conversion steps are written out inside the test (a copy of the screen logic), not run from the application itself.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Convert each dictionary row into a rule (type, min, max, required, allowed values)",
+    "data": "REDCap clinical demo label",
+    "expected": "16 rules; gender allowed values are Male, Female, Other; age minimum 18 and maximum 85"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDictionary::test_redcap_dictionary_loads_via_ui_quick_parser"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_loads_dataframe",
+  "name": "Data Analyzer: The REDCap demo dataset loads with a sensible number of rows",
+  "objective": "Shows the matching sample dataset is available and about the expected size.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Load the demo dataset named redcap_clinical",
+    "data": "Dataset key redcap_clinical",
+    "expected": "A data table with between 15 and 25 rows"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_loads_dataframe"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_columns_match_dictionary_fields",
+  "name": "Data Analyzer: The demo dataset has a column for every field in the dictionary",
+  "objective": "Shows the sample data and the sample dictionary line up.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Compare the dataset columns with the dictionary field names",
+    "data": "redcap_clinical dataset and REDCap demo dictionary",
+    "expected": "Every dictionary field name is present among the dataset columns"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_columns_match_dictionary_fields"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_contains_age_out_of_range",
+  "name": "Data Analyzer: The demo dataset deliberately includes an age above the allowed maximum",
+  "objective": "Shows the demo data contains the planted age error (dictionary maximum is 85) so the analyzer has something to find.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Look for ages above 85",
+    "data": "redcap_clinical dataset",
+    "expected": "At least one row has age greater than 85"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_contains_age_out_of_range"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_contains_invalid_gender_value",
+  "name": "Data Analyzer: The demo dataset deliberately includes a gender not in the allowed list",
+  "objective": "Shows the planted gender error is present (allowed: Male, Female, Other).",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Look for gender values outside the allowed list",
+    "data": "redcap_clinical dataset",
+    "expected": "At least one row has a gender value that is not Male, Female or Other"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_contains_invalid_gender_value"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_contains_missing_required_lab_glucose_for_diabetic",
+  "name": "Data Analyzer: The demo dataset deliberately includes a diabetic patient with no glucose result",
+  "objective": "Shows the planted missing-required-value error is present.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Find rows where diabetes is Yes and glucose is blank",
+    "data": "redcap_clinical dataset",
+    "expected": "At least one such row exists"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_contains_missing_required_lab_glucose_for_diabetic"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_contains_dosage_out_of_range",
+  "name": "Data Analyzer: The demo dataset deliberately includes a dosage above the allowed maximum",
+  "objective": "Shows the planted dosage error (maximum 500 mg) is present.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Look at non-blank dosage values above 500",
+    "data": "redcap_clinical dataset",
+    "expected": "At least one dosage is greater than 500"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_contains_dosage_out_of_range"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_contains_branching_logic_violation",
+  "name": "Data Analyzer: The demo dataset deliberately includes a pregnancy answer for a non-female patient",
+  "objective": "Shows the planted branching-logic error is present: the pregnancy question should only be answered for females.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Find rows with pregnant = Yes and gender not Female",
+    "data": "redcap_clinical dataset",
+    "expected": "At least one such row exists"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_contains_branching_logic_violation"
+ },
+ {
+  "id": "tests.test_demo_dictionaries.TestRedcapDemoDataset.test_demo_selector_dropdown_maps_to_dataset",
+  "name": "Data Analyzer: The REDCap demo dataset key loads a distinct dataset",
+  "objective": "Shows the redcap_clinical key returns its own data, different from the Western demo, with a subject_id column. The test does not actually use the on-screen dropdown label.",
+  "precondition": "The application's built-in demo catalogue is loaded in the offline test harness; no network and no AI model.",
+  "steps": [
+   {
+    "action": "Load datasets redcap_clinical and western and compare",
+    "data": "Keys redcap_clinical and western",
+    "expected": "The two results are different objects and the REDCap one has a subject_id column"
+   }
+  ],
+  "source": "tests/test_demo_dictionaries.py::TestRedcapDemoDataset::test_demo_selector_dropdown_maps_to_dataset"
+ }
+]

@@ -4,6 +4,11 @@ analysis_service.py — Shared core for all three transport layers (REST, MCP, A
 Both REST endpoints and the A2A agent delegate here. MCP tool handlers also delegate
 here (after their refactor) so all three surfaces stay in sync.
 
+SECURITY: ``data_content`` supplied by a caller (MCP tool call, A2A payload, REST) is
+CONTENT ONLY. It is always passed to ``DataLoader.load_data(..., allow_paths=False)``
+and is never interpreted as a path on the server's filesystem. Trusted local file
+loading lives in ``DataLoader.load_local_file`` and must never be called from here.
+
 IMPORTANT: This module has NO module-level heavy imports (no pandas, no mcp, no fastapi).
 All heavy classes are imported lazily inside function bodies to keep this importable
 under plain python3 without any installed packages.
@@ -112,7 +117,7 @@ def analyze(payload: dict) -> dict:
 
         logger.debug("analyze: format=%s rows_min=%d", file_format, min_rows)
 
-        df = DataLoader.load_data(data_content, file_format)
+        df = DataLoader.load_data(data_content, file_format, allow_paths=False)
         pipeline = QualityPipeline(df, schema, rules)
         results: dict = pipeline.run_all_checks(min_rows)
 
@@ -155,7 +160,7 @@ def get_info(payload: dict) -> dict:
 
         logger.debug("get_info: format=%s sample_rows=%d", file_format, sample_rows)
 
-        df = DataLoader.load_data(data_content, file_format)
+        df = DataLoader.load_data(data_content, file_format, allow_paths=False)
 
         info: dict[str, Any] = {
             "format": file_format,

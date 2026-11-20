@@ -1,0 +1,161 @@
+[
+ {
+  "id": "tests.test_about_api_examples.test_there_are_curl_and_python_blocks_for_all_four_tasks",
+  "name": "Data Analyzer: About page offers a curl and a Python example for each of four API tasks",
+  "objective": "Shows the About page's example list covers health check, version, file analysis and inline-data analysis, each in both curl (command line) and Python.",
+  "precondition": "Example-building code only; no server needed.",
+  "steps": [
+   {
+    "action": "Build the list of examples for a made-up local address.",
+    "data": "a made-up local address (http://127.0.0.1:9)",
+    "expected": "The ordered list of example names is exactly: health, version, analyze-file and analyze-json, each as a curl example and a Python example (8 entries)."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_there_are_curl_and_python_blocks_for_all_four_tasks"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_every_block_has_id_title_language_and_code",
+  "name": "Data Analyzer: Every About-page example has a name, title, language and non-empty code",
+  "objective": "Shows no example is left blank or mislabelled.",
+  "precondition": "Example-building code only; no server needed.",
+  "steps": [
+   {
+    "action": "Build the examples and inspect each one.",
+    "data": "a made-up local address (http://127.0.0.1:9)",
+    "expected": "Each example has a non-empty id, title and code text, and its language is either bash or python."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_every_block_has_id_title_language_and_code"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_curl_blocks_are_single_line_without_backslash_continuations",
+  "name": "Data Analyzer: About-page curl examples are one line so they paste cleanly",
+  "objective": "Shows each curl example can be copied and pasted into a terminal in one go, with no line-continuation characters or trailing space.",
+  "precondition": "Example-building code only; no server needed.",
+  "steps": [
+   {
+    "action": "Check every curl (bash) example.",
+    "data": "a made-up local address (http://127.0.0.1:9)",
+    "expected": "The code has no line break, no backslash-newline continuation and does not end with a space."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_curl_blocks_are_single_line_without_backslash_continuations"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_python_blocks_import_only_requests_from_outside_the_standard_library",
+  "name": "Data Analyzer: About-page Python examples need only the common 'requests' package",
+  "objective": "Shows a user does not have to install anything unusual to run the Python examples.",
+  "precondition": "Example-building code only; no server needed.",
+  "steps": [
+   {
+    "action": "Read the import lines of every Python example.",
+    "data": "a made-up local address (http://127.0.0.1:9)",
+    "expected": "Every import is one of requests, os, json or sys, and no 'from ... import' line is used."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_python_blocks_import_only_requests_from_outside_the_standard_library"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_blocks_use_the_base_url_given_with_no_placeholder_left",
+  "name": "Data Analyzer: About-page examples use the server address given, with no placeholder left in",
+  "objective": "Shows the examples are ready to run and do not contain leftover fill-in-the-blank text.",
+  "precondition": "Example-building code only; no server needed.",
+  "steps": [
+   {
+    "action": "Build the examples for the made-up address and search each for the address and for placeholders.",
+    "data": "a made-up local address (http://127.0.0.1:9)",
+    "expected": "Every example contains the address followed by /api/v1/ and contains no '<' character and no text 'YOUR_'."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_blocks_use_the_base_url_given_with_no_placeholder_left"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_trailing_slash_on_the_base_url_is_not_doubled",
+  "name": "Data Analyzer: A trailing slash on the server address does not produce a double slash",
+  "objective": "Shows an address typed with a final '/' still gives correct example web addresses.",
+  "precondition": "Example-building code only; no server needed.",
+  "steps": [
+   {
+    "action": "Build the examples for the address with a trailing slash.",
+    "data": "http://127.0.0.1:9/",
+    "expected": "No example contains '9//api' (a doubled slash)."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_trailing_slash_on_the_base_url_is_not_doubled"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_unsafe_base_url_is_rejected_instead_of_pasted_into_a_shell_command",
+  "name": "Data Analyzer: A dangerous-looking server address is refused rather than put into a command",
+  "objective": "Shows a server address containing quote marks and shell commands cannot be injected into a copy-and-paste command.",
+  "precondition": "Example-building code only; no server needed.",
+  "steps": [
+   {
+    "action": "Try to build examples for an address that contains a quote, a semicolon and a delete command.",
+    "data": "http://x\"; rm -rf ~; echo \"",
+    "expected": "A ValueError (input rejected) is raised, so no example text is produced."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_unsafe_base_url_is_rejected_instead_of_pasted_into_a_shell_command"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_no_block_contains_the_api_key_value",
+  "name": "Data Analyzer: About-page examples never contain the real API key",
+  "objective": "Shows secrets are not printed into text that users copy and share.",
+  "precondition": "A real API server is started on the test machine's own local address only (no outside network), with a made-up API key set. The tests run the example text exactly as shown on the About page.",
+  "steps": [
+   {
+    "action": "Build the examples for the running local server and search each for the key value.",
+    "data": "The made-up test key",
+    "expected": "The key text does not appear in any example."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_no_block_contains_the_api_key_value"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_blocks_only_reference_the_key_by_environment_variable_name",
+  "name": "Data Analyzer: About-page examples refer to the key only by environment-variable name",
+  "objective": "Shows users are told to supply the key through a named variable rather than by typing it into the example.",
+  "precondition": "A real API server is started on the test machine's own local address only (no outside network), with a made-up API key set. The tests run the example text exactly as shown on the About page.",
+  "steps": [
+   {
+    "action": "Inspect each example that sends the X-API-Key header.",
+    "data": "Every curl and Python example that uses the key header",
+    "expected": "curl examples use the header value $DATA_ANALYZER_API_KEY; Python examples read os.environ[\"DATA_ANALYZER_API_KEY\"]; no example uses os.getenv."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_blocks_only_reference_the_key_by_environment_variable_name"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_the_examples_module_never_reads_the_environment",
+  "name": "Data Analyzer: The example-building code does not read environment variables or use the web framework",
+  "objective": "Shows the code that writes the examples cannot leak the key because it never touches the environment.",
+  "precondition": "Source code of the example module available. This is a static check of the file's imports, not a run of it.",
+  "steps": [
+   {
+    "action": "Read the source of the example-building module and list what it imports.",
+    "data": "Source file src/api_examples.py",
+    "expected": "It imports neither 'os' nor 'streamlit'."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_the_examples_module_never_reads_the_environment"
+ },
+ {
+  "id": "tests.test_about_api_examples.test_about_page_shows_exactly_the_tested_blocks_and_never_the_key",
+  "name": "Data Analyzer: About page on screen shows exactly the tested examples and never the key",
+  "objective": "Shows what a user sees on the About page is the same text that is tested, and the secret key is not displayed.",
+  "precondition": "Streamlit page tested headlessly with a made-up key and API address set. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Open the About page headlessly (no browser window) with a made-up docker address and made-up key set in the environment.",
+    "data": "API address http://api:8000; key 'page-must-not-show-this-key-98765'",
+    "expected": "The page runs without an error; the code blocks shown equal the examples built for the local address; a 'Use it from code (API)' heading is present."
+   },
+   {
+    "action": "Search every code block and text block on the page for the key.",
+    "data": "The made-up key",
+    "expected": "The key does not appear anywhere on the page."
+   }
+  ],
+  "source": "tests/test_about_api_examples.py::test_about_page_shows_exactly_the_tested_blocks_and_never_the_key"
+ }
+]

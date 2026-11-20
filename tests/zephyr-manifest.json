@@ -1,0 +1,557 @@
+{
+ "project": "ST",
+ "folder": "INT.AI Tools API 1.0/Data Analyzer",
+ "source_repo": "sagearbor/data-analyzer",
+ "branch": "feature/api-json-ST-358",
+ "commit": "4c1b871",
+ "run_command": "venv/bin/python -m pytest tests/test_api_programmatic.py --no-cov --junitxml=results.xml",
+ "environment": "Developer workstation, offline (no network, no AI model), synthetic data",
+ "tests": [
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_csv_text_happy_path",
+   "name": "Data Analyzer: CSV text sent inside a JSON request is analyzed and a report returned",
+   "objective": "Proves that a program can send a dataset as plain CSV text inside a JSON request to POST /api/v1/analyze/json and get back a complete data-quality report.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send the dataset as CSV text in a JSON request to POST /api/v1/analyze/json with the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price)",
+     "expected": "HTTP 200 (success). The report contains the sections summary, issues, recommendations, quality_checks and summary_stats."
+    },
+    {
+     "action": "Check the row and column counts in the report summary.",
+     "data": "",
+     "expected": "The summary reports 5 rows and 4 columns."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_csv_text_happy_path",
+   "key": "ST-T20"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_base64_input",
+   "name": "Data Analyzer: base64-encoded dataset gives the same report as plain text",
+   "objective": "Proves that a dataset sent in base64 form (a standard way of encoding content as safe text) is decoded correctly and produces exactly the same report as the same dataset sent as plain text.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send the dataset base64-encoded to POST /api/v1/analyze/json, marked as encoding 'base64' and format 'csv', with the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price), base64-encoded",
+     "expected": "HTTP 200 (success)."
+    },
+    {
+     "action": "Send the same dataset as plain text with format 'csv' and compare the two reports.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price), plain text",
+     "expected": "The two reports are identical."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_base64_input",
+   "key": "ST-T23"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_tsv_and_json_formats",
+   "name": "Data Analyzer: tab-separated and JSON-formatted datasets are accepted",
+   "objective": "Proves that POST /api/v1/analyze/json reads the dataset correctly when the caller declares it as tab-separated (TSV) or as a JSON list of records, not only as CSV.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send the dataset with tabs instead of commas, declared as format 'tsv', with the valid API key.",
+     "data": "The made-up 5-row, 4-column widget dataset, tab-separated",
+     "expected": "HTTP 200 (success) and the summary reports 4 columns."
+    },
+    {
+     "action": "Send a dataset written as a JSON list of records, declared as format 'json'.",
+     "data": "Made-up JSON list of 2 records, each with widget_id and quantity",
+     "expected": "HTTP 200 (success) and the summary reports 2 rows."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_tsv_and_json_formats",
+   "key": "ST-T17"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_schema_rules_find_planted_issue",
+   "name": "Data Analyzer: column types and rules catch the two planted data errors",
+   "objective": "Proves that when the caller supplies expected column types and validation rules, the analysis finds exactly the two errors deliberately planted in the made-up data and nothing else of those kinds.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send the dataset together with column types and validation rules to POST /api/v1/analyze/json with the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price), with two planted errors (quantity 950 in the third row, colour 'plaid' in the fourth row); column types for all 4 columns, and rules: quantity must be 0 to 100, colour must be red, blue or green",
+     "expected": "HTTP 200 (success)."
+    },
+    {
+     "action": "Check the out-of-range issues in the report.",
+     "data": "",
+     "expected": "Exactly one out-of-range issue: column quantity, row index 2 (the third data row, counting from 0), value 950."
+    },
+    {
+     "action": "Check the disallowed-value issues in the report.",
+     "data": "",
+     "expected": "Exactly one disallowed-value issue: column colour, row index 3 (the fourth data row, counting from 0), value 'plaid'."
+    },
+    {
+     "action": "Check the count of critical issues in the summary.",
+     "data": "",
+     "expected": "The summary reports 2 critical issues."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_schema_rules_find_planted_issue",
+   "key": "ST-T7"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_matches_multipart_route",
+   "name": "Data Analyzer: JSON request and file upload return identical reports",
+   "objective": "Proves that the new JSON route (POST /api/v1/analyze/json) and the existing file-upload route (POST /api/v1/analyze) give exactly the same report for the same dataset and settings.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send the dataset, column types, rules and a minimum row count of 3 as a JSON request to POST /api/v1/analyze/json.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price), with two planted errors (quantity 950 in the third row, colour 'plaid' in the fourth row); column types for all 4 columns, and rules: quantity must be 0 to 100, colour must be red, blue or green",
+     "expected": "HTTP 200 (success)."
+    },
+    {
+     "action": "Upload the same dataset as a file named widgets.csv to POST /api/v1/analyze with the same column types, rules and minimum row count.",
+     "data": "Same made-up dataset and settings",
+     "expected": "HTTP 200 (success)."
+    },
+    {
+     "action": "Compare the two reports.",
+     "data": "",
+     "expected": "The reports are identical, and the report shows at least one issue found (so the comparison is not of two empty reports)."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_matches_multipart_route",
+   "key": "ST-T3"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_missing_body_returns_json_error",
+   "name": "Data Analyzer: missing request body or missing dataset gives a clear JSON error",
+   "objective": "Proves that a request with nothing in it, or without the required dataset field, is rejected with a standard machine-readable error message rather than a web page or a crash.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send a request with no body at all to POST /api/v1/analyze/json with the valid API key.",
+     "data": "",
+     "expected": "HTTP 422 (request not valid) with a standard JSON error message (error text plus a timestamp, not a web page); the detail is given as text."
+    },
+    {
+     "action": "Send a JSON request that states the format but leaves out the dataset field (data_content).",
+     "data": "JSON containing only format 'csv'",
+     "expected": "HTTP 422 (request not valid) with a standard JSON error message (error text plus a timestamp, not a web page); the detail names the missing field data_content."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_missing_body_returns_json_error",
+   "key": "ST-T2"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_invalid_body_returns_json_error",
+   "name": "Data Analyzer: malformed or invalid JSON requests give a clear JSON error",
+   "objective": "Proves that badly formed requests are rejected with a standard machine-readable error, and that the error does not repeat the caller's data back.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send text that is not valid JSON to POST /api/v1/analyze/json with the valid API key.",
+     "data": "The broken text '{not json'",
+     "expected": "HTTP 422 (request not valid) with a standard JSON error message (error text plus a timestamp, not a web page)."
+    },
+    {
+     "action": "Send the dataset with an unsupported format name.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price) (includes the value 'plaid'), format 'parquet'",
+     "expected": "HTTP 422 (request not valid) with a standard JSON error whose detail mentions format; the value 'plaid' from the dataset does not appear anywhere in the response."
+    },
+    {
+     "action": "Send the dataset with the rules given as a plain word instead of a structured set of rules.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price), rules 'not-an-object'",
+     "expected": "HTTP 422 (request not valid) with a standard JSON error message (error text plus a timestamp, not a web page)."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_invalid_body_returns_json_error",
+   "key": "ST-T6"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_bad_content_returns_400_json_error",
+   "name": "Data Analyzer: unreadable dataset content gives HTTP 400 with a JSON error",
+   "objective": "Proves that a well-formed request whose dataset content cannot be read (invalid base64, or content that is not in the declared format) is rejected with a standard machine-readable error.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send content marked as base64-encoded that is not valid base64 to POST /api/v1/analyze/json with the valid API key.",
+     "data": "The text '@@not base64@@' with encoding 'base64'",
+     "expected": "HTTP 400 (bad request) with a standard JSON error message (error text plus a timestamp, not a web page); the error text mentions base64."
+    },
+    {
+     "action": "Send content declared as format 'json' that is not JSON.",
+     "data": "The text 'this is not json' with format 'json'",
+     "expected": "HTTP 400 (bad request) with a standard JSON error message (error text plus a timestamp, not a web page)."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_bad_content_returns_400_json_error",
+   "key": "ST-T21"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_requires_api_key",
+   "name": "Data Analyzer: JSON route refuses requests with a missing or wrong API key",
+   "objective": "Proves that POST /api/v1/analyze/json is protected by the API key in the same way as the file-upload route: no key and a wrong key are both refused.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send the dataset to POST /api/v1/analyze/json with no API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price)",
+     "expected": "HTTP 401 (not authenticated) with a standard JSON error message (error text plus a timestamp, not a web page); the response header WWW-Authenticate is 'ApiKey', telling the caller an API key is needed."
+    },
+    {
+     "action": "Send the same request with an incorrect API key.",
+     "data": "API key 'wrong-key'",
+     "expected": "HTTP 403 (forbidden) with a standard JSON error message (error text plus a timestamp, not a web page)."
+    },
+    {
+     "action": "Upload the dataset as a file to POST /api/v1/analyze with no API key.",
+     "data": "Same made-up dataset as widgets.csv",
+     "expected": "The same status code as the JSON route gave for a missing key (HTTP 401)."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_requires_api_key",
+   "key": "ST-T11"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_json_route_accepts_right_api_key",
+   "name": "Data Analyzer: JSON route accepts the configured API key",
+   "objective": "Proves that a request carrying the correct API key is allowed through POST /api/v1/analyze/json.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send the dataset to POST /api/v1/analyze/json with the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price)",
+     "expected": "HTTP 200 (success)."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_json_route_accepts_right_api_key",
+   "key": "ST-T22"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestAnalyzeJsonRoute.test_ST_359_other_routes_keep_default_422_body",
+   "name": "Data Analyzer: file-upload route keeps its original validation error format",
+   "objective": "Proves that the new standard error format for invalid requests applies only to the JSON route, so the existing file-upload route (POST /api/v1/analyze) behaves as before for its current users.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Send a request with no file to POST /api/v1/analyze with the valid API key.",
+     "data": "",
+     "expected": "HTTP 422 (request not valid), and the detail in the response is a list of validation problems (the original format), not a single text message."
+    }
+   ],
+   "issue": "ST-359",
+   "source": "tests/test_api_programmatic.py::TestAnalyzeJsonRoute::test_ST_359_other_routes_keep_default_422_body",
+   "key": "ST-T4"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_version_endpoint_equals_package_version",
+   "name": "Data Analyzer: version endpoint returns the real software version without a key",
+   "objective": "Proves that GET /api/v1/version reports the version number recorded in the software itself, and that no API key is needed to ask.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Request GET /api/v1/version with no API key.",
+     "data": "",
+     "expected": "HTTP 200 (success) and the version returned equals the version number recorded in the software package."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_version_endpoint_equals_package_version",
+   "key": "ST-T25"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_health_reports_same_version",
+   "name": "Data Analyzer: health check and version endpoint report the same version",
+   "objective": "Proves that the health check reports the true software version (not a fixed placeholder) and agrees with the version endpoint.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Request GET /api/v1/health and GET /api/v1/version.",
+     "data": "",
+     "expected": "Both report the same version, and it equals the version number recorded in the software package."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_health_reports_same_version",
+   "key": "ST-T13"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_openapi_reports_package_version",
+   "name": "Data Analyzer: published API description carries the real software version",
+   "objective": "Proves that the machine-readable API description (the OpenAPI document at /api/v1/openapi.json) states the same version number as the software itself.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Request GET /api/v1/openapi.json and read the version in its information section.",
+     "data": "",
+     "expected": "The version equals the version number recorded in the software package."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_openapi_reports_package_version",
+   "key": "ST-T1"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_oversize_json_request_returns_413",
+   "name": "Data Analyzer: JSON request over the size limit is refused with HTTP 413",
+   "objective": "Proves that a JSON request larger than the configured maximum size is refused with a clear, standard error that states the limit.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. Maximum request size set to 200 bytes.",
+   "steps": [
+    {
+     "action": "Send an oversize dataset to POST /api/v1/analyze/json with the valid API key.",
+     "data": "Made-up CSV with 2 columns and 200 rows (well over 200 bytes)",
+     "expected": "HTTP 413 (request too large) with a standard JSON error message (error text plus a timestamp, not a web page); the error text states the limit of 200."
+    },
+    {
+     "action": "Check the security header on the error response.",
+     "data": "",
+     "expected": "The response header X-Content-Type-Options is 'nosniff' (tells browsers not to guess the content type)."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_oversize_json_request_returns_413",
+   "key": "ST-T12"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_oversize_multipart_request_returns_413",
+   "name": "Data Analyzer: file upload over the size limit is refused with HTTP 413",
+   "objective": "Proves that the size limit also applies to the file-upload route (POST /api/v1/analyze).",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. Maximum request size set to 200 bytes.",
+   "steps": [
+    {
+     "action": "Upload an oversize file named widgets.csv to POST /api/v1/analyze with the valid API key.",
+     "data": "Made-up CSV with 2 columns and 200 rows (well over 200 bytes)",
+     "expected": "HTTP 413 (request too large) with a standard JSON error message (error text plus a timestamp, not a web page)."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_oversize_multipart_request_returns_413",
+   "key": "ST-T14"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_request_under_limit_is_accepted",
+   "name": "Data Analyzer: request smaller than the size limit is still accepted",
+   "objective": "Proves that setting a size limit does not block normal requests that are below it.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. Maximum request size set to 5000 bytes.",
+   "steps": [
+    {
+     "action": "Send a small dataset to POST /api/v1/analyze/json with the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price) (well under 5000 bytes)",
+     "expected": "HTTP 200 (success)."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_request_under_limit_is_accepted",
+   "key": "ST-T5"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_decoded_content_over_limit_returns_413",
+   "name": "Data Analyzer: size limit is also checked on the dataset content itself",
+   "objective": "Proves that there is a second size check on the dataset content inside the request, so an oversize dataset is refused even if the first check on the declared request size lets it through.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. The test arranges for the first size check (on the declared request size) to use a limit of 100000 bytes so it passes, and for the later check on the content to use a limit of 20 bytes.",
+   "steps": [
+    {
+     "action": "Send the dataset to POST /api/v1/analyze/json with the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price) (larger than 20 bytes)",
+     "expected": "HTTP 413 (request too large) with a standard JSON error message (error text plus a timestamp, not a web page)."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_decoded_content_over_limit_returns_413",
+   "key": "ST-T26"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_oversize_chunked_body_without_content_length_returns_413",
+   "name": "Data Analyzer: oversize request sent in pieces with no declared size is refused",
+   "objective": "Proves that the size limit cannot be avoided by sending the request in small pieces without declaring its total size. Covers two cases: the JSON route (POST /api/v1/analyze/json) and the file-upload route (POST /api/v1/analyze).",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. Maximum request size set to 200 bytes.",
+   "steps": [
+    {
+     "action": "Build an oversize request to be sent in 64-byte pieces and confirm it carries no declared total size (no Content-Length header). Done once as a JSON request and once as a file upload.",
+     "data": "Made-up CSV with 2 columns and 200 rows (well over 200 bytes)",
+     "expected": "The request has no Content-Length header, so the server has no declared size to check in advance."
+    },
+    {
+     "action": "Send the request with the valid API key (both cases).",
+     "data": "",
+     "expected": "HTTP 413 (request too large) with a standard JSON error message (error text plus a timestamp, not a web page); the error text states the limit of 200."
+    },
+    {
+     "action": "Check the security header on the error response (both cases).",
+     "data": "",
+     "expected": "The response header X-Content-Type-Options is 'nosniff'."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_oversize_chunked_body_without_content_length_returns_413",
+   "key": "ST-T18"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_size_limit_enforced_while_streaming",
+   "name": "Data Analyzer: server stops reading an oversize request as soon as the limit is passed",
+   "objective": "Proves that the server counts the request as it arrives and stops reading once the limit is exceeded, rather than taking in the whole oversize request first. Covers two cases: no declared size, and a declared size that is falsely small (10 bytes).",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. Maximum request size set to 200 bytes. The request is fed directly to the application in pieces so the test can count how many pieces are read.",
+   "steps": [
+    {
+     "action": "Feed a request for POST /api/v1/analyze/json to the application as up to 50 pieces of 100 bytes each, with the valid API key. Done once with no declared size and once with a declared size of 10 bytes.",
+     "data": "Filler content of repeated 'x' characters, 5000 bytes in total if fully read",
+     "expected": "Exactly one response is sent and it is HTTP 413 (request too large)."
+    },
+    {
+     "action": "Read the response body (both cases).",
+     "data": "",
+     "expected": "A JSON error message that states the limit of 200 and includes a timestamp."
+    },
+    {
+     "action": "Count how many pieces the server read (both cases).",
+     "data": "",
+     "expected": "Exactly 3 pieces were read (the limit is passed on the third); the remaining 47 were never read."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_size_limit_enforced_while_streaming",
+   "key": "ST-T24"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestVersionAndLimits.test_ST_360_new_routes_in_openapi",
+   "name": "Data Analyzer: both new routes appear in the published API description",
+   "objective": "Proves that the version route and the JSON analysis route are documented in the machine-readable API description (OpenAPI document), including what the JSON route accepts and returns.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured.",
+   "steps": [
+    {
+     "action": "Request GET /api/v1/openapi.json and look for the version route.",
+     "data": "",
+     "expected": "GET /api/v1/version is listed."
+    },
+    {
+     "action": "Look at the documented request for POST /api/v1/analyze/json.",
+     "data": "",
+     "expected": "The request is documented with the fields data_content, format, encoding, schema, rules and min_rows."
+    },
+    {
+     "action": "Look at the documented responses for POST /api/v1/analyze/json.",
+     "data": "",
+     "expected": "The success (HTTP 200) response is documented as the standard quality analysis report, and an HTTP 413 (request too large) response is documented."
+    }
+   ],
+   "issue": "ST-360",
+   "source": "tests/test_api_programmatic.py::TestVersionAndLimits::test_ST_360_new_routes_in_openapi",
+   "key": "ST-T9"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestExampleClient.test_ST_361_client_health_and_version",
+   "name": "Data Analyzer: example client can read the health check and version",
+   "objective": "Proves that the example client program's health and version functions reach the server and return its answers.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. The example client program (examples/api_client.py) is loaded and connected directly to the test server, with no network.",
+   "steps": [
+    {
+     "action": "Call the example client's health function.",
+     "data": "",
+     "expected": "The answer contains the version number recorded in the software package."
+    },
+    {
+     "action": "Call the example client's version function.",
+     "data": "",
+     "expected": "The answer contains the same software version number."
+    }
+   ],
+   "issue": "ST-361",
+   "source": "tests/test_api_programmatic.py::TestExampleClient::test_ST_361_client_health_and_version",
+   "key": "ST-T19"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestExampleClient.test_ST_361_client_analyze_json",
+   "name": "Data Analyzer: example client sends a dataset as JSON and gets the report",
+   "objective": "Proves that the example client program can send a dataset with column types and rules through the JSON route and receive the expected report.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. The example client program (examples/api_client.py) is loaded and connected directly to the test server, with no network.",
+   "steps": [
+    {
+     "action": "Call the example client's JSON analysis function with the dataset, column types, rules and the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price), with two planted errors (quantity 950 in the third row, colour 'plaid' in the fourth row); column types for all 4 columns, and rules: quantity must be 0 to 100, colour must be red, blue or green",
+     "expected": "A report is returned whose summary shows 5 rows and 2 critical issues."
+    }
+   ],
+   "issue": "ST-361",
+   "source": "tests/test_api_programmatic.py::TestExampleClient::test_ST_361_client_analyze_json",
+   "key": "ST-T10"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestExampleClient.test_ST_361_client_analyze_file_matches_analyze_json",
+   "name": "Data Analyzer: example client file upload and JSON send give the same report",
+   "objective": "Proves that the example client program's file-upload function works and gives exactly the same report as its JSON function for the same dataset.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. The example client program (examples/api_client.py) is loaded and connected directly to the test server, with no network. The made-up dataset is saved as widgets.csv in a temporary folder.",
+   "steps": [
+    {
+     "action": "Call the example client's file analysis function on the saved file, with column types, rules and the valid API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price), with two planted errors (quantity 950 in the third row, colour 'plaid' in the fourth row), saved as a temporary file; column types for all 4 columns, and rules: quantity must be 0 to 100, colour must be red, blue or green",
+     "expected": "A report is returned."
+    },
+    {
+     "action": "Call the example client's JSON analysis function with the same dataset and settings, and compare.",
+     "data": "Same made-up dataset and settings",
+     "expected": "The two reports are identical."
+    }
+   ],
+   "issue": "ST-361",
+   "source": "tests/test_api_programmatic.py::TestExampleClient::test_ST_361_client_analyze_file_matches_analyze_json",
+   "key": "ST-T15"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestExampleClient.test_ST_361_client_reads_url_and_key_from_env",
+   "name": "Data Analyzer: example client picks up server address and API key from settings",
+   "objective": "Proves that the example client program uses the server address and API key from the computer's environment settings when the caller does not pass them in.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. The example client program (examples/api_client.py) is loaded and connected directly to the test server, with no network. Environment settings DATA_ANALYZER_API_URL (the test server address, written with a trailing slash) and DATA_ANALYZER_API_KEY (the valid test key) are set.",
+   "steps": [
+    {
+     "action": "Call the example client's JSON analysis function with only the dataset, giving no server address and no API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price)",
+     "expected": "A report is returned whose summary shows 5 rows."
+    }
+   ],
+   "issue": "ST-361",
+   "source": "tests/test_api_programmatic.py::TestExampleClient::test_ST_361_client_reads_url_and_key_from_env",
+   "key": "ST-T8"
+  },
+  {
+   "id": "tests.test_api_programmatic.TestExampleClient.test_ST_361_client_raises_api_error_with_error_response",
+   "name": "Data Analyzer: example client reports a refused request as a clear error",
+   "objective": "Proves that when the server refuses a request, the example client program raises its own error that carries the HTTP status code and the server's error message, instead of failing silently.",
+   "precondition": "Data Analyzer server application loaded in the offline test harness in test mode, with a made-up test API key configured. The example client program (examples/api_client.py) is loaded and connected directly to the test server, with no network.",
+   "steps": [
+    {
+     "action": "Call the example client's JSON analysis function with the dataset and an incorrect API key.",
+     "data": "Made-up widget inventory CSV: 5 rows, 4 columns (widget_id, colour, quantity, unit_price); API key 'wrong-key'",
+     "expected": "The client raises its API error; the error carries status 403 (forbidden) and the server's JSON error message with non-empty error text."
+    }
+   ],
+   "issue": "ST-361",
+   "source": "tests/test_api_programmatic.py::TestExampleClient::test_ST_361_client_raises_api_error_with_error_response",
+   "key": "ST-T16"
+  }
+ ],
+ "issue_ids": {
+  "ST-358": 219381,
+  "ST-359": 219382,
+  "ST-360": 219383,
+  "ST-361": 219384,
+  "ST-362": 219385,
+  "ST-363": 219386,
+  "ST-364": 219387,
+  "ST-365": 219388,
+  "ST-366": 219389
+ },
+ "cycle_issues": [
+  "ST-358",
+  "ST-365"
+ ]
+}

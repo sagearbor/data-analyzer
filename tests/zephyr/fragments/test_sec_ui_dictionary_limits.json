@@ -1,0 +1,166 @@
+[
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_manual_pdf_rule_extraction_is_fast_on_adversarial_text",
+  "name": "Data Analyzer: Rule extraction from PDF text stays fast on pathological text",
+  "objective": "Proves crafted text cannot make the manual PDF rule search hang (a 'regex denial of service').",
+  "precondition": "No file needed; synthetic strings only. Not an exact timing but a 3-second ceiling.",
+  "steps": [
+   {
+    "action": "Extract rules from each hostile text and time it",
+    "data": "5 texts: 200,000 letters; 50,000 letters then 'range' then 50,000 digits; 40,000 repeats of 'word'; 30,000 repeats of 'x1' then 'between'; 200 lines of 5,000 letters",
+    "expected": "Each extraction finishes in under 3 seconds (the old patterns took minutes). The rules returned are not checked"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_manual_pdf_rule_extraction_is_fast_on_adversarial_text"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_manual_pdf_rules_still_find_date_and_range_fields",
+  "name": "Data Analyzer: Rule extraction still finds date fields and numeric ranges",
+  "objective": "Proves the faster code still extracts the correct rules.",
+  "precondition": "No file needed.",
+  "steps": [
+   {
+    "action": "Extract rules from three made-up lines",
+    "data": "'birth_date is a date field', 'age valid range 18 to 85', 'notes free text'",
+    "expected": "birth_date is a date; age has minimum 18 and maximum 85; 'notes' gets no rule"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_manual_pdf_rules_still_find_date_and_range_fields"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_manual_pdf_rules_ignore_a_range_without_two_numbers",
+  "name": "Data Analyzer: A 'range' with only one number produces no rule",
+  "objective": "Proves incomplete range text is ignored instead of producing a wrong rule.",
+  "precondition": "No file needed.",
+  "steps": [
+   {
+    "action": "Extract rules from 'score range 10'",
+    "data": "'score range 10'",
+    "expected": "Result is empty"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_manual_pdf_rules_ignore_a_range_without_two_numbers"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_upload_limit_defaults_to_25_mb_and_is_configurable",
+  "name": "Data Analyzer: Upload size limit defaults to 25 MB and can be changed",
+  "objective": "Proves the limit in bytes follows the UI_MAX_UPLOAD_MB setting.",
+  "precondition": "Setting UI_MAX_UPLOAD_MB first removed.",
+  "steps": [
+   {
+    "action": "Read the limit with no setting",
+    "data": "none",
+    "expected": "25 MB (26,214,400 bytes)"
+   },
+   {
+    "action": "Set UI_MAX_UPLOAD_MB to 10 and read again",
+    "data": "10",
+    "expected": "10 MB (10,485,760 bytes)"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_upload_limit_defaults_to_25_mb_and_is_configurable"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_a_bad_upload_limit_value_falls_back_to_the_default_never_unlimited",
+  "name": "Data Analyzer: A bad upload-limit setting falls back to 25 MB, never to unlimited",
+  "objective": "Proves invalid values cannot remove the limit.",
+  "precondition": "No file needed.",
+  "steps": [
+   {
+    "action": "Set UI_MAX_UPLOAD_MB to each bad value and read the limit",
+    "data": "'' (empty), 'abc', '0', '-5', '1.5'",
+    "expected": "The limit is 25 MB each time"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_a_bad_upload_limit_value_falls_back_to_the_default_never_unlimited"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_default_upload_limit_is_below_the_apis_100_mb_default",
+  "name": "Data Analyzer: Page upload limit of 25 MB is below the API's 100 MB",
+  "objective": "Intended to show the page limit is stricter than the service limit. In practice it only compares two fixed numbers written in the test.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Compare 25 MB with 100 MB",
+    "data": "25 and 100 MB",
+    "expected": "25 MB is less than 100 MB. This is always true: the test reads neither the page code nor the API setting"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_default_upload_limit_is_below_the_apis_100_mb_default"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_pdf_with_too_many_pages_is_refused_with_a_clear_message",
+  "name": "Data Analyzer: PDF with too many pages is refused with a clear message",
+  "objective": "Proves the page-count limit is enforced and the message says how many pages and what the limit is.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 6 pages ('x' each); limit 5 pages, 1000 characters.",
+  "steps": [
+   {
+    "action": "Extract text from the 6-page fake PDF",
+    "data": "6 pages, limit 5",
+    "expected": "A 'too large' error whose message matches '6 pages; the limit is 5'"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_pdf_with_too_many_pages_is_refused_with_a_clear_message"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_pdf_with_too_much_text_is_refused_with_a_clear_message",
+  "name": "Data Analyzer: PDF with too much text is refused with a clear message",
+  "objective": "Proves the character limit is enforced.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 2 pages of 600 characters each; limit 5 pages, 1000 characters.",
+  "steps": [
+   {
+    "action": "Extract text",
+    "data": "1200 characters, limit 1000",
+    "expected": "A 'too large' error whose message mentions 'characters'"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_pdf_with_too_much_text_is_refused_with_a_clear_message"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_pdf_within_limits_returns_all_text",
+  "name": "Data Analyzer: PDF within the limits returns all of its text",
+  "objective": "Proves normal-sized documents are unaffected.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 2 pages ('one', 'two'); limits 5 pages, 1000 characters.",
+  "steps": [
+   {
+    "action": "Extract text",
+    "data": "pages 'one' and 'two'",
+    "expected": "The result is exactly 'one', new line, 'two', new line"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_pdf_within_limits_returns_all_text"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_pdf_limits_come_from_environment",
+  "name": "Data Analyzer: PDF page limit can be set by an environment variable",
+  "objective": "Proves UI_PDF_MAX_PAGES is honoured when no limit is passed in.",
+  "precondition": "A real small PDF built in memory (read in a separate child process) with 3 pages; UI_PDF_MAX_PAGES=2.",
+  "steps": [
+   {
+    "action": "Extract text from the 3-page fake PDF",
+    "data": "3 pages, environment limit 2",
+    "expected": "A 'too large' error is raised"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_pdf_limits_come_from_environment"
+ },
+ {
+  "id": "tests.test_sec_ui_dictionary_limits.test_non_pdf_dictionary_text_has_the_same_character_limit",
+  "name": "Data Analyzer: Non-PDF dictionary text has the same character limit",
+  "objective": "Proves plain-text dictionaries are also size-limited, and text exactly at the limit is accepted.",
+  "precondition": "UI_DICT_MAX_CHARS set to 100.",
+  "steps": [
+   {
+    "action": "Check a 101-character text",
+    "data": "101 'z' characters",
+    "expected": "A 'too large' error is raised"
+   },
+   {
+    "action": "Check a 100-character text",
+    "data": "100 'z' characters",
+    "expected": "The same text is returned unchanged"
+   }
+  ],
+  "source": "tests/test_sec_ui_dictionary_limits.py::test_non_pdf_dictionary_text_has_the_same_character_limit"
+ }
+]

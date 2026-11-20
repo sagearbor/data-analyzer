@@ -1,0 +1,231 @@
+[
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_symlinked_cache_base_is_refused_and_the_cache_still_works_via_a_private_fallback",
+  "name": "Data Analyzer: A cache folder that is a shortcut to another folder is refused",
+  "objective": "Proves the cache does not write through a symbolic link planted by someone else; it uses a private fallback folder and still works.",
+  "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
+  "steps": [
+   {
+    "action": "Make the cache base folder a symbolic link to another folder, then store and read back one item.",
+    "data": "Item {ok: 1}",
+    "expected": "The item round-trips; the cache folder in use is not a link and is not the planted one; the other folder stays empty; the fallback folder permits no group or other access."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_symlinked_cache_base_is_refused_and_the_cache_still_works_via_a_private_fallback"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_base_with_group_or_other_permission_bits_is_refused",
+  "name": "Data Analyzer: A cache folder open to other users is refused",
+  "objective": "Proves a world-writable cache folder is not used.",
+  "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
+  "steps": [
+   {
+    "action": "Create a cache folder with full permissions for everyone, then store and read back one item.",
+    "data": "Folder mode 0777",
+    "expected": "The item round-trips, the folder in use differs from the open one, and the open folder stays empty."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_base_with_group_or_other_permission_bits_is_refused"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_symlinked_session_directory_is_refused",
+  "name": "Data Analyzer: A per-session cache folder that is a shortcut is refused",
+  "objective": "Proves a link planted in place of the session folder is not followed.",
+  "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
+  "steps": [
+   {
+    "action": "Make the session sub-folder a symbolic link to another private folder, then store and read back one item.",
+    "data": "Item {ok: 1}",
+    "expected": "The item round-trips, a different folder is used, and the link target stays empty."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_symlinked_session_directory_is_refused"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_private_base_is_used_as_is",
+  "name": "Data Analyzer: A properly private cache folder is used normally",
+  "objective": "Proves the safety checks do not reject a good folder.",
+  "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
+  "steps": [
+   {
+    "action": "Create the cache on a new folder and store and read back one item.",
+    "data": "Item {ok: 1}",
+    "expected": "The item round-trips and the folder in use is the one requested."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_private_base_is_used_as_is"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_symlinked_entry_file_is_not_read_and_not_written_through",
+  "name": "Data Analyzer: A cache entry that is a shortcut to another file is neither read nor overwritten",
+  "objective": "Proves a planted link cannot leak or overwrite another file.",
+  "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
+  "steps": [
+   {
+    "action": "Plant a link for one cache entry pointing at a file containing '{\"stolen\": true}' and read the entry.",
+    "data": "Link to a made-up file",
+    "expected": "The read gives nothing (no data returned)."
+   },
+   {
+    "action": "Plant the link again, then store {fresh: 1} and read it back.",
+    "data": "Item {fresh: 1}",
+    "expected": "The target file still holds the original text; the entry reads back as {fresh: 1}."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_symlinked_entry_file_is_not_read_and_not_written_through"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_non_regular_entry_file_is_refused",
+  "name": "Data Analyzer: A cache entry that is a special file (named pipe) is refused without hanging",
+  "objective": "Proves a special file in the cache cannot make the page freeze. The test only checks that reading returns nothing and that writing returns; it asserts nothing about the written result.",
+  "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
+  "steps": [
+   {
+    "action": "Create a named pipe in place of an entry, read it, then try to store an item.",
+    "data": "Named pipe; item {x: 1}",
+    "expected": "The read returns nothing and neither call hangs or crashes (no further check)."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_non_regular_entry_file_is_refused"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_normal_small_pdf_extracts_through_the_real_subprocess",
+  "name": "Data Analyzer: A normal small PDF is read through the separate child process",
+  "objective": "Proves the real isolated PDF reader works end to end for ordinary files.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Extract text and page count from a 2-page PDF.",
+    "data": "Pages 'one' and 'two'",
+    "expected": "Text is 'one', new line, 'two', new line; page count is 2."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_normal_small_pdf_extracts_through_the_real_subprocess"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_pdf_whose_text_exceeds_a_tiny_character_limit_is_refused",
+  "name": "Data Analyzer: A PDF with too much text is refused",
+  "objective": "Proves the text-size limit is enforced through the child process.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Extract text from a 2-page PDF of 600 characters per page with a 1000-character limit.",
+    "data": "1200 characters",
+    "expected": "A 'too large' error whose message mentions 'characters'."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_pdf_whose_text_exceeds_a_tiny_character_limit_is_refused"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_pdf_over_the_page_limit_is_refused_with_the_page_count",
+  "name": "Data Analyzer: A PDF with too many pages is refused and the message gives the counts",
+  "objective": "Proves the page limit is enforced and the message says the actual and allowed number.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Extract text from a 4-page PDF with a limit of 3 pages.",
+    "data": "4 pages",
+    "expected": "A 'too large' error matching '4 pages; the limit is 3'."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_pdf_over_the_page_limit_is_refused_with_the_page_count"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_worker_that_hangs_is_killed_at_the_timeout_and_the_user_is_told_it_took_too_long",
+  "name": "Data Analyzer: A stuck PDF reader is stopped at the time limit",
+  "objective": "Proves a PDF that makes the reader hang cannot freeze the page.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model. In the test, the PDF reading helper process is replaced by a tiny script: it sleeps for 60 seconds. Time limit set to 1 second.",
+  "steps": [
+   {
+    "action": "Extract text from a PDF while the helper hangs.",
+    "data": "Time limit 1 second",
+    "expected": "A 'too large' error saying it 'took too long', and the whole call returns in under 10 seconds."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_worker_that_hangs_is_killed_at_the_timeout_and_the_user_is_told_it_took_too_long"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_worker_that_exits_badly_or_prints_garbage_is_refused",
+  "name": "Data Analyzer: A PDF reader that crashes or returns nonsense is refused",
+  "objective": "Proves every bad outcome from the helper gives a clean error, not a crash or wrong text. Runs for 6 scripts.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model. In the test, the PDF reading helper process is replaced by a tiny script: each one of six scripts.",
+  "steps": [
+   {
+    "action": "Extract text with the helper replaced in turn by: exit with an error code; print non-JSON text; kill itself; report 'ok' without text; report an unknown status; do nothing.",
+    "data": "Six scripts",
+    "expected": "Every case raises the 'too large' error."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_a_worker_that_exits_badly_or_prints_garbage_is_refused"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_over_long_worker_output_is_refused_and_the_child_stopped",
+  "name": "Data Analyzer: A PDF reader that outputs far too much text is refused",
+  "objective": "Proves the output size cap. The test checks that an error is raised; it does not directly check that the child process was stopped.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model. In the test, the PDF reading helper process is replaced by a tiny script: it prints 5 million characters.",
+  "steps": [
+   {
+    "action": "Extract text with a 100-character limit.",
+    "data": "5,000,000 characters of output",
+    "expected": "The 'too large' error is raised."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_over_long_worker_output_is_refused_and_the_child_stopped"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_the_child_environment_has_no_api_key_or_azure_settings",
+  "name": "Data Analyzer: The PDF reader process cannot see API keys or Azure settings",
+  "objective": "Proves secrets in the environment are not passed to the process that opens untrusted PDFs.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model. A made-up API key and Azure address are set. In the test, the PDF reading helper process is replaced by a tiny script: it lists any environment variable starting with DATA_ANALYZER, AZURE or LLM_ and returns the list as text.",
+  "steps": [
+   {
+    "action": "Extract text and look at the returned list.",
+    "data": "Variables DATA_ANALYZER_API_KEY and AZURE_OPENAI_ENDPOINT set in the test",
+    "expected": "The returned text is exactly 'leaked:' with nothing after it."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_the_child_environment_has_no_api_key_or_azure_settings"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_the_worker_does_not_import_the_app_or_streamlit",
+  "name": "Data Analyzer: The PDF reader program does not load the web page code",
+  "objective": "Proves the child process stays minimal and does not pull in the app or its libraries.",
+  "precondition": "Test harness with a small PDF built in memory from made-up text. No network and no AI model.",
+  "steps": [
+   {
+    "action": "Load the reader program in a fresh Python process and check which modules are loaded.",
+    "data": "Reader program file",
+    "expected": "The answer is False: neither the web page module nor Streamlit is loaded."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_the_worker_does_not_import_the_app_or_streamlit"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_an_over_limit_allocation_in_the_child_is_refused",
+  "name": "Data Analyzer: The PDF reader's memory ceiling really stops a huge allocation (Linux only)",
+  "objective": "Proves the memory limit works. This test is SKIPPED on macOS and any non-Linux system because the limit is not enforced there; it runs only in the Linux container.",
+  "precondition": "Linux only. A fresh Python process with the reader's memory limit set to 100 MB.",
+  "steps": [
+   {
+    "action": "Try to allocate 1 GB after applying the limit.",
+    "data": "1 GB allocation, 100 MB limit",
+    "expected": "The program prints 'refused' (a memory error), not 'allocated'. On macOS the test is skipped and records nothing."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_an_over_limit_allocation_in_the_child_is_refused"
+ },
+ {
+  "id": "tests.test_sec_ui_cache_and_pdf_safety.test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it",
+  "name": "Data Analyzer: The memory limit helper never crashes",
+  "objective": "Proves that on any system the helper returns yes/no instead of an error. It accepts either answer, so it checks only that nothing is raised.",
+  "precondition": "Reader program loaded directly in the test process.",
+  "steps": [
+   {
+    "action": "Call the memory-limit helper with 1,000,000,000.",
+    "data": "Limit 10^9",
+    "expected": "The result is True or False; no error is raised."
+   }
+  ],
+  "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it"
+ }
+]

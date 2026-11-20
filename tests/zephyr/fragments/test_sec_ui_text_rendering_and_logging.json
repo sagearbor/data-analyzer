@@ -1,0 +1,170 @@
+[
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_markdown_escape_leaves_no_active_markdown_syntax",
+  "name": "Data Analyzer: Text escaping removes all active formatting from hostile text but shows it unchanged",
+  "objective": "Proves untrusted text (e.g. from an uploaded dictionary) cannot produce images, links, HTML, maths or formatting on the page.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Escape each hostile text",
+    "data": "5 texts: an image link to a made-up address, a javascript: link, an <img onerror> tag, a bare web address, and a mix of maths, emoji code, bold, code and heading marks",
+    "expected": "After removing the escape backslashes, the text equals the original; each of the characters ! ( ) [ ] < > * ` # $ : in the result is preceded by a backslash"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_markdown_escape_leaves_no_active_markdown_syntax"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_markdown_escape_accepts_non_strings",
+  "name": "Data Analyzer: Text escaping copes with non-text values",
+  "objective": "Proves the escaping helper does not crash on nothing or numbers.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Escape nothing (None) and the number 12",
+    "data": "None; 12",
+    "expected": "Results are the text 'None' and '12'"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_markdown_escape_accepts_non_strings"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_field_markdown_escapes_every_dictionary_supplied_string",
+  "name": "Data Analyzer: Field description shown on the page escapes every dictionary-supplied string",
+  "objective": "Proves a hostile dictionary entry cannot inject images or links into the field display.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Build the detailed display text for a field whose name, type, description, min, max and allowed values contain image and link syntax",
+    "data": "made-up entry with '![a](http://x.invalid/i.png)' etc.",
+    "expected": "No unescaped '![' and no unescaped '](http' remain, and the genuine '*[Required]*' label is still present"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_field_markdown_escapes_every_dictionary_supplied_string"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_field_markdown_never_crashes_on_odd_dictionary_entries",
+  "name": "Data Analyzer: Field display does not crash on unusual dictionary entries",
+  "objective": "Proves odd dictionary input (empty, numbers where text is expected, a list as description) still produces text.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Build the short and detailed display text for each odd entry",
+    "data": "4 entries: empty; field_name 5; description 7 with allowed_values 'abc'; min None, max 3, description a list",
+    "expected": "Both calls return text each time, with no error. The content is not checked"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_field_markdown_never_crashes_on_odd_dictionary_entries"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_a_malformed_json_dictionary_is_rejected_with_a_clear_error",
+  "name": "Data Analyzer: Wrongly shaped JSON dictionaries are rejected with a clear error",
+  "objective": "Proves a JSON dictionary that is not the expected structure is refused.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Validate each wrongly shaped dictionary",
+    "data": "7 inputs: empty list, plain text, number 5, rules as a list, fields as an object, fields containing text, fields containing numbers",
+    "expected": "A ValueError is raised each time"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_a_malformed_json_dictionary_is_rejected_with_a_clear_error"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_a_well_formed_json_dictionary_is_accepted",
+  "name": "Data Analyzer: A correctly shaped JSON dictionary is accepted",
+  "objective": "Proves valid dictionaries pass through unchanged.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Validate a dictionary with rules for 'age' and one field named 'age'",
+    "data": "made-up dictionary",
+    "expected": "The very same dictionary is returned"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_a_well_formed_json_dictionary_is_accepted"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_no_script_element_or_html_component_is_built_from_upload_data",
+  "name": "Data Analyzer: Page code builds no script elements or raw-HTML components",
+  "objective": "Proves by text search that the old browser-console helper and embedded scripts are gone.",
+  "precondition": "web_app.py is read as text, not run.",
+  "steps": [
+   {
+    "action": "Search the source for 'log_to_browser_console', '<script' (any case) and 'components.html'",
+    "data": "web_app.py",
+    "expected": "None appears"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_no_script_element_or_html_component_is_built_from_upload_data"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_web_app_has_no_print_calls_that_could_write_file_names_to_container_logs",
+  "name": "Data Analyzer: Page code has no print statements",
+  "objective": "Proves nothing is printed to the container log by direct print calls, where file names could leak.",
+  "precondition": "web_app.py is parsed, not run.",
+  "steps": [
+   {
+    "action": "Parse web_app.py and list every call to print",
+    "data": "web_app.py",
+    "expected": "The list is empty"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_web_app_has_no_print_calls_that_could_write_file_names_to_container_logs"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_file_fingerprint_hides_the_file_name",
+  "name": "Data Analyzer: Log fingerprint of an uploaded file hides its name",
+  "objective": "Proves the identifier used in logs shows only extension, size and a short hash.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Make a fingerprint for the made-up name 'SITE-017_participants.csv' with size 1234",
+    "data": "made-up file name",
+    "expected": "The text contains neither 'SITE-017' nor 'participants'; it contains 'ext=csv', 'size=1234' and 'name_sha256=' followed by 8 hexadecimal characters"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_file_fingerprint_hides_the_file_name"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_file_fingerprint_is_stable_and_distinguishes_names",
+  "name": "Data Analyzer: Log fingerprint is repeatable and differs between names",
+  "objective": "Proves the same file gives the same fingerprint and different files give different ones.",
+  "precondition": "None.",
+  "steps": [
+   {
+    "action": "Fingerprint 'a.csv' twice and 'b.csv' once, all with size 1",
+    "data": "a.csv, b.csv",
+    "expected": "The two for 'a.csv' are equal and differ from the one for 'b.csv'"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_file_fingerprint_is_stable_and_distinguishes_names"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_failed_analysis_logs_only_the_error_class_not_the_upstream_text",
+  "name": "Data Analyzer: Failed-analysis log line records only the error type, not the error text",
+  "objective": "Intended to prove error messages from the service (which could contain sensitive text) are not written to logs. It checks the page source text only.",
+  "precondition": "web_app.py is read and parsed as text; no analysis is actually run and the captured log is not examined.",
+  "steps": [
+   {
+    "action": "Check the source for the old log-format string with the error text, then check each logger call that mentions 'analysis_failed'",
+    "data": "web_app.py",
+    "expected": "The old string is absent and no such logger call includes 'str(e)'. If no logger call mentions 'analysis_failed' the second check passes with nothing checked"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_failed_analysis_logs_only_the_error_class_not_the_upstream_text"
+ },
+ {
+  "id": "tests.test_sec_ui_text_rendering_and_logging.test_every_user_visible_error_that_embeds_a_value_escapes_it",
+  "name": "Data Analyzer: Error and warning messages that embed values escape them",
+  "objective": "Intended to prove on-screen error text built from upload data goes through the escaping helper. It checks the page source text only.",
+  "precondition": "web_app.py is read as text; nothing is run.",
+  "steps": [
+   {
+    "action": "Find every single-line st.error/st.warning f-string in the source and inspect embedded expressions involving e, issue, rec, dict_file or uploaded_file",
+    "data": "web_app.py",
+    "expected": "Each such expression uses the escape helper, shows only the error class name, or involves a size (the word 'size' anywhere in the expression is accepted). Messages split across lines are not examined"
+   }
+  ],
+  "source": "tests/test_sec_ui_text_rendering_and_logging.py::test_every_user_visible_error_that_embeds_a_value_escapes_it"
+ }
+]

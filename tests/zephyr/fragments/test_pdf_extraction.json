@@ -1,0 +1,49 @@
+[
+ {
+  "id": "tests.test_pdf_extraction.test_pdf_text_extraction",
+  "name": "Data Analyzer: Text can be read from the sample PDF data dictionary",
+  "objective": "Shows the PDF reading step returns real text from the first 5 pages.",
+  "precondition": "Offline test harness; the sample PDF LTCPROMISE8314QC.pdf must be present. No AI model is used.",
+  "steps": [
+   {
+    "action": "Extract text from the first 5 pages of the sample PDF",
+    "data": "tests/test_data/dictionaries/LTCPROMISE8314QC.pdf, pages 1-5",
+    "expected": "The file exists and the extracted text is not empty (the content itself is not checked)"
+   }
+  ],
+  "source": "tests/test_pdf_extraction.py::test_pdf_text_extraction"
+ },
+ {
+  "id": "tests.test_pdf_extraction.test_pdf_extraction",
+  "name": "Data Analyzer: PDF text is extracted, then passed to a replaced (mocked) AI parser",
+  "objective": "Shows real PDF reading works and the parser is called once with that text. The AI answer is a canned one written in the test, so the checks on fields only confirm the canned answer, not the real parser.",
+  "precondition": "No network and no AI model: the AI parser is replaced by a canned answer of three made-up fields (record_id, age, visit_date). The sample PDF must be present.",
+  "steps": [
+   {
+    "action": "Extract text from the first 5 pages",
+    "data": "Sample PDF pages 1-5",
+    "expected": "Text is not empty"
+   },
+   {
+    "action": "Call the replaced parser with the text and a 500-field limit",
+    "data": "Canned 3-field answer",
+    "expected": "Parser called exactly once with the same text and limit; answer has fields and at least one chunk processed (both come from the canned answer)"
+   }
+  ],
+  "source": "tests/test_pdf_extraction.py::test_pdf_extraction"
+ },
+ {
+  "id": "tests.test_pdf_extraction.test_pdf_extraction_live_llm",
+  "name": "Data Analyzer: Live AI model reads the whole sample PDF dictionary",
+  "objective": "Optional live check that the real AI model extracts fields from the full PDF.",
+  "precondition": "Skipped unless RUN_LIVE_LLM_TESTS=1. Needs network, Azure OpenAI sign-in and a live AI model; not part of the offline suite.",
+  "steps": [
+   {
+    "action": "Extract all text from the sample PDF and send it to the live AI parser",
+    "data": "Full ~90-page sample PDF, field limit 500",
+    "expected": "At least one field returned and at least one chunk processed"
+   }
+  ],
+  "source": "tests/test_pdf_extraction.py::test_pdf_extraction_live_llm"
+ }
+]

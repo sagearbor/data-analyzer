@@ -15,7 +15,7 @@ All models include:
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from enum import Enum
@@ -382,6 +382,11 @@ class QualityAnalysisSummary(BaseModel):
     warnings: int = Field(ge=0, description="Number of warning-severity issues")
     data_types: Dict[str, str] = Field(description="Column name -> pandas dtype string")
     completeness: float = Field(ge=0.0, le=100.0, description="Percentage of non-missing cells")
+    issue_type_totals: Dict[str, int] = Field(
+        default={},
+        description="True number of issues per issue type, including rows not listed in `issues` "
+                    "(the checker lists only the first 10 violating rows per rule)",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -409,7 +414,11 @@ class QualityAnalysisResponse(BaseModel):
 
     Attributes:
         summary: Top-line counts and completeness percentage
-        issues: One entry per violation/missing-value finding
+        issues: One entry per violation/missing-value finding (capped; see
+            issues_truncated)
+        issues_total: Total issues found, including any beyond the cap
+        issues_returned: Number of entries in `issues`
+        issues_truncated: True when the list was cut at the server's cap
         recommendations: Suggested next steps based on the issues found
         quality_checks: Raw per-check results from QualityPipeline
             (row_count, data_types, value_ranges), for callers that want the
@@ -419,6 +428,18 @@ class QualityAnalysisResponse(BaseModel):
     """
     summary: QualityAnalysisSummary = Field(description="Top-line summary metrics")
     issues: List[QualityIssue] = Field(default=[], description="Issues found")
+    issues_total: Optional[int] = Field(
+        default=None,
+        description="Total number of issues found, including any not returned in `issues`",
+    )
+    issues_returned: Optional[int] = Field(
+        default=None, description="Number of issues actually returned in `issues`"
+    )
+    issues_truncated: bool = Field(
+        default=False,
+        description="True when `issues` was cut at the server's limit "
+                    "(DATA_ANALYZER_MAX_ISSUES_RETURNED); `issues_total` is the real count",
+    )
     recommendations: List[QualityRecommendation] = Field(
         default=[], description="Suggested next steps"
     )
@@ -1035,3 +1056,58 @@ def convert_validation_program_to_summary(program: Any) -> ProgramSummary:
         dictionary_source=program.dictionary_source,
         status=program.status
     )
+
+
+class AnalyzeJsonRequest(BaseModel):
+    """
+    Request body for POST /api/v1/analyze/json (ST-359).
+
+    JSON alternative to the multipart POST /api/v1/analyze upload, for
+    programs that would rather send the dataset inline than build a
+    multipart form. Runs the same analysis and returns the same
+    QualityAnalysisResponse.
+
+    Attributes:
+        data_content: Dataset as text, or base64 when encoding is "base64"
+        format: Format of data_content (csv, tsv or json)
+        encoding: "text" (default) or "base64"
+        column_schema: Optional column-type map (wire name: "schema")
+        rules: Optional per-column validation rules
+        min_rows: Minimum required row count
+    """
+    data_content: str = Field(
+        min_length=1,
+        description='Dataset content: CSV/TSV/JSON text, or base64 when encoding is "base64"'
+    )
+    format: Literal["csv", "tsv", "json"] = Field(
+        default="csv", description="Format of data_content"
+    )
+    encoding: Literal["text", "base64"] = Field(
+        default="text", description='How data_content is encoded: "text" or "base64"'
+    )
+    # Python identifier is column_schema (not "schema") to avoid shadowing
+    # BaseModel.schema(); the wire-level field name stays "schema" via alias=.
+    column_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        alias="schema",
+        description="Optional column-type map. Types: int, float, str, bool, datetime (case-insensitive). Aliases are accepted: integer/int64 -> int; number/numeric/decimal/double/float64 -> float; string/text/varchar/categorical/category -> str; boolean -> bool; date/time/timestamp/datetime64 -> datetime. Unknown names are rejected with 422."
+    )
+    rules: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description='Optional validation rules: "min"/"max" for numeric columns, '
+                    '"allowed" for categorical columns.'
+    )
+    min_rows: int = Field(default=1, ge=0, description="Minimum required row count")
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "data_content": "id,age\n1,34\n2,150\n",
+                "format": "csv",
+                "schema": {"id": "int", "age": "int"},
+                "rules": {"age": {"min": 0, "max": 120}},
+                "min_rows": 1
+            }
+        }
+    }

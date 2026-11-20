@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2026-10-30T00:00:00Z
+  last_updated: 2026-11-20T00:00:00Z
 
 # =========================================================
 # CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
@@ -884,3 +884,88 @@ phase_dcri_llm:
     raise LLMCallError; PHI log lines removed; ACA templates keyless.
     REMAINING: Sage deploys with "shipaz" and removes the azure-openai-api-key
     secret from both live apps after verifying.
+
+# Programmatic API access (Jira ST-358) - 2026-11-17
+phase_api_programmatic:
+  name: "REST API callable by other programs (JSON analyze route, version, size limit, client)"
+  status: DONE
+  notes: |
+    DONE (branch feature/api-json-ST-358, not yet merged or deployed):
+    - POST /api/v1/analyze/json takes the dataset inline in a JSON body and
+      shares _run_quality_analysis() with the multipart POST /api/v1/analyze.
+    - GET /api/v1/version; health/root/OpenAPI report src.__version__.
+    - Both analyze routes return 413 over DATA_ANALYZER_MAX_UPLOAD_BYTES.
+    - examples/api_client.py and a README section with curl examples.
+    - Size limit enforced while the body streams (MaxRequestSizeMiddleware,
+      pure ASGI), so a missing or wrong Content-Length cannot bypass it.
+    - tests/test_api_programmatic.py: 28 tests, offline, synthetic data.
+    REMAINING: review + PR to main; README top section and docs/INTEGRATION.md
+    still describe port 8003 and /analyze, /data-info, /health, which do not
+    match api_server.py (port 8000, /api/v1/...).
+  tasks:
+    - id: ST-359
+      name: "POST /api/v1/analyze/json"
+      status: DONE
+    - id: ST-360
+      name: "GET /api/v1/version, real version in health, 413 size limit"
+      status: DONE
+    - id: ST-361
+      name: "examples/api_client.py and README section"
+      status: DONE
+    - id: ST-365
+      name: "tests/test_api_programmatic.py"
+      status: DONE
+
+# Release 1.0 small features - 2026-11-20
+phase_release_1_0_small_features:
+  name: "Release 1.0: About-page API examples, model allow-list"
+  status: DONE
+  tasks:
+    - id: ADP-51
+      name: "About page: copy-paste API blocks (curl + Python) for health, version, analyze file, analyze JSON"
+      status: DONE
+      notes: |
+        Block text lives in src/api_examples.py (pure, no Streamlit/os); web_app.py renders
+        it and tests/test_about_api_examples.py runs every block verbatim against a real
+        local uvicorn server (curl tests skip if curl is missing).
+    - id: ADP-52
+      name: "Model choice limited to a server-side allow-list (AZURE_OPENAI_DEPLOYMENTS)"
+      status: DONE
+      notes: |
+        src/llm_client.require_allowed_deployment() refuses an override not in
+        get_available_deployments() with LLMCallError(error_class="deployment_not_allowed")
+        before any HTTP call; max_output_tokens_for() floors every non-gpt-4 name at 40000;
+        UI selectbox falls back to the first entry on a stale value and shows the model in use;
+        AZURE_OPENAI_DEPLOYMENTS added to both ACA manifest templates with the six models
+        verified live on 2026-11-20 (gpt-5-nano, gpt-5.4-mini, gpt-5.5, gpt-5.6-luna/terra/sol).
+
+phase_release_1_0_security_and_sdlc:
+  name: "Release 1.0: security review, fixes, test record, SDLC documents (Jira epic ADP-48)"
+  status: INPROGRESS
+  tasks:
+    - id: ADP-49
+      name: "Security review by two independent reviewers; 19 finding issues ADP-69..ADP-87"
+      status: INPROGRESS
+      notes: |
+        Fixed in code: ADP-72 (page cache per session), 73, 74, 76 (code part), 77, 78, 79, 80 (CI),
+        81, 82, 83, 84, 85, 86, 87. Details of findings are kept in Jira only (public repo).
+        OPEN, need the owner or IT: ADP-69 (files in the public repository), ADP-70 (old
+        credential file in history), ADP-71 (per-user sign-in), ADP-75 (shared cloud identity),
+        ADP-76 (data policy), ADP-72 (ownership of saved dictionaries on the API).
+    - id: ADP-88
+      name: "Checker findings that were detected but never shown (range with missing values, type checks)"
+      status: DONE
+    - id: ADP-53
+      name: "Every automated test described in plain language (tests/zephyr/) and recorded in Zephyr"
+      status: INPROGRESS
+      notes: "tools/release/build_zephyr_manifest.py assembles tests/zephyr/release-1.0-manifest.json."
+    - id: ADP-54
+      name: "SDLC documents from the DS-S-001 templates (Confluence ADP, SDLC / Data Analyzer)"
+      status: INPROGRESS
+      notes: "Release request ADP-91 and Validation Plan drafted; preliminary risk Medium. Board review is a people step."
+    - id: ADP-89
+      name: "Strengthen automated tests that prove little or cannot fail"
+      status: TODO
+    - id: ADP-90
+      name: "Selected tab label on the top bar is hard to read"
+      status: TODO

@@ -15,12 +15,21 @@ Usage:
     uvicorn api_server:app --reload --host 0.0.0.0 --port 8000
 """
 
+import base64
+import binascii
+import contextvars
+import hashlib
 import io
 import json
 import logging
 import os
+import time
+import threading
+import ipaddress
+import re
 import secrets
 import traceback
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from pathlib import Path
@@ -28,11 +37,17 @@ from pathlib import Path
 import pandas as pd
 
 from fastapi import FastAPI, HTTPException, Request, status, Depends, UploadFile, File, Form
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
+from limits import parse as parse_rate_limit
+from limits.strategies import FixedWindowRateLimiter
+from starlette.concurrency import run_in_threadpool
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
+from src.schema_types import CANONICAL_TYPES, normalize_schema_type
 from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -58,11 +73,13 @@ from src.api_models import (
     DataFormatEnum,
     ReturnFormatEnum,
     QualityAnalysisResponse,
+    AnalyzeJsonRequest,
 )
 
 # Shared DCRI LLM telemetry (vendored; stdlib-only at import time).
 from src.dcri_llm import asgi_middleware, llm_action
 from src.runtime_env import is_deployed_env
+from src.__version__ import __version__
 
 # Optional service modules - each is independently best-effort. A missing/broken
 # module here degrades the corresponding feature (endpoints return 503) instead
@@ -74,10 +91,13 @@ except ImportError as e:
     LLMDictionaryParser = None
 
 try:
-    from src.program_manager import ProgramManager
+    from src.program_manager import ProgramManager, ProgramSaveError
 except ImportError as e:
     logging.error(f"Import error (ProgramManager unavailable): {e}")
     ProgramManager = None
+
+    class ProgramSaveError(RuntimeError):  # placeholder so except clauses stay valid
+        pass
 
 try:
     from src.logic_engine import LogicValidator
@@ -128,11 +148,16 @@ app = FastAPI(
     - Health endpoint: 60 requests/minute
     - Other endpoints: 10 requests/minute (configurable per endpoint)
     """,
-    version="1.0.0",
+    version=__version__,
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
     openapi_url="/api/v1/openapi.json",
 )
+
+# Route paths referenced from more than one place (handlers, middleware).
+ANALYZE_PATH = "/api/v1/analyze"
+ANALYZE_JSON_PATH = "/api/v1/analyze/json"
+DICTIONARY_PARSE_PATH = "/api/v1/dictionary/parse"
 
 # ============================================================================
 # Middleware Configuration
@@ -172,6 +197,209 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Maximum request size, per upload route.
+#
+# Analyze routes: same setting and 100MB default as
+# mcp_server.DataLoader.MAX_CONTENT_BYTES (DATA_ANALYZER_MAX_UPLOAD_BYTES).
+# Dictionary parse: a data dictionary is small text and every ~4.5k tokens of it
+# costs one LLM call, so it gets its own much smaller cap
+# (DATA_ANALYZER_MAX_DICTIONARY_UPLOAD_BYTES, default 2MB).
+# Read per request rather than once at import so the limits can be changed
+# without re-importing this module.
+DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+DEFAULT_MAX_DICTIONARY_UPLOAD_BYTES = 2 * 1024 * 1024
+
+# Every route that accepts a request body of user data, mapped to the env var
+# that bounds it. A new upload route MUST be added here.
+_UPLOAD_LIMIT_ENV = {
+    ANALYZE_PATH: "DATA_ANALYZER_MAX_UPLOAD_BYTES",
+    ANALYZE_JSON_PATH: "DATA_ANALYZER_MAX_UPLOAD_BYTES",
+    DICTIONARY_PARSE_PATH: "DATA_ANALYZER_MAX_DICTIONARY_UPLOAD_BYTES",
+}
+
+
+def _limit_from_env(env_name: str, default: int) -> int:
+    try:
+        limit = int(os.getenv(env_name, default))
+    except ValueError:
+        return default
+    return limit if limit > 0 else default
+
+
+def _max_request_bytes() -> int:
+    """Return the configured maximum analyze-request size in bytes."""
+    return _limit_from_env("DATA_ANALYZER_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES)
+
+
+def _max_dictionary_request_bytes() -> int:
+    """Return the configured maximum dictionary-upload size in bytes."""
+    return _limit_from_env(
+        "DATA_ANALYZER_MAX_DICTIONARY_UPLOAD_BYTES", DEFAULT_MAX_DICTIONARY_UPLOAD_BYTES
+    )
+
+
+def _request_limit_for_path(path: str) -> int:
+    if path == DICTIONARY_PARSE_PATH:
+        return _max_dictionary_request_bytes()
+    return _max_request_bytes()
+
+
+def _too_large_detail(limit: int, env_name: str = "DATA_ANALYZER_MAX_UPLOAD_BYTES") -> str:
+    return (
+        f"Request too large: the limit is {limit} bytes "
+        f"({env_name})."
+    )
+
+
+# Server-generated correlation id for the current request (never taken from the
+# client, so it cannot be used to forge log lines or spoof correlation).
+_request_id_ctx: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar(
+    "data_analyzer_request_id", default=None
+)
+
+
+def _current_request_id() -> str:
+    """Return the current request's correlation id (generating one if needed)."""
+    rid = _request_id_ctx.get()
+    if not rid:
+        rid = uuid.uuid4().hex[:16]
+        _request_id_ctx.set(rid)
+    return rid
+
+
+def _log_safe(value: Any, max_len: int = 64) -> str:
+    """Make a caller-supplied string safe to put in a log line (no control
+    characters / newlines, bounded length)."""
+    text = re.sub(r"[^\x20-\x7e]", "?", str(value))
+    return text[:max_len] + ("..." if len(text) > max_len else "")
+
+
+def _content_fingerprint(content: bytes) -> str:
+    """Short hash + size for logging an upload without its name or values."""
+    return f"size={len(content)} sha256={hashlib.sha256(content).hexdigest()[:12]}"
+
+
+class RequestIdMiddleware:
+    """Assign a server-generated correlation id to every HTTP request, expose it
+    to handlers/log lines through a context variable and return it in the
+    X-Request-ID response header. Outermost middleware."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        rid = uuid.uuid4().hex[:16]
+        token = _request_id_ctx.set(rid)
+
+        async def send_with_id(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                headers.append((b"x-request-id", rid.encode("ascii")))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_id)
+        finally:
+            _request_id_ctx.reset(token)
+
+
+class MaxRequestSizeMiddleware:
+    """Enforce the request size limit on every upload route while the body
+    is being received.
+
+    Pure ASGI middleware (not @app.middleware("http"), which only sees the
+    request after the body has been handed over): it wraps `receive` and
+    counts the bytes of every `http.request` message, so an oversize body is
+    refused as soon as the running total passes the limit - whether the
+    Content-Length header is truthful, wrong, or absent (chunked upload).
+    A truthful oversize Content-Length is rejected up front, before any of
+    the body is read.
+
+    Covers the routes listed in _UPLOAD_LIMIT_ENV (both analyze routes and the
+    dictionary parse route), each with its own limit.
+
+    Registered ahead of add_security_headers so that middleware still wraps
+    the 413 response.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or scope["path"] not in _UPLOAD_LIMIT_ENV
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        limit = _request_limit_for_path(scope["path"])
+        env_name = _UPLOAD_LIMIT_ENV[scope["path"]]
+        headers = dict(scope.get("headers") or [])
+        request_id = _current_request_id()
+
+        async def send_too_large(detail: str):
+            response = JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content=ErrorResponse(
+                    error=_too_large_detail(limit, env_name),
+                    detail=detail,
+                    timestamp=datetime.now().isoformat(),
+                    request_id=request_id,
+                ).dict(),
+            )
+            await response(scope, receive, send)
+
+        # Fast path: the client says up front that the body is too big.
+        try:
+            declared = int(headers.get(b"content-length", b"").decode("latin-1"))
+        except ValueError:
+            declared = None
+        if declared is not None and declared > limit:
+            await send_too_large(f"Content-Length was {declared} bytes.")
+            return
+
+        received = 0
+        rejected = False
+        response_started = False
+
+        async def counting_receive():
+            nonlocal received, rejected
+            if rejected:
+                return {"type": "http.disconnect"}
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # Answer now and stop feeding the body to the app: it
+                    # sees a disconnect, and anything it then tries to send
+                    # is dropped by guarded_send below.
+                    rejected = True
+                    if not response_started:
+                        await send_too_large(
+                            f"Stopped reading after {received} bytes."
+                        )
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message):
+            nonlocal response_started
+            if rejected:
+                return
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        await self.app(scope, counting_receive, guarded_send)
+
+
+app.add_middleware(MaxRequestSizeMiddleware)
+
 # Baseline security response headers (defense-in-depth for browser-based clients
 # and for any reverse proxy that forwards these responses as-is).
 @app.middleware("http")
@@ -183,17 +411,16 @@ async def add_security_headers(request: Request, call_next):
     response.headers.setdefault("Cache-Control", "no-store")
     return response
 
+# Added last = outermost: every response (including 413/401/429) carries the id.
+app.add_middleware(RequestIdMiddleware)
+
 # Rate limiting
 #
-# get_remote_address (slowapi) keys on request.client.host and does NOT parse
-# X-Forwarded-For, so it cannot be spoofed via that header. Note however that
-# behind Azure Container Apps ingress / any reverse proxy, request.client.host
-# will be the proxy's address for every request unless the proxy is configured
-# to preserve the real client IP - in that case all clients share one rate
-# limit bucket. Verify the ingress forwards a trustworthy client IP (or accept
-# that rate limiting is effectively global) before relying on it for abuse
-# prevention.
-limiter = Limiter(key_func=get_remote_address)
+# Keyed by get_client_id() (defined with the auth throttle below): the TCP peer
+# by default; behind a trusted proxy (DATA_ANALYZER_TRUSTED_PROXY_HOPS=N) the
+# Nth X-Forwarded-For entry from the right. Without that setting every caller
+# behind a shared ingress is ONE bucket.
+limiter = Limiter(key_func=lambda request: get_client_id(request))
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -249,22 +476,228 @@ if is_deployed_env() and not API_KEY:
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 admin_password_header = APIKeyHeader(name="X-Admin-Password", auto_error=False)
 
+# ---------------------------------------------------------------------------
+# Failed-credential throttling
+#
+# FastAPI resolves Depends(verify_api_key) BEFORE the slowapi decorator on the
+# route runs, so the per-route limiter never counts wrong-key requests. Failed
+# attempts are therefore counted here, per client, in a fixed window; once a
+# client has used up its failures it gets 429 (with Retry-After) for every
+# request until the window rolls over - even with the right key, otherwise the
+# lockout would not stop guessing.
+#
+# Once a client id has used up its failures, EVERY request from it that presents
+# a credential gets the same 429 until the window rolls over (right or wrong key,
+# so a correct guess during a lockout is not an oracle). Missing credentials are
+# 401 and not counted. One caller cannot lock out others because the client id is
+# per caller (see DATA_ANALYZER_TRUSTED_PROXY_HOPS). A global failure counter only
+# logs a spike warning; it never blocks anyone.
+# Client identifier: get_client_id() (see below). Tune
+# DATA_ANALYZER_AUTH_FAIL_LIMIT / DATA_ANALYZER_AUTH_FAIL_WINDOW_SECONDS.
+# Counters live in the slowapi limiter's storage (in memory, per replica).
+# ---------------------------------------------------------------------------
+DEFAULT_AUTH_FAIL_LIMIT = 10
+DEFAULT_AUTH_FAIL_WINDOW_SECONDS = 300
+
+_auth_fail_strategy = FixedWindowRateLimiter(limiter._storage)
+
+
+def _auth_fail_item():
+    limit = _limit_from_env("DATA_ANALYZER_AUTH_FAIL_LIMIT", DEFAULT_AUTH_FAIL_LIMIT)
+    window = _limit_from_env("DATA_ANALYZER_AUTH_FAIL_WINDOW_SECONDS", DEFAULT_AUTH_FAIL_WINDOW_SECONDS)
+    return parse_rate_limit(f"{limit} per {window} second"), window
+
+
+_CLIENT_ID_CHARS = re.compile(r"[^0-9A-Fa-f:.\[\]%]")
+_CLIENT_ID_MAX_LEN = 64
+
+
+def _trusted_proxy_hops() -> int:
+    """DATA_ANALYZER_TRUSTED_PROXY_HOPS as a positive int, else 0 (disabled). Read per call."""
+    try:
+        return max(0, int(os.getenv("DATA_ANALYZER_TRUSTED_PROXY_HOPS", "0").strip()))
+    except ValueError:
+        return 0
+
+
+def _normalise_client_id(raw: str) -> str:
+    """Strip, cap and restrict to characters valid in an IP address/port so the
+    value cannot inject into log lines or limiter storage keys ('' if nothing valid)."""
+    cleaned = _CLIENT_ID_CHARS.sub("", str(raw).strip())
+    return cleaned[:_CLIENT_ID_MAX_LEN]
+
+
+_cidr_warned = False
+
+
+def _trusted_proxy_networks():
+    """Networks from DATA_ANALYZER_TRUSTED_PROXY_CIDRS, or None when unset.
+    Invalid text yields an empty list (nothing matches) and one warning."""
+    global _cidr_warned
+    raw = os.getenv("DATA_ANALYZER_TRUSTED_PROXY_CIDRS", "").strip()
+    if not raw:
+        return None
+    nets = []
+    try:
+        for part in raw.split(","):
+            if part.strip():
+                nets.append(ipaddress.ip_network(part.strip(), strict=False))
+    except ValueError:
+        if not _cidr_warned:
+            _cidr_warned = True
+            logger.warning("trusted_proxy_cidrs_invalid: ignoring forwarded headers (using the peer address)")
+        return []
+    return nets
+
+
+def _peer_in_trusted_networks(peer: str, nets) -> bool:
+    try:
+        addr = ipaddress.ip_address(peer.split("%")[0])
+    except ValueError:
+        return False
+    return any(addr.version == n.version and addr in n for n in nets)
+
+
+def get_client_id(request: Optional[Request]) -> str:
+    """The one client identifier used by BOTH the rate limiter and the
+    failed-key throttle (see get_client_id_info for the per-caller flag)."""
+    return get_client_id_info(request)[0]
+
+
+def get_client_id_info(request: Optional[Request]) -> "tuple[str, bool]":
+    """Return (client_id, per_caller).
+
+    per_caller is True ONLY when the id came from a forwarded-address entry that
+    was honoured under DATA_ANALYZER_TRUSTED_PROXY_HOPS (and, when set,
+    DATA_ANALYZER_TRUSTED_PROXY_CIDRS). Otherwise the TCP peer address was used,
+    which may be shared by many callers (a proxy, the UI) so per_caller is False.
+
+    Lockout rule that depends on it (see _enforce_credential_throttle): a
+    per-caller id that has hit the failure limit is refused for ANY presented
+    credential; a shared id never has a CORRECT credential refused (only wrong
+    ones are counted and refused), so one bad caller cannot lock everyone out.
+
+    Default: the TCP peer (request.client.host). When
+    DATA_ANALYZER_TRUSTED_PROXY_HOPS=N (N >= 1) the Nth entry of
+    X-Forwarded-For counted from the RIGHT is used (N=1: the address appended
+    by the nearest trusted proxy); all X-Forwarded-For header lines are joined
+    first. If DATA_ANALYZER_TRUSTED_PROXY_CIDRS is set the header is honoured
+    only when the TCP peer is inside one of those networks. The leftmost entry
+    is client-controlled and is never used; a missing/short header falls back
+    to the peer address.
+    """
+    peer = ""
+    if request is not None and request.client is not None and request.client.host:
+        # The socket peer is not caller-controlled; only make it log/key safe.
+        peer = "".join(ch for ch in str(request.client.host) if ch.isprintable() and not ch.isspace())[:_CLIENT_ID_MAX_LEN]
+    hops = _trusted_proxy_hops()
+    if hops > 0 and request is not None:
+        nets = _trusted_proxy_networks()
+        if nets is None or _peer_in_trusted_networks(peer, nets):
+            header = ",".join(request.headers.getlist("x-forwarded-for"))
+            entries = [e.strip() for e in header.split(",")] if header else []
+            if len(entries) >= hops:
+                candidate = _normalise_client_id(entries[-hops])
+                if candidate:
+                    return candidate, True
+    return peer or "unknown", False
+
+
+def _auth_client_id(request: Optional[Request]) -> str:
+    return get_client_id(request)
+
+
+def _enforce_credential_throttle(kind: str, request: Optional[Request], matches: bool) -> None:
+    """Apply the lockout rule after the constant-time comparison was made.
+
+    per-caller id: locked out -> identical 429 whether the credential is right or
+    wrong (no guessing oracle). Shared id (peer address): a correct credential is
+    always accepted; wrong ones count and get 429 once the limit is reached.
+    Returns normally only when the credential is accepted; otherwise the caller
+    raises 403 after this has counted the failure."""
+    _cid, per_caller = get_client_id_info(request)
+    if matches and not per_caller:
+        return
+    _reject_if_auth_locked_out(kind, request)
+    if not matches:
+        _record_auth_failure(kind, request)
+
+
+def _reject_if_auth_locked_out(kind: str, request: Optional[Request]) -> None:
+    item, window = _auth_fail_item()
+    if not _auth_fail_strategy.test(item, "auth-fail", kind, _auth_client_id(request)):
+        logger.warning("auth_lockout kind=%s client=%s", kind, _log_safe(_auth_client_id(request)))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed authentication attempts. Try again later.",
+            headers={"Retry-After": str(window)},
+        )
+
+
+DEFAULT_AUTH_FAIL_GLOBAL_ALERT = 100
+_auth_global = {"window": None, "count": 0, "logged": False}
+_auth_global_lock = threading.Lock()
+
+
+def _note_global_auth_failure(window_seconds: int) -> None:
+    """Count failed credentials from ALL clients; log ONE warning per window when
+    the count crosses DATA_ANALYZER_AUTH_FAIL_GLOBAL_ALERT. Never blocks anyone."""
+    alert = _limit_from_env("DATA_ANALYZER_AUTH_FAIL_GLOBAL_ALERT", DEFAULT_AUTH_FAIL_GLOBAL_ALERT)
+    window_id = int(time.time() // window_seconds)
+    with _auth_global_lock:
+        if _auth_global["window"] != window_id:
+            _auth_global.update(window=window_id, count=0, logged=False)
+        _auth_global["count"] += 1
+        spike = _auth_global["count"] >= alert and not _auth_global["logged"]
+        if spike:
+            _auth_global["logged"] = True
+            count = _auth_global["count"]
+    if spike:
+        logger.warning("auth_failure_spike failures=%d threshold=%d window_seconds=%d", count, alert, window_seconds)
+
+
+def _record_auth_failure(kind: str, request: Optional[Request]) -> None:
+    item, _window = _auth_fail_item()
+    _note_global_auth_failure(_window)
+    _auth_fail_strategy.hit(item, "auth-fail", kind, _auth_client_id(request))
+    logger.warning("auth_failure kind=%s client=%s", kind, _log_safe(_auth_client_id(request)))
+
+
+def _secrets_equal(supplied: str, expected: str) -> bool:
+    """Constant-time comparison that cannot raise on non-ASCII input."""
+    return secrets.compare_digest(
+        str(supplied).encode("utf-8", "surrogatepass"), expected.encode("utf-8", "surrogatepass")
+    )
+
+
 # Authentication dependency functions
-async def verify_api_key(api_key: Optional[str] = Depends(api_key_header)) -> str:
+async def verify_api_key(
+    api_key: Optional[str] = Depends(api_key_header),
+    request: Request = None,
+) -> str:
     """
     Verify API key from X-API-Key header
 
     Args:
         api_key: API key from request header
+        request: The request (used to throttle repeated wrong keys per client)
 
     Returns:
         The validated API key
 
     Raises:
-        HTTPException: 401 if API key is missing, 403 if invalid
+        HTTPException: 401 if API key is missing, 403 if invalid, 429 after
+            too many failed attempts from one client
     """
     # Check if API key authentication is enabled
     if not API_KEY:
+        if is_deployed_env():
+            # Defense in depth: the start-up guard already refuses to boot like
+            # this, but never fall open in a deployed environment.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication is not configured on the server.",
+            )
         logger.warning("API_KEY not configured - authentication disabled")
         return "unauthenticated"
 
@@ -276,10 +709,13 @@ async def verify_api_key(api_key: Optional[str] = Depends(api_key_header)) -> st
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Validate API key (constant-time comparison to avoid timing side-channels)
-    if not secrets.compare_digest(api_key, API_KEY):
-        # Log the failed attempt (without logging the actual key)
-        logger.warning(f"Invalid API key attempt from request")
+    # Constant-time comparison (to avoid timing side-channels) - always performed,
+    # also for a locked-out client, so timing does not differ.
+    matches = _secrets_equal(api_key, API_KEY)
+    # A locked-out client gets the identical 429 whether the key is right or wrong
+    # (otherwise a correct guess during a lockout would be an oracle).
+    _enforce_credential_throttle("api_key", request, matches)
+    if not matches:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid credentials provided.",
@@ -287,23 +723,34 @@ async def verify_api_key(api_key: Optional[str] = Depends(api_key_header)) -> st
 
     return api_key
 
-async def verify_admin_password(admin_password: Optional[str] = Depends(admin_password_header)) -> str:
+async def verify_admin_password(
+    admin_password: Optional[str] = Depends(admin_password_header),
+    request: Request = None,
+) -> str:
     """
     Verify admin password from X-Admin-Password header
 
+    Fails CLOSED: if DATA_ANALYZER_ADMIN_PASSWORD is not configured (in any
+    environment) admin operations are refused with 503 - there is no "open"
+    mode and no default password.
+
     Args:
         admin_password: Admin password from request header
+        request: The request (used to throttle repeated wrong passwords)
 
     Returns:
         The validated admin password
 
     Raises:
-        HTTPException: 401 if password is missing, 403 if invalid
+        HTTPException: 503 if not configured, 401 if missing, 403 if invalid,
+            429 after too many failed attempts from one client
     """
-    # Check if admin password authentication is enabled
     if not ADMIN_PASSWORD:
-        logger.warning("ADMIN_PASSWORD not configured - admin authentication disabled")
-        return "unauthenticated"
+        logger.error("DATA_ANALYZER_ADMIN_PASSWORD not configured - refusing admin request")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin operations are not configured on the server.",
+        )
 
     # Check if admin password is provided
     if not admin_password:
@@ -313,10 +760,11 @@ async def verify_admin_password(admin_password: Optional[str] = Depends(admin_pa
             headers={"WWW-Authenticate": "AdminPassword"},
         )
 
-    # Validate admin password (constant-time comparison to avoid timing side-channels)
-    if not secrets.compare_digest(admin_password, ADMIN_PASSWORD):
-        # Log the failed attempt
-        logger.warning(f"Invalid admin password attempt from request")
+    # Constant-time comparison, always performed (also when locked out).
+    matches = _secrets_equal(admin_password, ADMIN_PASSWORD)
+    # Locked-out client: identical 429 for a right or wrong password.
+    _enforce_credential_throttle("admin", request, matches)
+    if not matches:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid admin credentials provided.",
@@ -334,6 +782,11 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: str
     services: Dict[str, bool]
+
+class VersionResponse(BaseModel):
+    """Version response"""
+    name: str
+    version: str
 
 class ErrorResponse(BaseModel):
     """Standard error response"""
@@ -437,6 +890,75 @@ def _generate_quality_recommendations(issues: List[Dict[str, Any]]) -> List[Dict
     return recommendations
 
 
+DEFAULT_MAX_ISSUES_RETURNED = 1000
+
+
+def _max_issues_returned() -> int:
+    """Cap on per-row issues in a response (DATA_ANALYZER_MAX_ISSUES_RETURNED)."""
+    return _limit_from_env("DATA_ANALYZER_MAX_ISSUES_RETURNED", DEFAULT_MAX_ISSUES_RETURNED)
+
+
+_SCHEMA_TYPES = CANONICAL_TYPES
+
+
+def _safe_label(value: Any, limit: int = 60) -> str:
+    """Printable, length-capped rendering of a caller-supplied column/key name."""
+    text = "".join(ch if ch.isprintable() else "?" for ch in str(value))
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def _validate_schema_and_rules(schema: Any, rules: Any) -> Optional[Dict[str, str]]:
+    """Reject malformed `schema` / `rules` with 422 and a stable message that
+    names the offending column and key but never echoes the offending value.
+
+    Returns the schema with every type normalised to a canonical type
+    (see src/schema_types.py for the accepted aliases), or None.
+
+    Accepted: schema = {column: a type name (case-insensitive) such as "int",
+    "float", "str", "bool", "datetime" or an alias like "integer", "number",
+    "string", "categorical", "boolean", "date", "timestamp"};
+    rules = {column: {"min": number, "max": number, "allowed": [scalars]}}.
+    """
+    def fail(msg: str):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=msg)
+
+    if schema is not None:
+        if not isinstance(schema, dict):
+            fail("Invalid 'schema': it must be an object mapping column names to type names.")
+        normalised = {}
+        for column, type_name in schema.items():
+            canon = normalize_schema_type(type_name)
+            if canon is None:
+                fail(f"Invalid 'schema' for column '{_safe_label(column)}': unknown type; use one of "
+                     f"{', '.join(_SCHEMA_TYPES)} (or an alias such as integer, number, string, date).")
+            normalised[column] = canon
+        schema = normalised
+    if rules is not None:
+        if not isinstance(rules, dict):
+            fail("Invalid 'rules': it must be an object mapping column names to rule objects.")
+        checker = mcp_server.QualityChecker if mcp_server is not None else None
+        for column, rule in rules.items():
+            if not isinstance(rule, dict):
+                fail(f"Invalid 'rules' for column '{_safe_label(column)}': the rule must be an object "
+                     'such as {"min": 0, "max": 10} or {"allowed": ["a", "b"]}.')
+            for key, value in rule.items():
+                col, k = _safe_label(column), _safe_label(key)
+                if key not in ("min", "max", "allowed"):
+                    fail(f"Invalid 'rules' for column '{col}': unknown key '{k}' (allowed keys: min, max, allowed).")
+                if key in ("min", "max"):
+                    ok = checker._is_finite_number(value) if checker else (
+                        isinstance(value, (int, float)) and not isinstance(value, bool))
+                    if not ok:
+                        fail(f"Invalid 'rules' for column '{col}': '{k}' must be a finite number.")
+                else:
+                    if not isinstance(value, list):
+                        fail(f"Invalid 'rules' for column '{col}': 'allowed' must be a list.")
+                    if not all(v is None or isinstance(v, (str, int, float, bool)) for v in value):
+                        fail(f"Invalid 'rules' for column '{col}': every 'allowed' item must be a "
+                             "string, number or boolean.")
+    return schema
+
+
 def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[str, Any]:
     """Shape a raw QualityPipeline.run_all_checks() result into the
     dashboard-friendly report the web UI expects.
@@ -451,6 +973,10 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
         {"summary", "issues", "recommendations", "quality_checks", "summary_stats"}
     """
     issues: List[Dict[str, Any]] = []
+    max_issues = _max_issues_returned()
+    issues_total = 0  # every issue found, including any not returned
+    row_errors = 0    # error-severity per-row issues (all of them, returned or not)
+    type_totals: Dict[str, int] = {}  # true count per issue type (the list may be shortened)
 
     # Transform QualityPipeline issues (which have 'column', 'rule', 'violating_rows')
     # into the UI-shaped format ('type', 'severity', 'message', 'row', 'value').
@@ -475,7 +1001,60 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
             issue_type = qp_issue.get('issue', 'validation_error')
             severity = "error"
 
+        if qp_issue.get('issue') == 'rule_invalid':
+            # A rule that could not be applied has no rows; it must still be
+            # visible, otherwise a broken rule looks like a clean result.
+            key = qp_issue.get('key')
+            where = f"column '{_safe_label(column)}'" + (f", key '{_safe_label(key)}'" if key else "")
+            issues_total += 1
+            row_errors += 1
+            type_totals["rule_invalid"] = type_totals.get("rule_invalid", 0) + 1
+            issues.append({
+                "type": "rule_invalid",
+                "severity": "error",
+                "column": column,
+                "message": f"Rule could not be applied ({where}): {qp_issue.get('reason', 'invalid')}. "
+                           "This rule was NOT checked.",
+            })
+            continue
+
+        if issue_type in ("type_mismatch", "invalid_date"):
+            rule = f"type {qp_issue.get('expected_type', '')}".strip()
+
+        # Findings without row positions are still findings: one row-less issue.
+        rowless = None
+        if not violating_rows:
+            if qp_issue.get('check') == 'row_count':
+                rowless = ("row_count_below_minimum", None,
+                           f"Dataset has {qp_issue.get('row_count')} rows; the minimum is {qp_issue.get('min_required')}.")
+            elif qp_issue.get('issue') == 'missing_column':
+                rowless = ("missing_column", column,
+                           f"Column '{_safe_label(column)}' is in the schema but not in the data.")
+            elif issue_type in ("type_mismatch", "invalid_date"):
+                rowless = (issue_type, column,
+                           f"Column '{_safe_label(column)}' does not match its expected type ({_safe_label(qp_issue.get('expected_type'))}).")
+        if rowless:
+            issues_total += 1
+            row_errors += 1
+            type_totals[rowless[0]] = type_totals.get(rowless[0], 0) + 1
+            if len(issues) < max_issues:
+                issues.append({"type": rowless[0], "severity": "error", "column": rowless[1], "message": rowless[2]})
+            continue
+
+        # The checker lists only the first rows of a finding; the rest are counted
+        # here (range, allowed-value and type findings alike) but not listed.
+        extra = int(qp_issue.get('violation_count') or 0) - len(violating_rows)
+        if extra > 0:
+            issues_total += extra
+            row_errors += extra
+            type_totals[issue_type] = type_totals.get(issue_type, 0) + extra
+
         for row_idx in violating_rows:
+            issues_total += 1
+            row_errors += 1
+            type_totals[issue_type] = type_totals.get(issue_type, 0) + 1
+            if len(issues) >= max_issues:
+                continue  # counted, but not returned (see issues_truncated)
             value = df[column].iloc[row_idx] if column in df.columns and row_idx < len(df) else None
             value = _json_safe(value)
 
@@ -492,6 +1071,8 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
     for col in df.columns:
         missing = int(df[col].isnull().sum())
         if missing > 0:
+            issues_total += 1
+            type_totals["missing_values"] = type_totals.get("missing_values", 0) + 1
             issues.append({
                 "type": "missing_values",
                 "severity": "warning",
@@ -509,16 +1090,20 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
     summary = {
         "total_rows": len(df),
         "total_columns": len(df.columns),
-        "issues_found": len(issues),
-        "critical_issues": sum(1 for i in issues if i.get('severity') == 'error'),
+        "issues_found": issues_total,
+        "critical_issues": row_errors,
         "warnings": sum(1 for i in issues if i.get('severity') == 'warning'),
         "data_types": results.get('summary_stats', {}).get('dtypes', {col: str(df[col].dtype) for col in df.columns}),
-        "completeness": completeness
+        "completeness": completeness,
+        "issue_type_totals": type_totals,
     }
 
     report = {
         "summary": summary,
         "issues": issues,
+        "issues_total": issues_total,
+        "issues_returned": len(issues),
+        "issues_truncated": len(issues) < issues_total,
         "recommendations": _generate_quality_recommendations(issues),
         "quality_checks": results.get('checks', {}),
         "summary_stats": results.get('summary_stats', {})
@@ -527,6 +1112,145 @@ def _build_quality_report(df: "pd.DataFrame", results: Dict[str, Any]) -> Dict[s
     # scalars (Series.to_dict(), .sum(), etc.) in checks/summary_stats that
     # pydantic can't serialize on its own - sanitize the whole tree.
     return _json_safe_deep(report)
+
+
+
+def _delimited_row_cap(content_bytes: bytes, sep: Optional[str]) -> int:
+    """Rows to read from CSV/TSV: at most max_rows + 1 (so an over-long file is
+    detected), and at most the rows the total-cells cap allows for this header's
+    column count (+1, so exceeding it is detected after the read)."""
+    max_rows = mcp_server.DataLoader.max_rows()
+    try:
+        header = pd.read_csv(io.BytesIO(content_bytes), sep=sep or ",", nrows=0)
+        cols = max(len(header.columns), 1)
+    except Exception:
+        return max_rows + 1
+    return min(max_rows + 1, mcp_server.DataLoader.max_cells() // cols + 1)
+
+
+def _run_quality_analysis(
+    content_bytes: bytes,
+    file_extension: str,
+    schema_dict: Optional[Dict[str, Any]],
+    rules_dict: Optional[Dict[str, Any]],
+    min_rows: int,
+    label: str,
+) -> Dict[str, Any]:
+    """Parse dataset bytes and run the shared quality analysis.
+
+    Single code path behind both POST /api/v1/analyze (multipart upload) and
+    POST /api/v1/analyze/json (inline content), so the two routes cannot
+    drift apart.
+
+    Parameters:
+        content_bytes: Raw dataset bytes.
+        file_extension: Lower-case extension selecting the parser
+            ('.csv', '.json', '.txt', '.tsv', '.xlsx', '.xls').
+        schema_dict: Optional column-type map.
+        rules_dict: Optional validation rules.
+        min_rows: Minimum required row count.
+        label: Name used in log lines (file name or "inline <format>").
+
+    Returns:
+        The report dict from _build_quality_report().
+
+    Raises:
+        HTTPException: 413 for content over the size limit, 400 for
+            empty/unparseable content, 500 otherwise.
+    """
+    limit = _max_request_bytes()
+    if len(content_bytes) > limit:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=_too_large_detail(limit)
+        )
+
+    fingerprint = _content_fingerprint(content_bytes)
+    try:
+        if not content_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty."
+            )
+
+        # Mirror web_app.py's file_uploader parsing (pandas, by extension) so
+        # the engine sees the same DataFrame whether loaded via the UI or
+        # posted directly to this endpoint. Excel (.xlsx/.xls) is dispatched
+        # through mcp_server.DataLoader.load_excel - the same shared loader
+        # web_app.py uses locally for Excel parsing/previewing - so CSV/API/
+        # UI callers all get identical Excel-handling behavior (sheet
+        # combination, size checks, etc.) from one place.
+        try:
+            if file_extension == '.csv':
+                # nrows bounds memory: stop reading after max_rows + 1 rows, and
+                # after as many rows as the cells cap allows for this many columns
+                df = pd.read_csv(
+                    io.BytesIO(content_bytes),
+                    nrows=_delimited_row_cap(content_bytes, None),
+                )
+            elif file_extension == '.json':
+                # Bound it BEFORE pandas builds anything (bytes, depth, rows, columns).
+                                # One parse; the table is built from that checked object (no read_json).
+                parsed = mcp_server.DataLoader.precheck_json(content_bytes, overall_limit=limit)
+                df = mcp_server.DataLoader.build_json_dataframe(parsed)
+                del parsed
+            elif file_extension in ('.xlsx', '.xls'):
+                df = mcp_server.DataLoader.load_excel(content_bytes)
+            else:  # .txt / .tsv
+                df = pd.read_csv(
+                    io.BytesIO(content_bytes), sep='\t',
+                    nrows=_delimited_row_cap(content_bytes, '\t'),
+                )
+            mcp_server.DataLoader.check_dataframe_limits(df)
+        except mcp_server.DataTooLargeError as e:
+            # Message is built from our own limit names/numbers only.
+            logger.warning("analysis_refused_too_large ext=%s %s", file_extension, fingerprint)
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=str(e),
+            )
+        except mcp_server.JsonShapeError as e:
+            logger.warning("analysis_refused_json_shape ext=%s %s", file_extension, fingerprint)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except Exception as e:
+            # Library text can quote cell values: log only class + fingerprint.
+            logger.warning(
+                "analysis_parse_failed ext=%s %s error_class=%s",
+                file_extension, fingerprint, type(e).__name__,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to parse the uploaded {file_extension} file. "
+                       "Check that it is a valid file of that type."
+            )
+
+        # Run the shared validation engine - single source of truth for all
+        # quality-check logic (row count, type, and range/allowed-value checks).
+        pipeline = mcp_server.QualityPipeline(df, schema=schema_dict, rules=rules_dict)
+        results = pipeline.run_all_checks(min_rows=min_rows)
+
+        report = _build_quality_report(df, results)
+
+        logger.info(
+            "Analysis complete for %s: %d issues (%d critical, %d warnings)",
+            label, report['summary']['issues_found'],
+            report['summary']['critical_issues'], report['summary']['warnings'],
+        )
+        return report
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Never log str(e): it may contain uploaded values.
+        logger.error(
+            "analysis_unexpected_error ext=%s %s error_class=%s\n%s",
+            file_extension, fingerprint, type(e).__name__,
+            "".join(traceback.format_tb(e.__traceback__)),  # frames only, no message
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected error while analysing the data."
+        )
 
 # ============================================================================
 # Error Handlers
@@ -545,35 +1269,76 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             error=exc.detail or "An error occurred",
             detail=str(exc),
             timestamp=datetime.now().isoformat(),
-            request_id=request.headers.get("X-Request-ID"),
+            request_id=_current_request_id(),
         ).dict(),
         headers=exc.headers,
     )
 
+
+def _debug_errors_enabled() -> bool:
+    """Detailed client errors: DEBUG=true AND a local (non-deployed) environment.
+
+    In a deployed environment (ACA / APP_ENV not dev|test|local) DEBUG has no
+    effect on what clients are told.
+    """
+    return os.getenv("DEBUG") == "true" and not is_deployed_env()
+
+
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle unexpected exceptions with standardized error format"""
-    logger.error(f"Unhandled exception: {exc}\n{traceback.format_exc()}")
+    request_id = _current_request_id()
+    # Exception text can contain uploaded values: log the class and the frames only.
+    logger.error(
+        "unhandled_exception request_id=%s error_class=%s\n%s",
+        request_id, type(exc).__name__, "".join(traceback.format_tb(exc.__traceback__)),
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=ErrorResponse(
             error="Internal server error",
-            detail=str(exc) if os.getenv("DEBUG") == "true" else "An unexpected error occurred",
+            detail=str(exc) if _debug_errors_enabled() else "An unexpected error occurred",
             timestamp=datetime.now().isoformat(),
-            request_id=request.headers.get("X-Request-ID"),
+            request_id=request_id,
         ).dict(),
     )
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
-    """Handle ValueError with bad request status"""
+    """Handle a stray ValueError with a generic 400 (no library text to the client)."""
+    request_id = _current_request_id()
+    logger.warning("value_error request_id=%s error_class=%s", request_id, type(exc).__name__)
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content=ErrorResponse(
             error="Invalid input",
-            detail=str(exc),
+            detail=str(exc) if _debug_errors_enabled() else "The request contained an invalid value.",
             timestamp=datetime.now().isoformat(),
-            request_id=request.headers.get("X-Request-ID"),
+            request_id=request_id,
+        ).dict(),
+    )
+
+@app.exception_handler(RequestValidationError)
+async def json_route_validation_handler(request: Request, exc: RequestValidationError):
+    """Return the standardized error format for a bad /api/v1/analyze/json body.
+
+    Scoped to that route so every other endpoint keeps FastAPI's default 422
+    body. Only loc/msg are reported: the raw errors() also echo the caller's
+    input back, which may be the dataset itself.
+    """
+    if request.url.path != ANALYZE_JSON_PATH:
+        return await request_validation_exception_handler(request, exc)
+    problems = "; ".join(
+        f"{'.'.join(str(p) for p in err.get('loc', ()))}: {err.get('msg', 'invalid')}"
+        for err in exc.errors()
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse(
+            error="Invalid request body",
+            detail=problems,
+            timestamp=datetime.now().isoformat(),
+            request_id=_current_request_id(),
         ).dict(),
     )
 
@@ -586,10 +1351,12 @@ async def root():
     """Root endpoint - redirect to API docs"""
     return {
         "message": "Data Analyzer REST API",
-        "version": "1.0.0",
+        "version": __version__,
         "docs": "/api/v1/docs",
         "health": "/api/v1/health",
-        "analyze": "/api/v1/analyze",
+        "version_info": "/api/v1/version",
+        "analyze": ANALYZE_PATH,
+        "analyze_json": ANALYZE_JSON_PATH,
     }
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -618,16 +1385,33 @@ async def health_check(request: Request):
 
     return HealthResponse(
         status=overall_status,
-        version="1.0.0",
+        version=__version__,
         timestamp=datetime.now().isoformat(),
         services=services_status,
     )
+
+@app.get("/api/v1/version", response_model=VersionResponse)
+@limiter.limit("60/minute")
+async def get_version(request: Request):
+    """
+    Version endpoint (ST-360)
+
+    Returns the package version from `src/__version__.py` - the same value
+    `/api/v1/health` and the web UI report. No authentication required.
+
+    **Rate Limit**: 60 requests per minute
+    """
+    return VersionResponse(name="data-analyzer", version=__version__)
 
 # ============================================================================
 # Data Analysis Endpoints
 # ============================================================================
 
-@app.post("/api/v1/analyze", response_model=QualityAnalysisResponse)
+@app.post(
+    ANALYZE_PATH,
+    response_model=QualityAnalysisResponse,
+    responses={413: {"model": ErrorResponse, "description": "Request larger than DATA_ANALYZER_MAX_UPLOAD_BYTES"}},
+)
 @limiter.limit("30/minute")
 async def analyze_data(
     request: Request,
@@ -639,7 +1423,7 @@ async def analyze_data(
         None,
         alias="schema",
         description='Optional JSON-encoded column-type map, e.g. \'{"age": "int"}\'. '
-                     'Supported types: int, float, str, bool, datetime.'
+                     'Supported types: int, float, str, bool, datetime (case-insensitive; aliases such as integer, number, decimal, string, text, categorical, boolean, date, timestamp are accepted).'
     ),
     rules: Optional[str] = Form(
         None,
@@ -710,7 +1494,7 @@ async def analyze_data(
         except (json.JSONDecodeError, ValueError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid 'schema' JSON: {str(e)}"
+                detail="Invalid 'schema' JSON: it must be a JSON object."
             )
 
     if rules:
@@ -721,69 +1505,115 @@ async def analyze_data(
         except (json.JSONDecodeError, ValueError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid 'rules' JSON: {str(e)}"
+                detail="Invalid 'rules' JSON: it must be a JSON object."
             )
 
-    logger.info(f"Analyzing data file: {filename} (schema={'yes' if schema_dict else 'no'}, rules={'yes' if rules_dict else 'no'})")
+    schema_dict = _validate_schema_and_rules(schema_dict, rules_dict)
 
-    try:
-        content_bytes = await data_file.read()
-        if not content_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded file is empty."
-            )
+    # The file name is caller-controlled (may carry identifiers, CR/LF): log
+    # only its extension and, after reading, size + hash.
+    logger.info(
+        "Analyzing uploaded %s file (schema=%s, rules=%s)",
+        file_extension, 'yes' if schema_dict else 'no', 'yes' if rules_dict else 'no',
+    )
 
-        # Mirror web_app.py's file_uploader parsing (pandas, by extension) so
-        # the engine sees the same DataFrame whether loaded via the UI or
-        # posted directly to this endpoint. Excel (.xlsx/.xls) is dispatched
-        # through mcp_server.DataLoader.load_excel - the same shared loader
-        # web_app.py uses locally for Excel parsing/previewing - so CSV/API/
-        # UI callers all get identical Excel-handling behavior (sheet
-        # combination, size checks, etc.) from one place.
-        try:
-            if file_extension == '.csv':
-                df = pd.read_csv(io.BytesIO(content_bytes))
-            elif file_extension == '.json':
-                df = pd.read_json(io.BytesIO(content_bytes))
-            elif file_extension in ('.xlsx', '.xls'):
-                df = mcp_server.DataLoader.load_excel(content_bytes)
-            else:  # .txt / .tsv
-                df = pd.read_csv(io.BytesIO(content_bytes), sep='\t')
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to parse {file_extension} file: {str(e)}"
-            )
+    content_bytes = await data_file.read()
+    # Parsing and checking are CPU-bound pandas work: run them on a worker
+    # thread so the event loop (and /api/v1/health) stays responsive.
+    return await run_in_threadpool(
+        _run_quality_analysis,
+        content_bytes, file_extension, schema_dict, rules_dict, min_rows,
+        f"uploaded {file_extension}",
+    )
 
-        # Run the shared validation engine - single source of truth for all
-        # quality-check logic (row count, type, and range/allowed-value checks).
-        pipeline = mcp_server.QualityPipeline(df, schema=schema_dict, rules=rules_dict)
-        results = pipeline.run_all_checks(min_rows=min_rows)
 
-        report = _build_quality_report(df, results)
+# Parser extension for each "format" value accepted by /api/v1/analyze/json.
+_JSON_ROUTE_EXTENSIONS = {"csv": ".csv", "tsv": ".tsv", "json": ".json"}
 
-        logger.info(
-            f"Analysis complete for {filename}: {report['summary']['issues_found']} issues "
-            f"({report['summary']['critical_issues']} critical, {report['summary']['warnings']} warnings)"
-        )
-        return report
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error analyzing data: {e}")
-        logger.error(traceback.format_exc())
+@app.post(
+    ANALYZE_JSON_PATH,
+    response_model=QualityAnalysisResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Empty, undecodable or unparseable data_content"},
+        413: {"model": ErrorResponse, "description": "Request larger than DATA_ANALYZER_MAX_UPLOAD_BYTES"},
+        422: {"model": ErrorResponse, "description": "Request body failed validation"},
+    },
+)
+@limiter.limit("30/minute")
+async def analyze_data_json(
+    request: Request,
+    body: AnalyzeJsonRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Run rule-based data quality analysis on a dataset sent inline as JSON (ST-359).
+
+    Same analysis and same response as the multipart `POST /api/v1/analyze`,
+    for programs that would rather post a JSON body than build a file
+    upload. Rule-based: does NOT call an LLM.
+
+    **Rate Limit**: 30 requests per minute
+
+    **Authentication**: Requires valid API key via X-API-Key header
+
+    **Body:**
+    - `data_content`: CSV/TSV/JSON text, or base64 when `encoding` is `"base64"`
+    - `format`: `csv` (default), `tsv` or `json`
+    - `encoding`: `text` (default) or `base64`
+    - `schema`: Optional object mapping column names to expected types
+    - `rules`: Optional object mapping column names to validation rules
+    - `min_rows`: Minimum required row count (default 1)
+
+    **Errors:** 400 (bad content), 413 (over the size limit) and 422 (bad
+    body) use the standard `ErrorResponse` JSON shape.
+    """
+    if mcp_server is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Analysis engine not available (mcp_server failed to import)."
         )
+
+    schema_for_check = _validate_schema_and_rules(body.column_schema, body.rules)
+
+    label = f"inline {body.format}"
+    logger.info(
+        f"Analyzing {label} content (schema={'yes' if body.column_schema else 'no'}, "
+        f"rules={'yes' if body.rules else 'no'})"
+    )
+
+    def _decode_and_analyze() -> Dict[str, Any]:
+        if body.encoding == "base64":
+            try:
+                content_bytes = base64.b64decode(body.data_content, validate=True)
+            except (binascii.Error, ValueError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid base64 in 'data_content'."
+                )
+        else:
+            content_bytes = body.data_content.encode("utf-8")
+        return _run_quality_analysis(
+            content_bytes,
+            _JSON_ROUTE_EXTENSIONS[body.format],
+            schema_for_check,
+            body.rules,
+            body.min_rows,
+            label=label,
+        )
+
+    # Decoding + parsing are blocking: keep them off the event loop.
+    return await run_in_threadpool(_decode_and_analyze)
 
 # ============================================================================
 # Dictionary Management Endpoints
 # ============================================================================
 
-@app.post("/api/v1/dictionary/parse", response_model=ParseDictionaryResponse)
+@app.post(
+    DICTIONARY_PARSE_PATH,
+    response_model=ParseDictionaryResponse,
+    responses={413: {"model": ErrorResponse, "description": "Request larger than DATA_ANALYZER_MAX_DICTIONARY_UPLOAD_BYTES"}},
+)
 @limiter.limit("5/minute")
 async def parse_dictionary(
     request: Request,
@@ -839,11 +1669,23 @@ async def parse_dictionary(
             detail="Dictionary parsing service not available. LLM client may not be configured."
         )
 
-    logger.info(f"Parsing dictionary file: {filename} (save_program={save_program})")
+    # File name is caller-controlled: log extension (+ size/hash below), not the name.
+    logger.info("Parsing dictionary file (ext=%s, save_program=%s)", file_extension, save_program)
 
     try:
         # Read file content
         content_bytes = await dictionary_file.read()
+
+        # Second line of defence behind MaxRequestSizeMiddleware: the LLM is
+        # called roughly once per ~4.5k tokens of this text, so the input
+        # handed to it must be bounded.
+        dictionary_limit = _max_dictionary_request_bytes()
+        if len(content_bytes) > dictionary_limit:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=_too_large_detail(dictionary_limit, "DATA_ANALYZER_MAX_DICTIONARY_UPLOAD_BYTES"),
+            )
+        fingerprint = _content_fingerprint(content_bytes)
 
         # Decode based on file type
         if file_extension == '.pdf':
@@ -857,44 +1699,40 @@ async def parse_dictionary(
             try:
                 dictionary_content = content_bytes.decode('utf-8')
             except UnicodeDecodeError:
-                # Try latin-1 as fallback
-                try:
-                    dictionary_content = content_bytes.decode('latin-1')
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to decode file: {str(e)}"
-                    )
+                # latin-1 maps every byte, so this fallback cannot fail
+                dictionary_content = content_bytes.decode('latin-1')
 
-        logger.info(f"Read {len(dictionary_content)} characters from {filename}")
+        logger.info("Read dictionary: ext=%s %s chars=%d", file_extension, fingerprint, len(dictionary_content))
 
-        # Parse dictionary and create program
         dictionary_path = Path(filename)
 
-        try:
+        def _parse_and_save():
+            # Blocking: LLM HTTP calls, tiktoken, SQLite. Runs on a worker
+            # thread (llm_action's context is propagated by run_in_threadpool).
             with llm_action("api_parse_dictionary"):
-                program = program_manager.create_program_from_dictionary(
+                kwargs = {"program_name": program_name} if (program_name and save_program) else {}
+                return program_manager.create_program_from_dictionary(
                     dictionary_content=dictionary_content,
                     dictionary_path=dictionary_path,
-                    save=save_program
+                    save=save_program,
+                    **kwargs,
                 )
-        except RuntimeError as e:
-            logger.error(f"Dictionary parsing failed: {e}")
+
+        try:
+            program = await run_in_threadpool(_parse_and_save)
+        except ProgramSaveError as e:
+            logger.error("dictionary_save_failed ext=%s %s error_class=%s", file_extension, fingerprint, type(e).__name__)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Dictionary parsing failed: {str(e)}"
+                detail="The dictionary was parsed but could not be saved, so no program was stored. "
+                       "A program with the same name may already exist."
             )
-
-        # Override name if provided
-        if program_name and save_program:
-            old_name = program.name
-            program.name = program_name
-            # Update in database
-            try:
-                program_manager.db.save_program(program)
-                logger.info(f"Updated program name from {old_name} to {program_name}")
-            except Exception as e:
-                logger.warning(f"Failed to update program name: {e}")
+        except RuntimeError as e:
+            logger.error("dictionary_parse_failed ext=%s %s error_class=%s", file_extension, fingerprint, type(e).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Dictionary parsing failed."
+            )
 
         # Calculate generation time
         generation_time = (datetime.now() - start_time).total_seconds()
@@ -913,18 +1751,20 @@ async def parse_dictionary(
             model_used=program.model_used
         )
 
-        logger.info(f"Successfully parsed dictionary: {program.name} ({program.num_fields} fields)")
+        logger.info("Successfully parsed dictionary: program_id=%s (%s fields)", program.program_id, program.num_fields)
         return response
 
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"Unexpected error parsing dictionary: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(
+            "dictionary_unexpected_error ext=%s error_class=%s\n%s",
+            file_extension, type(e).__name__, "".join(traceback.format_tb(e.__traceback__)),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}"
+            detail="Unexpected error while parsing the dictionary."
         )
 
 
@@ -964,7 +1804,8 @@ async def get_dictionary(
     - `404`: Program not found
     - `500`: Database error
     """
-    logger.info(f"Fetching dictionary: {dict_id}")
+    safe_id = _log_safe(dict_id)  # URL-decoded caller text: strip control chars, bound length
+    logger.info("Fetching dictionary: %s", safe_id)
 
     # Validate service availability
     if not program_manager:
@@ -976,50 +1817,69 @@ async def get_dictionary(
 
     try:
         # Load program from database
-        program = program_manager.db.load_program(dict_id)
+        # SQLite is blocking I/O: keep it off the event loop.
+        program = await run_in_threadpool(program_manager.db.load_program, dict_id)
 
         if not program:
-            logger.warning(f"Program not found: {dict_id}")
+            logger.warning("Program not found: %s", safe_id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Program not found: {dict_id}"
+                detail="Program not found."
             )
 
         # Check if program is deleted
         if program.status == "deleted":
-            logger.warning(f"Attempted to retrieve deleted program: {dict_id}")
+            logger.warning("Attempted to retrieve deleted program: %s", safe_id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Program '{program.name}' has been deleted"
+                detail="Program has been deleted."
             )
 
         # Convert to API model
         program_detail = convert_validation_program_to_detail(program)
 
-        logger.info(f"Successfully retrieved program: {program.name}")
+        logger.info("Successfully retrieved program: %s", program.program_id)
         return program_detail
 
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        logger.error(f"Error retrieving program: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(
+            "dictionary_lookup_error error_class=%s\n%s",
+            type(e).__name__, "".join(traceback.format_tb(e.__traceback__)),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail="Database error."
         )
 
 # ============================================================================
 # Startup and Shutdown Events
 # ============================================================================
 
+def warn_if_client_id_shared() -> bool:
+    """Log ONE warning (token client_id_shared_mode, no values) when deployed
+    without DATA_ANALYZER_TRUSTED_PROXY_HOPS: callers cannot be told apart, so the
+    wrong-key lockout runs in shared mode and rate limits are one bucket.
+    Never refuses to start. Returns True when the warning was logged."""
+    if is_deployed_env() and _trusted_proxy_hops() <= 0:
+        logger.warning(
+            "client_id_shared_mode: DATA_ANALYZER_TRUSTED_PROXY_HOPS is not set, so callers cannot be "
+            "told apart; the wrong-key lockout runs in shared mode and rate limits are one bucket "
+            "for all callers."
+        )
+        return True
+    return False
+
+
 @app.on_event("startup")
 async def startup_event():
     """Log startup information"""
+    warn_if_client_id_shared()
     logger.info("=" * 60)
     logger.info("Data Analyzer REST API starting up")
-    logger.info(f"Version: 1.0.0")
+    logger.info(f"Version: {__version__}")
     logger.info(f"Environment: {os.getenv('APP_ENV', 'development')}")
     logger.info(f"Services initialized:")
     logger.info(f"  - LLM Client: {'✓' if llm_client else '✗'}")

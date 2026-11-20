@@ -1,0 +1,157 @@
+[
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_hostile_dictionary_content_is_shown_as_text_never_as_markdown_image",
+  "name": "Data Analyzer: Hostile dictionary content is displayed as plain text, never as an image",
+  "objective": "Proves a dictionary parsed by the (fake) AI that contains image syntax pointing at an attacker address is shown harmlessly.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. The fake parser returns a field whose name, description and allowed value all contain '![beacon](https://attacker.invalid/p.png?x=1)' (made-up).",
+  "steps": [
+   {
+    "action": "Open the page and upload a text dictionary file",
+    "data": "d.txt with the bytes 'anything'",
+    "expected": "No exception; the fake parser is called once"
+   },
+   {
+    "action": "Look at every displayed text containing 'beacon'",
+    "data": "displayed text",
+    "expected": "At least one exists; none contains the raw '![beacon]'; each contains the escaped form"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_hostile_dictionary_content_is_shown_as_text_never_as_markdown_image"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_oversized_data_upload_is_refused_with_a_message",
+  "name": "Data Analyzer: Oversized data file upload is refused with a message",
+  "objective": "Proves a data file over the limit is not loaded and the user is told the limit.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. The upload limit is set to 1 MB.",
+  "steps": [
+   {
+    "action": "Upload a CSV of about 2.4 MB",
+    "data": "big.csv, 600,000 rows of '1,2'",
+    "expected": "An error mentioning 'upload limit is 1 MB' appears, and the stored data is empty"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_oversized_data_upload_is_refused_with_a_message"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_oversized_dictionary_upload_is_refused_with_a_message",
+  "name": "Data Analyzer: Oversized dictionary upload is refused with a message",
+  "objective": "Proves a dictionary file over the limit is rejected before parsing.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. The upload limit is set to 1 MB.",
+  "steps": [
+   {
+    "action": "Upload a 2 MB text dictionary",
+    "data": "big.txt, 2 MB of 'x'",
+    "expected": "An error mentioning 'upload limit is 1 MB' appears and the parser is never called"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_oversized_dictionary_upload_is_refused_with_a_message"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_pdf_over_the_page_limit_is_refused_with_a_clear_message_on_the_ai_path",
+  "name": "Data Analyzer: PDF dictionary with too many pages is refused in the AI parsing mode",
+  "objective": "Proves the PDF page limit message shows to the user in the default (AI) mode.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. PDF page limit is 2.",
+  "steps": [
+   {
+    "action": "Upload a blank 3-page PDF made in memory",
+    "data": "d.pdf, 3 pages",
+    "expected": "An error saying '3 pages; the limit is 2' appears and the AI parser is not called"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_pdf_over_the_page_limit_is_refused_with_a_clear_message_on_the_ai_path"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_pdf_over_the_page_limit_is_refused_on_the_manual_path_too",
+  "name": "Data Analyzer: PDF dictionary with too many pages is refused in manual (no AI) mode",
+  "objective": "Proves the same limit applies when AI is switched off.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. PDF page limit is 2.",
+  "steps": [
+   {
+    "action": "Upload a blank 3-page PDF, then choose 'Never use AI (manual only)' as the dictionary parsing method",
+    "data": "d.pdf, 3 pages",
+    "expected": "An error saying '3 pages; the limit is 2' appears"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_pdf_over_the_page_limit_is_refused_on_the_manual_path_too"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_a_malformed_json_dictionary_gives_a_clear_error_not_a_crash",
+  "name": "Data Analyzer: A wrongly structured JSON dictionary gives a clear on-screen error",
+  "objective": "Proves the page reports a structural problem instead of crashing.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. ",
+  "steps": [
+   {
+    "action": "Upload a JSON dictionary where 'fields' is an object instead of a list, then choose manual-only parsing",
+    "data": "{\"fields\": {\"not\": \"a list\"}}",
+    "expected": "The page raises no exception and shows an error containing 'must be a list'"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_a_malformed_json_dictionary_gives_a_clear_error_not_a_crash"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_cached_dictionary_is_not_reused_by_a_different_session",
+  "name": "Data Analyzer: A cached dictionary result is reused by its own session but not by another session",
+  "objective": "Proves cache isolation between users end to end.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. ",
+  "steps": [
+   {
+    "action": "Session 1 uploads a dictionary, then the page is re-run",
+    "data": "bytes 'same bytes'",
+    "expected": "The parser was called once in total (second time came from session 1's cache)"
+   },
+   {
+    "action": "A new session uploads identical bytes",
+    "data": "same bytes",
+    "expected": "The parser is called again (2 calls in total) and the two sessions have different session identifiers"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_cached_dictionary_is_not_reused_by_a_different_session"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_clear_cache_button_clears_only_this_sessions_entries",
+  "name": "Data Analyzer: The 'Clear my cache' button clears only the current session's cache",
+  "objective": "Proves one user's clear button leaves another user's cached result and does not show the server folder path.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. ",
+  "steps": [
+   {
+    "action": "Two sessions each upload a different dictionary ('bytes A', 'bytes B'), then session A presses 'Clear my cache'",
+    "data": "2 uploads",
+    "expected": "Session A re-parses its still-uploaded file (3 parser calls in total)"
+   },
+   {
+    "action": "Re-run session B and look at the page text",
+    "data": "session B",
+    "expected": "No new parser call (still 3); B's cache still has 1 entry; the temporary cache folder path does not appear on A's page"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_clear_cache_button_clears_only_this_sessions_entries"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_page_never_shows_a_server_path_or_a_global_cache_count",
+  "name": "Data Analyzer: Page never shows a server folder path or a global 'Clear All Cache' option",
+  "objective": "Proves the page does not reveal where files are stored on the server.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. ",
+  "steps": [
+   {
+    "action": "Upload a dictionary and read all displayed text and button labels",
+    "data": "bytes 'bytes'",
+    "expected": "The temporary cache folder path and 'Cache location' do not appear and no button reads 'Clear All Cache'"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_page_never_shows_a_server_path_or_a_global_cache_count"
+ },
+ {
+  "id": "tests.test_sec_ui_upload_flow.test_uploaded_file_names_are_not_written_to_the_logs",
+  "name": "Data Analyzer: Uploaded file names are not written to the logs",
+  "objective": "Proves names such as 'SITE-017_secret_study.txt' do not show in captured log messages.",
+  "precondition": "The page runs in a headless test harness (no browser) with the AI dictionary parser replaced by a fake, a temporary cache folder and development mode. Log capture is on at the most detailed level.",
+  "steps": [
+   {
+    "action": "Upload a dictionary file and a data file with identifiable made-up names",
+    "data": "SITE-017_secret_study.txt; SITE-017_secret_data.csv",
+    "expected": "The captured log text contains neither 'SITE-017' nor 'secret_study'. Only Python logging is captured, not text printed directly"
+   }
+  ],
+  "source": "tests/test_sec_ui_upload_flow.py::test_uploaded_file_names_are_not_written_to_the_logs"
+ }
+]
