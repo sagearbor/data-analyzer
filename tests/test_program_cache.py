@@ -107,8 +107,8 @@ def sample_fhir_dict():
 
 @pytest.fixture
 def mock_env_admin_password(monkeypatch):
-    """Set ADMIN_PW environment variable"""
-    monkeypatch.setenv("ADMIN_PW", "testAdminPassword123")
+    """Set the documented DATA_ANALYZER_ADMIN_PASSWORD environment variable"""
+    monkeypatch.setenv("DATA_ANALYZER_ADMIN_PASSWORD", "testAdminPassword123")
     return "testAdminPassword123"
 
 
@@ -662,7 +662,7 @@ class TestProgramDatabase:
 
     @pytest.mark.unit
     def test_verify_admin_env_variable(self, db_instance, mock_env_admin_password):
-        """Test _verify_admin() uses ADMIN_PW environment variable"""
+        """Test _verify_admin() uses the DATA_ANALYZER_ADMIN_PASSWORD environment variable"""
         # Should return True with correct password
         assert db_instance._verify_admin(mock_env_admin_password) is True
 
@@ -670,13 +670,15 @@ class TestProgramDatabase:
         assert db_instance._verify_admin("incorrect-password") is False
 
     @pytest.mark.unit
-    def test_verify_admin_default_password(self, db_instance, monkeypatch):
-        """Test _verify_admin() with default password when ADMIN_PW not set"""
+    def test_verify_admin_refuses_everything_when_password_not_configured(self, db_instance, monkeypatch):
+        """With no admin password configured there is no default: every attempt
+        is refused (formerly the hardcoded default password was accepted)."""
+        monkeypatch.delenv("DATA_ANALYZER_ADMIN_PASSWORD", raising=False)
         monkeypatch.delenv("ADMIN_PW", raising=False)
 
-        # Should use default password "dataAnalyzerAdmin666"
-        assert db_instance._verify_admin("dataAnalyzerAdmin666") is True
+        assert db_instance._verify_admin("dataAnalyzerAdmin666") is False
         assert db_instance._verify_admin("wrong-password") is False
+        assert db_instance._verify_admin("") is False
 
 
 # ============================================================================

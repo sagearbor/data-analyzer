@@ -25,6 +25,13 @@ from src.llm_client import LLMDictionaryParser
 logger = logging.getLogger(__name__)
 
 
+class ProgramSaveError(RuntimeError):
+    """The program was built but could not be stored (e.g. duplicate name).
+
+    Raised instead of returning a program whose id was never persisted.
+    """
+
+
 class ProgramManager:
     """High-level interface for program management.
 
@@ -64,7 +71,8 @@ class ProgramManager:
         self,
         dictionary_content: str,
         dictionary_path: Optional[Path] = None,
-        save: bool = True
+        save: bool = True,
+        program_name: Optional[str] = None
     ) -> ValidationProgram:
         """
         Full pipeline: Parse dictionary → Extract rules → Generate code → Save program
@@ -80,12 +88,16 @@ class ProgramManager:
             dictionary_content: Raw text content of the dictionary
             dictionary_path: Optional path to dictionary file (for naming)
             save: Whether to save program to database
+            program_name: Optional caller-chosen name used instead of the
+                auto-generated one, so it is stored by the single INSERT (no
+                second write that could silently fail)
 
         Returns:
             ValidationProgram with auto-generated name and metadata
 
         Raises:
             RuntimeError: If LLM client is not available
+            ProgramSaveError: If save=True and the program could not be stored
             Exception: If dictionary parsing fails
         """
         if self.llm is None:
@@ -111,8 +123,11 @@ class ProgramManager:
         logger.debug(f"Dictionary hash: {dict_hash}")
 
         # 3. Generate meaningful name
-        name = self._generate_name(parsed, dictionary_path)
-        logger.info(f"Generated program name: {name}")
+        if program_name and program_name.strip():
+            name = program_name.strip()[:200]
+        else:
+            name = self._generate_name(parsed, dictionary_path)
+        logger.info("Program name chosen (%d chars)", len(name))
 
         # 4. Build ValidationProgram object
         program = ValidationProgram(
@@ -137,13 +152,18 @@ class ProgramManager:
         # 5. Save to database
         if save:
             try:
-                self.db.save_program(program)
-                logger.info(f"Created and saved program: {program.name} (ID: {program.program_id})")
+                saved = self.db.save_program(program)
             except Exception as e:
-                logger.error(f"Failed to save program: {e}")
-                raise
+                logger.error("Failed to save program: %s", type(e).__name__)
+                raise ProgramSaveError("Program could not be saved") from e
+            if saved is False:
+                # save_program reports duplicate names / I/O errors as False;
+                # never hand back an id that was not stored.
+                logger.error("Program %s was not saved (database refused it)", program.program_id)
+                raise ProgramSaveError("Program could not be saved (name may already exist)")
+            logger.info("Created and saved program %s", program.program_id)
         else:
-            logger.info(f"Created program (not saved): {program.name}")
+            logger.info("Created program (not saved): %s", program.program_id)
 
         return program
 

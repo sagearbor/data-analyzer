@@ -154,42 +154,54 @@ class TestAdminPasswordAuthentication:
         assert result == "test-admin-password-67890"
 
     def test_no_admin_auth_configured(self, client_no_auth):
-        """When admin password not configured, authentication should be disabled"""
+        """When the admin password is not configured, admin access is REFUSED
+        (503), never silently allowed (formerly returned "unauthenticated")."""
         from api_server import verify_admin_password
+        from fastapi import HTTPException
 
         import asyncio
-        result = asyncio.run(verify_admin_password(admin_password=None))
-        assert result == "unauthenticated"
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(verify_admin_password(admin_password=None))
+        assert exc_info.value.status_code == 503
 
 
 class TestSecurityHeaders:
     """Test that proper WWW-Authenticate headers are returned"""
 
-    def test_api_key_401_header(self, client):
+    def test_api_key_401_header(self, client, monkeypatch):
         """401 response should include WWW-Authenticate header for API key"""
+        import api_server
         from api_server import verify_api_key
         from fastapi import HTTPException
 
-        import asyncio
-        try:
-            asyncio.run(verify_api_key(api_key=None))
-        except HTTPException as e:
-            assert e.status_code == 401
-            assert "WWW-Authenticate" in e.headers
-            assert e.headers["WWW-Authenticate"] == "ApiKey"
+        monkeypatch.setattr(api_server, "API_KEY", os.environ["DATA_ANALYZER_API_KEY"])  # the fake value pinned in conftest.py
 
-    def test_admin_password_401_header(self, client):
+        import asyncio
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(verify_api_key(api_key=None))
+        e = exc_info.value
+        assert e.status_code == 401
+        assert "WWW-Authenticate" in e.headers
+        assert e.headers["WWW-Authenticate"] == "ApiKey"
+
+    def test_admin_password_401_header(self, client, monkeypatch):
         """401 response should include WWW-Authenticate header for admin"""
+        import api_server
         from api_server import verify_admin_password
         from fastapi import HTTPException
 
+        # Pin the configured password: earlier tests reload api_server with a
+        # cleared environment, and an unconfigured admin password now yields
+        # 503 instead of 401, which the old try/except silently tolerated.
+        monkeypatch.setattr(api_server, "ADMIN_PASSWORD", "test-admin-password-67890")
+
         import asyncio
-        try:
+        with pytest.raises(HTTPException) as exc_info:
             asyncio.run(verify_admin_password(admin_password=None))
-        except HTTPException as e:
-            assert e.status_code == 401
-            assert "WWW-Authenticate" in e.headers
-            assert e.headers["WWW-Authenticate"] == "AdminPassword"
+        e = exc_info.value
+        assert e.status_code == 401
+        assert "WWW-Authenticate" in e.headers
+        assert e.headers["WWW-Authenticate"] == "AdminPassword"
 
 
 class TestErrorMessages:

@@ -409,7 +409,11 @@ class QualityAnalysisResponse(BaseModel):
 
     Attributes:
         summary: Top-line counts and completeness percentage
-        issues: One entry per violation/missing-value finding
+        issues: One entry per violation/missing-value finding (capped; see
+            issues_truncated)
+        issues_total: Total issues found, including any beyond the cap
+        issues_returned: Number of entries in `issues`
+        issues_truncated: True when the list was cut at the server's cap
         recommendations: Suggested next steps based on the issues found
         quality_checks: Raw per-check results from QualityPipeline
             (row_count, data_types, value_ranges), for callers that want the
@@ -419,6 +423,18 @@ class QualityAnalysisResponse(BaseModel):
     """
     summary: QualityAnalysisSummary = Field(description="Top-line summary metrics")
     issues: List[QualityIssue] = Field(default=[], description="Issues found")
+    issues_total: Optional[int] = Field(
+        default=None,
+        description="Total number of issues found, including any not returned in `issues`",
+    )
+    issues_returned: Optional[int] = Field(
+        default=None, description="Number of issues actually returned in `issues`"
+    )
+    issues_truncated: bool = Field(
+        default=False,
+        description="True when `issues` was cut at the server's limit "
+                    "(DATA_ANALYZER_MAX_ISSUES_RETURNED); `issues_total` is the real count",
+    )
     recommendations: List[QualityRecommendation] = Field(
         default=[], description="Suggested next steps"
     )

@@ -35,8 +35,43 @@ import mcp.types as types
 #   results = pipeline.run_all_checks()
 # ============================================================================
 
+class DataTooLargeError(ValueError):
+    """Raised when a dataset exceeds a configured size/dimension limit.
+
+    The message is built only from our own limit names and numbers (never from
+    file content), so it is safe to show to a caller.
+    """
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive integer limit from the environment (default if unset/bad)."""
+    try:
+        value = int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+# Defaults for the dataset-shape limits (each overridable by env var; read at
+# call time so a deployment can change them without re-importing this module).
+DEFAULT_MAX_ROWS = 1_000_000
+DEFAULT_MAX_COLUMNS = 2_000
+DEFAULT_MAX_EXCEL_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+DEFAULT_MAX_EXCEL_SHEETS = 50
+DEFAULT_MAX_EXCEL_ARCHIVE_MEMBERS = 2_000
+
+
 class DataLoader:
-    """Load and validate data files (CSV, JSON, Excel, Parquet)"""
+    """Load and validate data files (CSV, JSON, Excel, Parquet).
+
+    Content-only by default: a ``str`` argument is ALWAYS treated as data
+    (CSV/JSON text), never as a local file path, so content supplied by a
+    network/agent caller can never make the server read one of its own files.
+    Trusted local callers (CLI, tests) that really want to read a file use
+    ``DataLoader.load_local_file(path, file_format)``, which is the only entry
+    point that opens paths. MCP tool handlers, analysis_service and the A2A
+    agent must never call it.
+    """
 
     # Defense-in-depth against memory-exhaustion DoS: reject in-memory payloads
     # larger than this before handing them to pandas. Override via env var if a
@@ -53,35 +88,141 @@ class DataLoader:
                 f"({DataLoader.MAX_CONTENT_BYTES} bytes)"
             )
 
+    # ------------------------------------------------------------------
+    # Dataset-shape limits (rows / columns / Excel decompression)
+    # ------------------------------------------------------------------
+
     @staticmethod
-    def load_csv(file_path_or_content: Union[str, bytes, io.StringIO], **kwargs) -> pd.DataFrame:
-        """Load CSV from file path, bytes, or StringIO"""
+    def max_rows() -> int:
+        """Row cap (DATA_ANALYZER_MAX_ROWS, default 1,000,000)."""
+        return _env_int("DATA_ANALYZER_MAX_ROWS", DEFAULT_MAX_ROWS)
+
+    @staticmethod
+    def max_columns() -> int:
+        """Column cap (DATA_ANALYZER_MAX_COLUMNS, default 2,000)."""
+        return _env_int("DATA_ANALYZER_MAX_COLUMNS", DEFAULT_MAX_COLUMNS)
+
+    @staticmethod
+    def check_dataframe_limits(df: pd.DataFrame) -> pd.DataFrame:
+        """Raise DataTooLargeError if ``df`` has too many rows or columns."""
+        max_rows, max_cols = DataLoader.max_rows(), DataLoader.max_columns()
+        if len(df) > max_rows:
+            raise DataTooLargeError(
+                f"Dataset has more than the allowed {max_rows} rows "
+                "(DATA_ANALYZER_MAX_ROWS)."
+            )
+        if len(df.columns) > max_cols:
+            raise DataTooLargeError(
+                f"Dataset has {len(df.columns)} columns; the allowed maximum is "
+                f"{max_cols} (DATA_ANALYZER_MAX_COLUMNS)."
+            )
+        return df
+
+    @staticmethod
+    def check_excel_archive(content: bytes) -> None:
+        """Refuse an .xlsx whose DECOMPRESSED size or sheet dimensions are too big.
+
+        An .xlsx is a zip: the upload-size check only sees the compressed size,
+        so a small file can expand enormously. This inspects the zip directory
+        (no decompression) for the declared uncompressed sizes and member
+        count, and reads only the first bytes of each worksheet for its
+        ``<dimension ref="A1:Z9999"/>`` so oversize sheets are refused before
+        openpyxl materialises them. Non-zip content (legacy .xls) is left to the
+        post-load row/column check. Limits: DATA_ANALYZER_MAX_EXCEL_UNCOMPRESSED_BYTES,
+        DATA_ANALYZER_MAX_EXCEL_SHEETS, DATA_ANALYZER_MAX_EXCEL_ARCHIVE_MEMBERS,
+        DATA_ANALYZER_MAX_ROWS, DATA_ANALYZER_MAX_COLUMNS.
+        """
+        import re  # noqa: PLC0415
+        import zipfile  # noqa: PLC0415
+
+        if not zipfile.is_zipfile(io.BytesIO(content)):
+            return
+        max_bytes = _env_int(
+            "DATA_ANALYZER_MAX_EXCEL_UNCOMPRESSED_BYTES", DEFAULT_MAX_EXCEL_UNCOMPRESSED_BYTES
+        )
+        max_sheets = _env_int("DATA_ANALYZER_MAX_EXCEL_SHEETS", DEFAULT_MAX_EXCEL_SHEETS)
+        max_members = _env_int(
+            "DATA_ANALYZER_MAX_EXCEL_ARCHIVE_MEMBERS", DEFAULT_MAX_EXCEL_ARCHIVE_MEMBERS
+        )
+        max_rows, max_cols = DataLoader.max_rows(), DataLoader.max_columns()
+
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            infos = zf.infolist()
+            if len(infos) > max_members:
+                raise DataTooLargeError(
+                    f"Excel file contains {len(infos)} internal parts; the allowed "
+                    f"maximum is {max_members} (DATA_ANALYZER_MAX_EXCEL_ARCHIVE_MEMBERS)."
+                )
+            total = sum(i.file_size for i in infos)
+            if total > max_bytes:
+                raise DataTooLargeError(
+                    f"Excel file expands to {total} bytes uncompressed; the allowed "
+                    f"maximum is {max_bytes} (DATA_ANALYZER_MAX_EXCEL_UNCOMPRESSED_BYTES)."
+                )
+            sheets = [i for i in infos if re.match(r"xl/worksheets/[^/]+\.xml$", i.filename)]
+            if len(sheets) > max_sheets:
+                raise DataTooLargeError(
+                    f"Excel file has {len(sheets)} sheets; the allowed maximum is "
+                    f"{max_sheets} (DATA_ANALYZER_MAX_EXCEL_SHEETS)."
+                )
+            dim_re = re.compile(rb'<dimension\s+ref="([A-Za-z]+)(\d+)?(?::([A-Za-z]+)(\d+))?"')
+            for info in sheets:
+                with zf.open(info) as fh:
+                    head = fh.read(4096)
+                m = dim_re.search(head)
+                if not m:
+                    continue
+                last_col = (m.group(3) or m.group(1)).decode().upper()
+                last_row = int(m.group(4) or m.group(2) or 1)
+                col_num = 0
+                for ch in last_col:
+                    col_num = col_num * 26 + (ord(ch) - 64)
+                if last_row > max_rows or col_num > max_cols:
+                    raise DataTooLargeError(
+                        f"An Excel sheet spans {last_row} rows x {col_num} columns; the "
+                        f"allowed maximum is {max_rows} rows x {max_cols} columns "
+                        "(DATA_ANALYZER_MAX_ROWS / DATA_ANALYZER_MAX_COLUMNS)."
+                    )
+
+    @staticmethod
+    def load_csv(file_path_or_content: Union[str, bytes, io.StringIO], *,
+                 allow_paths: bool = False, **kwargs) -> pd.DataFrame:
+        """Load CSV from bytes, text or StringIO.
+
+        A ``str`` is CSV text unless ``allow_paths=True`` (trusted local use
+        only; see ``load_local_file``), in which case an existing path is read.
+        """
         try:
             DataLoader._check_size(file_path_or_content)
+            max_rows = DataLoader.max_rows()
+            kwargs.setdefault("nrows", max_rows + 1)  # bound memory on huge row counts
             if isinstance(file_path_or_content, bytes):
                 # Decode bytes to string and create StringIO
                 content = file_path_or_content.decode('utf-8')
                 if not content.strip():
                     # Return empty DataFrame for empty content
                     return pd.DataFrame()
-                return pd.read_csv(io.StringIO(content), **kwargs)
+                df = pd.read_csv(io.StringIO(content), **kwargs)
             elif isinstance(file_path_or_content, str):
-                if os.path.exists(file_path_or_content):
-                    return pd.read_csv(file_path_or_content, **kwargs)
+                if allow_paths and os.path.exists(file_path_or_content):
+                    df = pd.read_csv(file_path_or_content, **kwargs)
                 else:
                     # Treat as CSV content string
                     if not file_path_or_content.strip():
                         # Return empty DataFrame for empty content
                         return pd.DataFrame()
-                    return pd.read_csv(io.StringIO(file_path_or_content), **kwargs)
+                    df = pd.read_csv(io.StringIO(file_path_or_content), **kwargs)
             else:
-                return pd.read_csv(file_path_or_content, **kwargs)
+                df = pd.read_csv(file_path_or_content, **kwargs)
+            return DataLoader.check_dataframe_limits(df)
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load CSV: {str(e)}")
     
     @staticmethod
     def detect_encoding(file_path: str) -> str:
-        """Detect file encoding for text files"""
+        """Detect file encoding for text files (trusted local paths only)"""
         import chardet
         try:
             with open(file_path, 'rb') as f:
@@ -91,8 +232,12 @@ class DataLoader:
             return 'utf-8'
 
     @staticmethod
-    def load_json(file_path_or_content: Union[str, bytes, dict], max_depth: int = 5) -> pd.DataFrame:
-        """Load JSON data and flatten nested structures up to max_depth levels"""
+    def load_json(file_path_or_content: Union[str, bytes, dict], max_depth: int = 5,
+                  *, allow_paths: bool = False) -> pd.DataFrame:
+        """Load JSON data and flatten nested structures up to max_depth levels.
+
+        A ``str`` is JSON text unless ``allow_paths=True`` (trusted local use).
+        """
         try:
             if isinstance(file_path_or_content, (bytes, str)):
                 DataLoader._check_size(file_path_or_content)
@@ -102,7 +247,7 @@ class DataLoader:
             elif isinstance(file_path_or_content, bytes):
                 json_data = json.loads(file_path_or_content.decode('utf-8'))
             elif isinstance(file_path_or_content, str):
-                if os.path.exists(file_path_or_content):
+                if allow_paths and os.path.exists(file_path_or_content):
                     with open(file_path_or_content, 'r', encoding='utf-8') as f:
                         json_data = json.load(f)
                 else:
@@ -131,20 +276,34 @@ class DataLoader:
                 # Single value - wrap in dataframe
                 df = pd.DataFrame([json_data])
 
-            return df
+            return DataLoader.check_dataframe_limits(df)
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load JSON: {str(e)}")
 
     @staticmethod
-    def load_excel(file_path_or_content: Union[str, bytes], sheet_name: Optional[str] = None) -> pd.DataFrame:
-        """Load Excel file (.xlsx or .xls), combining all sheets if sheet_name not specified"""
+    def load_excel(file_path_or_content: Union[str, bytes], sheet_name: Optional[str] = None,
+                   *, allow_paths: bool = False) -> pd.DataFrame:
+        """Load Excel file (.xlsx or .xls), combining all sheets if sheet_name not specified.
+
+        Bytes are the normal input. A ``str`` is only accepted (as a path) with
+        ``allow_paths=True`` (trusted local use). Decompressed size, sheet
+        count and sheet dimensions are bounded before loading (see
+        ``check_excel_archive``) and rows/columns after.
+        """
         try:
             if isinstance(file_path_or_content, bytes):
                 DataLoader._check_size(file_path_or_content)
+                DataLoader.check_excel_archive(file_path_or_content)
                 # Load from bytes
                 excel_file = pd.ExcelFile(io.BytesIO(file_path_or_content))
-            elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
-                # Load from file path
+            elif allow_paths and isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
+                # Load from file path (trusted local callers only)
+                with open(file_path_or_content, "rb") as fh:
+                    raw = fh.read(DataLoader.MAX_CONTENT_BYTES + 1)
+                DataLoader._check_size(raw)
+                DataLoader.check_excel_archive(raw)
                 excel_file = pd.ExcelFile(file_path_or_content)
             else:
                 raise ValueError("Excel file not found or invalid input")
@@ -156,58 +315,90 @@ class DataLoader:
                 # Load specific sheet
                 if sheet_name not in sheet_names:
                     raise ValueError(f"Sheet '{sheet_name}' not found. Available sheets: {sheet_names}")
-                return pd.read_excel(excel_file, sheet_name=sheet_name)
+                return DataLoader.check_dataframe_limits(
+                    pd.read_excel(excel_file, sheet_name=sheet_name)
+                )
             else:
                 # Load and combine all sheets
                 dfs = []
+                total_rows = 0
                 for name in sheet_names:
                     df = pd.read_excel(excel_file, sheet_name=name)
+                    total_rows += len(df)
+                    if total_rows > DataLoader.max_rows():
+                        raise DataTooLargeError(
+                            f"Excel sheets together have more than the allowed "
+                            f"{DataLoader.max_rows()} rows (DATA_ANALYZER_MAX_ROWS)."
+                        )
                     df['_sheet_name'] = name  # Add sheet identifier
                     dfs.append(df)
 
                 if len(dfs) == 1:
                     # Single sheet, remove sheet identifier
-                    return dfs[0].drop('_sheet_name', axis=1)
+                    return DataLoader.check_dataframe_limits(dfs[0].drop('_sheet_name', axis=1))
                 else:
                     # Multiple sheets, concatenate with sheet identifier
-                    return pd.concat(dfs, ignore_index=True)
+                    return DataLoader.check_dataframe_limits(pd.concat(dfs, ignore_index=True))
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load Excel: {str(e)}")
 
     @staticmethod
-    def load_parquet(file_path_or_content: Union[str, bytes]) -> pd.DataFrame:
-        """Load Parquet file"""
+    def load_parquet(file_path_or_content: Union[str, bytes], *, allow_paths: bool = False) -> pd.DataFrame:
+        """Load Parquet from bytes (a ``str`` path only with ``allow_paths=True``)."""
         try:
             if isinstance(file_path_or_content, bytes):
                 DataLoader._check_size(file_path_or_content)
                 # Load from bytes
-                return pd.read_parquet(io.BytesIO(file_path_or_content))
-            elif isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
-                # Load from file path
-                return pd.read_parquet(file_path_or_content)
+                return DataLoader.check_dataframe_limits(
+                    pd.read_parquet(io.BytesIO(file_path_or_content))
+                )
+            elif allow_paths and isinstance(file_path_or_content, str) and os.path.exists(file_path_or_content):
+                # Load from file path (trusted local callers only)
+                return DataLoader.check_dataframe_limits(pd.read_parquet(file_path_or_content))
             else:
                 raise ValueError("Parquet file not found or invalid input")
+        except DataTooLargeError:
+            raise
         except Exception as e:
             raise ValueError(f"Failed to load Parquet: {str(e)}")
 
     @staticmethod
     def load_data(file_path_or_content: Union[str, bytes, io.StringIO, dict],
-                  file_format: str = "csv", **kwargs) -> pd.DataFrame:
-        """Load data from various formats"""
+                  file_format: str = "csv", *, allow_paths: bool = False, **kwargs) -> pd.DataFrame:
+        """Load data from various formats.
+
+        Content-only unless ``allow_paths=True``; prefer ``load_local_file``
+        for trusted local paths.
+        """
         format_lower = file_format.lower()
 
         if format_lower == "csv":
-            return DataLoader.load_csv(file_path_or_content, **kwargs)
+            return DataLoader.load_csv(file_path_or_content, allow_paths=allow_paths, **kwargs)
         elif format_lower == "json":
             max_depth = kwargs.pop('max_depth', 5)
-            return DataLoader.load_json(file_path_or_content, max_depth=max_depth)
+            return DataLoader.load_json(file_path_or_content, max_depth=max_depth, allow_paths=allow_paths)
         elif format_lower in ["excel", "xlsx", "xls"]:
             sheet_name = kwargs.pop('sheet_name', None)
-            return DataLoader.load_excel(file_path_or_content, sheet_name=sheet_name)
+            return DataLoader.load_excel(file_path_or_content, sheet_name=sheet_name, allow_paths=allow_paths)
         elif format_lower == "parquet":
-            return DataLoader.load_parquet(file_path_or_content)
+            return DataLoader.load_parquet(file_path_or_content, allow_paths=allow_paths)
         else:
             raise ValueError(f"Unsupported file format: {file_format}. Supported: CSV, JSON, Excel, Parquet")
+
+    @staticmethod
+    def load_local_file(path: Union[str, "os.PathLike[str]"], file_format: str = "csv", **kwargs) -> pd.DataFrame:
+        """TRUSTED local-file loader for the CLI / Streamlit app / tests.
+
+        Reads ``path`` from this machine's filesystem. Never pass a value that
+        came from a remote caller (MCP tool arguments, A2A payloads, HTTP
+        requests) - those must go through the content-only loaders above.
+        """
+        path_str = os.fspath(path)
+        if not os.path.isfile(path_str):
+            raise ValueError(f"File not found: {os.path.basename(path_str)}")
+        return DataLoader.load_data(path_str, file_format, allow_paths=True, **kwargs)
 
 class DataDictionaryParser:
     """Parse REDCap-style data dictionaries to extract schema and validation rules"""

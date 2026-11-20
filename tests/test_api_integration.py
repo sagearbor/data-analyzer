@@ -492,8 +492,9 @@ class TestFileSizeLimits:
         files = {"dictionary_file": ("empty.csv", "", "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
 
-        # Should return error
-        assert response.status_code in [400, 500, 503]
+        # The (mocked) parser failure is reported as a 500 with a fixed message
+        assert response.status_code == 500
+        assert response.json()["error"] == "Dictionary parsing failed."
 
 
 # ============================================================================

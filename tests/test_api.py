@@ -205,9 +205,11 @@ class TestAnalyzeEndpoint:
         assert response.status_code == 200
 
         result = response.json()
-        # Response shape matches web_app.py's DataQualityAnalyzer contract
+        # Response shape matches web_app.py's DataQualityAnalyzer contract,
+        # plus the additive issue-cap fields (issues_total/_returned/_truncated)
         assert set(result.keys()) == {
-            "summary", "issues", "recommendations", "quality_checks", "summary_stats"
+            "summary", "issues", "recommendations", "quality_checks", "summary_stats",
+            "issues_total", "issues_returned", "issues_truncated",
         }
 
         summary = result["summary"]
@@ -568,7 +570,8 @@ class TestDictionaryParseEndpoint:
         files = {"dictionary_file": ("test.csv", sample_dictionary_csv, "text/csv")}
         data = {"save_program": "true", "program_name": "my-custom-program"}
         response = client.post("/api/v1/dictionary/parse", files=files, data=data, headers=api_headers)
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
+        assert mock_pm.create_program_from_dictionary.call_args.kwargs["program_name"] == "my-custom-program"
 
     @patch('api_server.program_manager')
     def test_parse_dictionary_empty_file(self, mock_pm, client, api_headers):
@@ -579,8 +582,9 @@ class TestDictionaryParseEndpoint:
 
         files = {"dictionary_file": ("empty.csv", b"", "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
-        # Empty file might be handled differently - check for error
-        assert response.status_code in [400, 500, 503]
+        # The (mocked) parser failure is reported as a 500 with a fixed message
+        assert response.status_code == 500
+        assert response.json()["error"] == "Dictionary parsing failed."
 
     @patch('api_server.program_manager')
     def test_parse_dictionary_malformed_csv(self, mock_pm, client, api_headers):
@@ -592,8 +596,9 @@ class TestDictionaryParseEndpoint:
         malformed_csv = "incomplete,header\nrow1,value1,extra_value\nrow2"
         files = {"dictionary_file": ("bad.csv", malformed_csv, "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
-        # Should fail parsing
-        assert response.status_code in [400, 500, 503]
+        # The (mocked) parser failure is reported as a 500 with a fixed message
+        assert response.status_code == 500
+        assert response.json()["error"] == "Dictionary parsing failed."
 
 
 # ============================================================================
