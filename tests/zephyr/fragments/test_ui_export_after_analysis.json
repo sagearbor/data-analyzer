@@ -1,0 +1,139 @@
+[
+ {
+  "id": "tests.test_ui_export_after_analysis.test_export_appears_in_the_same_run_that_completes_the_analysis",
+  "name": "Data Analyzer: The Export section appears as soon as an analysis completes",
+  "objective": "Proves the user does not need an extra click or reload to see the export controls after running an analysis.",
+  "precondition": "Web page loaded in the offline test harness. No network: the AI dictionary reader is replaced by a canned four-field dictionary (gender, pregnant with a valid show-only-if rule, smoker with an invalid show-only-if rule, age as integer with maximum 100), and the page's call to the analysis service is replaced by a canned answer reporting 1 range-violation issue. Private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary file and a made-up 2-row CSV (gender Male/Female, pregnant 1/blank, smoker n/n, age 500/30). Check the page before analysing.",
+    "data": "Loaded files, no analysis yet",
+    "expected": "No Export heading and no 'Choose format:' selector are shown."
+   },
+   {
+    "action": "Press Run analysis.",
+    "data": "Run analysis button",
+    "expected": "No exception; a success message containing 'Analysis complete' is shown; the Export heading and format selector are shown; exactly one download button exists."
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_export_appears_in_the_same_run_that_completes_the_analysis"
+ },
+ {
+  "id": "tests.test_ui_export_after_analysis.test_the_default_export_choice_leaves_a_download_button_visible_and_json_is_reachable",
+  "name": "Data Analyzer: Excel is the default download and JSON is one selection away",
+  "objective": "Proves the default format is Excel with highlighting, its download button is visible, and choosing JSON changes the button to a JSON download.",
+  "precondition": "Web page loaded in the offline test harness. No network: the AI dictionary reader is replaced by a canned four-field dictionary (gender, pregnant with a valid show-only-if rule, smoker with an invalid show-only-if rule, age as integer with maximum 100), and the page's call to the analysis service is replaced by a canned answer reporting 1 range-violation issue. Private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary file and a made-up 2-row CSV (gender Male/Female, pregnant 1/blank, smoker n/n, age 500/30). Press Run analysis.",
+    "data": "Run analysis button",
+    "expected": "The format selector shows 'Excel with highlighting' and the download button label ends with 'Download Excel'."
+   },
+   {
+    "action": "Choose 'JSON report' in the selector.",
+    "data": "JSON report",
+    "expected": "The download button label now ends with 'Download JSON'."
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_the_default_export_choice_leaves_a_download_button_visible_and_json_is_reachable"
+ },
+ {
+  "id": "tests.test_ui_export_after_analysis.test_messages_and_warnings_still_appear_with_the_export",
+  "name": "Data Analyzer: Warnings and issue sections still show alongside the export",
+  "objective": "Proves adding the export did not hide the partial-result warning or the issue list.",
+  "precondition": "Web page loaded in the offline test harness. No network: the AI dictionary reader is replaced by a canned four-field dictionary (gender, pregnant with a valid show-only-if rule, smoker with an invalid show-only-if rule, age as integer with maximum 100), and the page's call to the analysis service is replaced by a canned answer reporting 1 range-violation issue. Private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary file and a made-up 2-row CSV (gender Male/Female, pregnant 1/blank, smoker n/n, age 500/30). Press Run analysis.",
+    "data": "Run analysis button",
+    "expected": "A warning contains 'Partial result' and '1 of 2' (1 of 2 rules could not be checked), and a section heading beginning 'Range Violation' exists."
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_messages_and_warnings_still_appear_with_the_export"
+ },
+ {
+  "id": "tests.test_ui_export_after_analysis.test_a_failed_analysis_shows_its_error_and_no_export_for_the_previous_result",
+  "name": "Data Analyzer: A failed analysis shows its error and does not offer the previous result for export",
+  "objective": "Proves a user cannot download a stale result after the latest run failed.",
+  "precondition": "Web page loaded in the offline test harness. No network: the AI dictionary reader is replaced by a canned four-field dictionary (gender, pregnant with a valid show-only-if rule, smoker with an invalid show-only-if rule, age as integer with maximum 100), and the page's call to the analysis service is replaced by a canned answer reporting 1 range-violation issue. Private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary file and a made-up 2-row CSV (gender Male/Female, pregnant 1/blank, smoker n/n, age 500/30). Press Run analysis once.",
+    "data": "Successful canned answer",
+    "expected": "Export controls are visible."
+   },
+   {
+    "action": "Make the service answer with an error (HTTP 500) and press Run analysis again.",
+    "data": "Failure answer 'synthetic failure'",
+    "expected": "An error containing 'Analysis failed' is shown; the Export section is gone; the stored results are empty; the 'Analysis Summary' heading is not shown."
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_a_failed_analysis_shows_its_error_and_no_export_for_the_previous_result"
+ },
+ {
+  "id": "tests.test_ui_export_after_analysis.test_changing_the_data_clears_the_old_results_and_their_export",
+  "name": "Data Analyzer: Uploading different data clears the old results and the export",
+  "objective": "Proves old results are never shown against new data.",
+  "precondition": "Web page loaded in the offline test harness. No network: the AI dictionary reader is replaced by a canned four-field dictionary (gender, pregnant with a valid show-only-if rule, smoker with an invalid show-only-if rule, age as integer with maximum 100), and the page's call to the analysis service is replaced by a canned answer reporting 1 range-violation issue. Private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary file and a made-up 2-row CSV (gender Male/Female, pregnant 1/blank, smoker n/n, age 500/30). Press Run analysis.",
+    "data": "Successful canned answer",
+    "expected": "Export controls are visible."
+   },
+   {
+    "action": "Upload a different made-up 1-row CSV in place of the first.",
+    "data": "1 row: Male, blank, n, age 5",
+    "expected": "Stored results are empty, the Export section is gone, and an information note says 'results were cleared'. (Only the data change is tested, not a dictionary change.)"
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_changing_the_data_clears_the_old_results_and_their_export"
+ },
+ {
+  "id": "tests.test_ui_export_after_analysis.test_the_page_is_stable_across_reruns_without_a_change",
+  "name": "Data Analyzer: The results and export stay put when the page redraws",
+  "objective": "Proves a plain page refresh without any change keeps the results and export.",
+  "precondition": "Web page loaded in the offline test harness. No network: the AI dictionary reader is replaced by a canned four-field dictionary (gender, pregnant with a valid show-only-if rule, smoker with an invalid show-only-if rule, age as integer with maximum 100), and the page's call to the analysis service is replaced by a canned answer reporting 1 range-violation issue. Private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary file and a made-up 2-row CSV (gender Male/Female, pregnant 1/blank, smoker n/n, age 500/30). Press Run analysis, then let the page redraw once with no input.",
+    "data": "No change",
+    "expected": "Export controls are still visible and the stored results are still present."
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_the_page_is_stable_across_reruns_without_a_change"
+ },
+ {
+  "id": "tests.test_ui_export_after_analysis.test_the_excel_export_for_the_current_results_has_data_issues_and_rule_coverage_sheets",
+  "name": "Data Analyzer: The Excel export has Data, Issues and Rule coverage sheets",
+  "objective": "Proves the Excel file built from the current results contains the three sheets and states that 1 of 2 rules could not be checked.",
+  "precondition": "No page and no network: the analysis routine is run directly on the made-up table with the service call replaced by a canned answer.",
+  "steps": [
+   {
+    "action": "Run the analysis on the made-up table and build the Excel file from its results.",
+    "data": "2 rows, 4 fields as above",
+    "expected": "The file opens and has sheets named Data, Issues and Rule coverage."
+   },
+   {
+    "action": "Read all text on the Rule coverage sheet.",
+    "data": "Rule coverage sheet",
+    "expected": "It contains 'PARTIAL - 1 of 2 rules could not be checked'."
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_the_excel_export_for_the_current_results_has_data_issues_and_rule_coverage_sheets"
+ },
+ {
+  "id": "tests.test_ui_export_after_analysis.test_the_json_export_parses_and_carries_the_same_issue_total_as_the_page",
+  "name": "Data Analyzer: The JSON export is valid and shows the same issue total as the page",
+  "objective": "Proves the JSON content matches what the user sees. The test builds the JSON text itself from the stored results rather than pressing the download button.",
+  "precondition": "Web page loaded in the offline test harness. No network: the AI dictionary reader is replaced by a canned four-field dictionary (gender, pregnant with a valid show-only-if rule, smoker with an invalid show-only-if rule, age as integer with maximum 100), and the page's call to the analysis service is replaced by a canned answer reporting 1 range-violation issue. Private temporary cache folder.",
+  "steps": [
+   {
+    "action": "Upload a dummy dictionary file and a made-up 2-row CSV (gender Male/Female, pregnant 1/blank, smoker n/n, age 500/30). Press Run analysis, then turn the stored results into JSON text and read it back.",
+    "data": "Stored analysis results",
+    "expected": "The JSON parses; its issues-found figure equals the page's 'Issues Found' figure; and its rule coverage reports 1 rule not checked."
+   }
+  ],
+  "source": "tests/test_ui_export_after_analysis.py::test_the_json_export_parses_and_carries_the_same_issue_total_as_the_page"
+ }
+]
