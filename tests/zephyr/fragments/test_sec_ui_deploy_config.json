@@ -223,5 +223,33 @@
    }
   ],
   "source": "tests/test_sec_ui_deploy_config.py::test_inspect_cache_script_never_loads_pickle_files"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_rendered_about_page_loads_nothing_from_outside_in_either_diagram_view",
+  "name": "Data Analyzer: Opening the About page makes no outside requests, in both diagram views",
+  "objective": "Proves the rendered About page only shows pre-built diagram images served by the app and contains no embedded frames, scripts or outside image links.",
+  "precondition": "The web page code is loaded in Streamlit's headless test mode with About selected; nothing is deployed or contacted.",
+  "steps": [
+   {
+    "action": "Render the About page, then switch the diagram choice from Simple View to Detailed View",
+    "data": "both diagram views",
+    "expected": "Each view shows exactly one image whose address is the app's own (no http/https address), and the page has no frame, HTML-component, script, link or outside-image markup"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_rendered_about_page_loads_nothing_from_outside_in_either_diagram_view"
+ },
+ {
+  "id": "tests.test_sec_ui_deploy_config.test_top_bar_tab_label_colours_meet_wcag_aa_contrast",
+  "name": "Data Analyzer: Top bar tab labels are readable (contrast at least 4.5 to 1)",
+  "objective": "Proves the colours set for the selected and unselected top-bar tab labels meet the WCAG 2.1 AA text contrast minimum of 4.5 to 1.",
+  "precondition": "The page style rules in web_app.py are read as text; no browser is started.",
+  "steps": [
+   {
+    "action": "Read the label colour and background colour for the selected tab and for the unselected tab, and compute the contrast ratio",
+    "data": "selected: white on blue; unselected: light grey on the dark bar",
+    "expected": "Both ratios are 4.5 or higher (5.17 and 9.85 at the time of writing)"
+   }
+  ],
+  "source": "tests/test_sec_ui_deploy_config.py::test_top_bar_tab_label_colours_meet_wcag_aa_contrast"
  }
 ]

@@ -136,3 +136,52 @@ def test_inspect_cache_script_never_loads_pickle_files():
     text = (ROOT / "scripts/inspect_cache.py").read_text()
     assert "import pickle" not in text and "pickle.load" not in text
     assert ".pkl" not in text.replace("*.pkl` left", "")
+
+
+def test_rendered_about_page_loads_nothing_from_outside_in_either_diagram_view():
+    """Render the real About page and check what the browser would be told to load."""
+    import re
+    from streamlit.testing.v1 import AppTest
+    for view in ("Simple View", "Detailed View"):
+        at = AppTest.from_file(str(ROOT / "web_app.py"), default_timeout=90)
+        at.session_state["nav_choice"] = "About"
+        at.run()
+        assert not at.exception
+        if view != "Simple View":
+            at.radio[0].set_value(view).run()
+            assert not at.exception
+        imgs = at.get("image")
+        assert len(imgs) == 1, f"{view}: expected the pre-built diagram image, got {len(imgs)}"
+        for url in (i.url for img in imgs for i in img.proto.imgs):
+            assert not re.match(r"(?i)(https?:)?//", url), url   # served by the app itself
+        kinds = {e.type for e in at.get("iframe") + at.get("html") + at.get("component_instance")}
+        assert not kinds, kinds
+        page_text = " ".join(str(getattr(e, "value", "")) for e in at.markdown)
+        assert not re.search(r"(?i)<\s*(script|iframe|img|link)\b|!\[[^\]]*\]\(\s*https?:", page_text)
+
+
+# --- ADP-90: selected top-bar tab label must be readable (WCAG AA, 4.5:1) -------
+def _contrast(fg_hex, bg_hex):
+    def lum(h):
+        h = h.lstrip("#")
+        ch = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        ch = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in ch]
+        return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2]
+    hi, lo = sorted((lum(fg_hex), lum(bg_hex)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_top_bar_tab_label_colours_meet_wcag_aa_contrast():
+    import re
+    css = (ROOT / "web_app.py").read_text()
+    bar_bg = re.search(r"\.st-key-navbar \{[^}]*background-color:\s*(#[0-9a-f]{6})", css).group(1)
+
+    def label_colour(selector_tail):
+        m = re.search(r"\[data-testid=\"stButtonGroup\"\] button" + re.escape(selector_tail)
+                      + r" p,[^{]*\{\s*color:\s*(#[0-9a-f]{6}) !important", css)
+        assert m, f"no explicit label colour rule for {selector_tail!r}"
+        return m.group(1)
+
+    selected_bg = re.search(r"button\[aria-checked=\"true\"\] \{\s*background-color:\s*(#[0-9a-f]{6}) !important", css).group(1)
+    assert _contrast(label_colour('[aria-checked="true"]'), selected_bg) >= 4.5
+    assert _contrast(label_colour(""), bar_bg) >= 4.5
