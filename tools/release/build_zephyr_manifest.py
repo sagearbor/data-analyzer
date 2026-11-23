@@ -23,6 +23,17 @@ FILE_ISSUE = {
 }
 SEC = KEY["security-review"]
 
+def _environment():
+    """Describe the interpreter running this script; run it with the same
+    Python that produced the JUnit file so the statement is true."""
+    import platform
+    from importlib.metadata import version
+    return "Developer workstation (%s, Python %s, Streamlit %s, Pillow %s)" % (
+        platform.system().replace("Darwin", "macOS"), platform.python_version(),
+        version("streamlit"), version("pillow"))
+
+ENVIRONMENT = _environment()
+
 def main():
     junit = sys.argv[1]
     commit = sys.argv[sys.argv.index("--commit") + 1] if "--commit" in sys.argv else \
@@ -58,7 +69,7 @@ def main():
         "project": "ADP", "folder": "Data Analyzer 1.0",
         "source_repo": "sagearbor/data-analyzer", "branch": subprocess.check_output(["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"]).decode().strip(), "commit": commit,
         "run_command": "python -m pytest tests -p no:cacheprovider --junitxml=results.xml",
-        "environment": "Developer workstation (macOS, Python 3.14, a fresh environment installed from requirements.txt: Streamlit 1.66.1, Pillow 13.0.0), offline: no network and no AI model (AI calls are replaced by canned answers), made-up data",
+        "environment": ENVIRONMENT + ", offline: no network and no AI model (AI calls are replaced by canned answers), made-up data",
         "issue_ids": ISSUES, "cycle_issues": [TRACK["epic"], KEY["site-test"]],
         "tests": tests,
     }
