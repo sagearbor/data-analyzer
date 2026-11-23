@@ -45,12 +45,13 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH=/home/appuser/.local/bin:$PATH
 
-# curl is used only by the HEALTHCHECK.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
+# Runtime image carries no download or build tools (ADP-74): the HEALTHCHECK uses
+# Python. apt-get upgrade picks up Debian security fixes newer than the base
+# image; setuptools/wheel (vendored jaraco.context, wheel advisories) are build
+# tools and are not needed to run the app, so they are removed.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
-    && update-ca-certificates
+    && pip uninstall -y setuptools wheel
 
 # Non-root user (never run the app process as root)
 RUN useradd -m -u 1000 -s /bin/bash appuser
@@ -87,7 +88,7 @@ EXPOSE 8002
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl --fail http://localhost:8002/_stcore/health
+    CMD python -c "import urllib.request,sys; urllib.request.urlopen('http://localhost:8002/_stcore/health', timeout=8)" || exit 1
 
 # Run the Streamlit app via entrypoint script
 ENTRYPOINT ["/app/entrypoint.sh"]

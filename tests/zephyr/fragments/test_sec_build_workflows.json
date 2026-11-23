@@ -109,14 +109,14 @@
  },
  {
   "id": "tests.test_sec_build_workflows.test_ui_image_runtime_stage_has_no_compilers_git_or_ssh_client",
-  "name": "Data Analyzer: Web-page container final image has no compilers, git or SSH client and runs as a non-admin user",
+  "name": "Data Analyzer: Web-page container final image has no compilers, git, SSH client or curl and runs as a non-admin user",
   "objective": "Proves the final stage of the web-page (UI) container build installs none of the build tools an attacker could misuse and runs as an unprivileged user.",
   "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
   "steps": [
    {
     "action": "Read the Dockerfile and take the final stage, looking only at the part before it copies from the builder stage",
     "data": "Dockerfile",
-    "expected": "None of the words build-essential, gcc, git or openssh-client appear as installed software"
+    "expected": "None of the words build-essential, gcc, git, openssh-client or curl appear as installed software"
    },
    {
     "action": "Check the user setting",
