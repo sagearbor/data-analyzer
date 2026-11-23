@@ -2,7 +2,7 @@
  {
   "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_basic",
   "name": "Data Analyzer: Running all checks returns every expected result section",
-  "objective": "Shows the combined result has timestamp, summary statistics, checks, overall verdict, issue count and issue list. Values are not checked, only presence.",
+  "objective": "Shows the combined result has timestamp, summary statistics, checks, overall verdict, issue count and issue list, and that for clean data with no schema or rules the verdict is 'passed' with 0 issues, shape 5 rows by 5 columns, and the row-count check passed.",
   "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
   "steps": [
    {

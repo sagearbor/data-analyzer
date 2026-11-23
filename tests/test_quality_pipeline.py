@@ -34,6 +34,13 @@ class TestQualityPipeline:
         assert 'total_issues' in result
         assert 'issues' in result
 
+        # Values, not just presence: clean data with no schema or rules passes
+        assert result['overall_passed'] is True
+        assert result['total_issues'] == 0
+        assert result['issues'] == []
+        assert result['summary_stats']['shape'] == {'rows': 5, 'columns': 5}
+        assert result['checks']['row_count']['passed'] is True
+
     @pytest.mark.unit
     def test_run_all_checks_with_schema(self, sample_df):
         """Test running checks with schema validation"""

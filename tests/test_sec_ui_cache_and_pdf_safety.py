@@ -82,8 +82,13 @@ def test_a_non_regular_entry_file_is_refused(tmp_path):
     cache = DictionaryCache(tmp_path / "base", SID)
     key = cache.key_for(b"fifo")
     os.mkfifo(cache.dir / f"{key}.json")
+    fifo = cache.dir / f"{key}.json"
     assert cache.get(key) is None        # must neither hang nor crash
     cache.put(key, {"x": 1})             # nor hang on write
+    # The write was refused: nothing was stored, and the special file was
+    # neither replaced by a normal file nor turned into a readable entry.
+    assert stat.S_ISFIFO(os.stat(fifo).st_mode)
+    assert cache.get(key) is None
 
 
 # ---- PDF extraction in a bounded child process ------------------------------
@@ -185,5 +190,21 @@ def test_an_over_limit_allocation_in_the_child_is_refused():
 def test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it(monkeypatch):
     import runpy
 
+    import resource
+
     mod = runpy.run_path(str(web_app._PDF_WORKER_PATH), run_name="not_main")
-    assert mod["apply_memory_limit"](10**9) in (True, False)
+
+    # ADP-89: the old test accepted True or False and also really lowered this
+    # process's address-space limit. Both outcomes are now forced with a stub.
+    applied = []
+    monkeypatch.setattr(resource, "setrlimit", lambda which, limits: applied.append((which, limits)))
+    assert mod["apply_memory_limit"](512) is True
+    which, (soft, hard) = applied[0]
+    assert which == resource.RLIMIT_AS
+    assert soft == hard >= 512 * 1024 * 1024   # baseline + 512 MB
+
+    def refuse(which, limits):
+        raise ValueError("platform cannot apply this limit")
+
+    monkeypatch.setattr(resource, "setrlimit", refuse)
+    assert mod["apply_memory_limit"](512) is False   # reported, not raised

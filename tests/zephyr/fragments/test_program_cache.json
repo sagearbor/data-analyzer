@@ -218,14 +218,14 @@
  },
  {
   "id": "tests.test_program_cache.TestProgramDatabase.test_list_all_programs_ordering",
-  "name": "Data Analyzer: Listing all programs returns every saved program",
-  "objective": "Proves that listing returns all saved programs. Note: the title and description say the list is ordered by use count, but the test only checks that 3 programs come back, not their order.",
+  "name": "Data Analyzer: Listing all programs returns the most recently used first and never-used last",
+  "objective": "Proves the list order: most recently used first, programs never used last. Use count plays no part (the product orders by last-used date; the old test title wrongly said use count and only counted results).",
   "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
   "steps": [
    {
-    "action": "Save three made-up programs with use counts 1, 10 and 5, then list all programs.",
-    "data": "Programs LowUsage (1), HighUsage (10), MediumUsage (5)",
-    "expected": "The list contains exactly 3 programs. The order is not checked."
+    "action": "Save three made-up programs, then list all programs",
+    "data": "LowUsage (used Jan 2024), MediumUsage (used Jun 2024), HighUsage (use count 10 but never used)",
+    "expected": "The order is MediumUsage, LowUsage, HighUsage."
    }
   ],
   "source": "tests/test_program_cache.py::TestProgramDatabase::test_list_all_programs_ordering"
@@ -341,9 +341,14 @@
   "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
   "steps": [
    {
-    "action": "Save the sample program and record one run.",
-    "data": "Made-up run: user testuser, file test_data.csv, 100 rows, 3 field problems, 2 logic problems, 2.5 seconds",
-    "expected": "A row for this program exists in the run history table. Its contents are not checked."
+    "action": "Save the sample program and record one run with statistics",
+    "data": "User testuser, file test_data.csv, 100 rows, 3 field violations, 2 logic violations, 2.5 seconds",
+    "expected": "The call succeeds."
+   },
+   {
+    "action": "Read the run history",
+    "data": "",
+    "expected": "Exactly one row exists carrying the same user, file, row count, both violation counts and the time."
    }
   ],
   "source": "tests/test_program_cache.py::TestProgramDatabase::test_record_execution"
@@ -598,31 +603,45 @@
  },
  {
   "id": "tests.test_program_cache.TestProgramManager.test_manager_init_without_llm",
-  "name": "Data Analyzer: Program manager can be created without an AI client (no real check)",
-  "objective": "Intended to show the manager can start without an AI client. As written the test passes whether or not creation succeeds, because any error is swallowed; it therefore only shows the test code runs.",
-  "precondition": "Offline test harness; no database, network or AI model is used.",
+  "name": "Data Analyzer: Program manager starts in limited mode when the AI client cannot start",
+  "objective": "Proves that when no AI client is supplied and the parser refuses to start (no credentials), the manager is still created with no AI client and keeps its database. The parser and database are stand-ins, so the result does not depend on this machine's settings.",
+  "precondition": "Offline test harness; the AI parser and the database class are replaced by stand-ins. No real database, network or AI model.",
   "steps": [
    {
-    "action": "Try to create the program manager with no AI client.",
+    "action": "Create the program manager with no AI client while the parser raises a 'not configured' error",
     "data": "No AI client",
-    "expected": "Nothing is asserted: success or any error both let the test pass."
+    "expected": "No error; the manager's AI client is empty and its database is the stand-in."
    }
   ],
   "source": "tests/test_program_cache.py::TestProgramManager::test_manager_init_without_llm"
  },
  {
   "id": "tests.test_program_cache.TestProgramManager.test_execute_program_returns_dict",
-  "name": "Data Analyzer: Running a saved program returns a result record",
-  "objective": "Proves that running a saved program on a small table returns a dictionary-style result. The check is weak: it only requires the result to contain a 'program' or an 'error' entry, not that validation worked.",
+  "name": "Data Analyzer: Running a saved program returns its results and records the run",
+  "objective": "Proves running a saved program on a small table succeeds: no error entry, the right program, an empty violation list, a summary with the right row count, and one row in the run history.",
   "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model. The program manager is built without an AI client.",
   "steps": [
    {
-    "action": "Save the sample program, then run it on a made-up 3-row table.",
+    "action": "Save the sample program, then run it on a made-up 3-row table",
     "data": "One column field1 with values 1, 2, 3",
-    "expected": "The result is a dictionary containing either a 'program' entry or an 'error' entry. Its content is not checked."
+    "expected": "No 'error' entry; program id test-uuid-1234; no logic violations; summary says 3 rows processed; one run-history row with 3 rows processed."
    }
   ],
   "source": "tests/test_program_cache.py::TestProgramManager::test_execute_program_returns_dict"
+ },
+ {
+  "id": "tests.test_program_cache.TestProgramManager.test_execute_program_counts_one_use_per_run",
+  "name": "Data Analyzer: One run of a saved program adds exactly one to its use count (known product bug: adds two)",
+  "objective": "Proves one run raises the program's use count by one. Currently expected to fail (marked xfail, strict): running a program records the use twice, so the count goes up by two. Remove the xfail marker when the product is fixed.",
+  "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model. The program manager is built without an AI client.",
+  "steps": [
+   {
+    "action": "Save the sample program, run it once on a made-up 3-row table",
+    "data": "One column field1 with values 1, 2, 3",
+    "expected": "Expected: use count 1. Actual today: 2, so the test is an expected failure."
+   }
+  ],
+  "source": "tests/test_program_cache.py::TestProgramManager::test_execute_program_counts_one_use_per_run"
  },
  {
   "id": "tests.test_program_cache.TestProgramManager.test_execute_program_not_found",
@@ -716,13 +735,13 @@
  },
  {
   "id": "tests.test_program_cache.TestIntegration.test_concurrent_use_count_increments",
-  "name": "Data Analyzer: Ten successive uses give a use count of ten",
-  "objective": "Proves the use counter adds up correctly over ten uses. Note: despite the name, the ten uses are made one after another, not at the same time.",
+  "name": "Data Analyzer: Ten uses made at the same time give a use count of ten",
+  "objective": "Proves the use counter does not lose updates when ten uses are recorded at the same moment from ten threads (previously they were made one after another).",
   "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
   "steps": [
    {
-    "action": "Save the sample program, record ten uses in a row, then reload it.",
-    "data": "10 uses",
+    "action": "Save the sample program, record ten uses from ten threads, then reload it",
+    "data": "10 simultaneous uses",
     "expected": "Use count is exactly 10."
    }
   ],

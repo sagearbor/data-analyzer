@@ -99,14 +99,19 @@
  },
  {
   "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_always_returns_at_least_one_entry",
-  "name": "Data Analyzer: Model list always has at least one entry",
-  "objective": "Shows the app can never end up with an empty model choice.",
+  "name": "Data Analyzer: With no deployment lists set, the built-in default is offered; a single setting is offered alone",
+  "objective": "Proves the fallback: with neither deployment setting present the list is exactly the built-in default (gpt-5-nano), and with only the single-deployment setting present the list is exactly that one name.",
   "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
   "steps": [
    {
-    "action": "Set the environment values, then ask for the list of available AI models.",
-    "data": "Neither setting is set",
-    "expected": "The result is a list with at least one item (the test does not check which item)."
+    "action": "Read the list with both settings removed",
+    "data": "No settings",
+    "expected": "The list is ['gpt-5-nano']."
+   },
+   {
+    "action": "Read the list with only the single-deployment setting",
+    "data": "my-only-model",
+    "expected": "The list is ['my-only-model']."
    }
   ],
   "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_always_returns_at_least_one_entry"

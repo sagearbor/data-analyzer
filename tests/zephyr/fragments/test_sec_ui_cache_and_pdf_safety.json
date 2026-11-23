@@ -77,7 +77,7 @@
  {
   "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_non_regular_entry_file_is_refused",
   "name": "Data Analyzer: A cache entry that is a special file (named pipe) is refused without hanging",
-  "objective": "Proves a special file in the cache cannot make the page freeze. The test only checks that reading returns nothing and that writing returns; it asserts nothing about the written result.",
+  "objective": "Proves a special file (a named pipe) planted as a cache entry cannot make the page freeze: reading returns nothing, writing returns, the special file is left in place (not replaced by a normal file), and nothing readable is stored.",
   "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
   "steps": [
    {
@@ -216,14 +216,19 @@
  },
  {
   "id": "tests.test_sec_ui_cache_and_pdf_safety.test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it",
-  "name": "Data Analyzer: The memory limit helper never crashes",
-  "objective": "Proves that on any system the helper returns yes/no instead of an error. It accepts either answer, so it checks only that nothing is raised.",
+  "name": "Data Analyzer: The memory-limit helper reports True when the limit is applied and False (without error) when the platform refuses",
+  "objective": "Proves both outcomes with a stand-in for the operating-system limit call: when it succeeds the helper returns True and asks for at least the requested extra memory; when it refuses the helper returns False and raises nothing. It no longer changes this process's real limit.",
   "precondition": "Reader program loaded directly in the test process.",
   "steps": [
    {
-    "action": "Call the memory-limit helper with 1,000,000,000.",
-    "data": "Limit 10^9",
-    "expected": "The result is True or False; no error is raised."
+    "action": "Run the helper with the limit call succeeding",
+    "data": "512 MB request",
+    "expected": "Returns True; the limit asked for is for address space and is at least 512 MB."
+   },
+   {
+    "action": "Run the helper with the limit call refusing",
+    "data": "512 MB request",
+    "expected": "Returns False; no error is raised."
    }
   ],
   "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it"

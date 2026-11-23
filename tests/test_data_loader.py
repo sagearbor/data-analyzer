@@ -130,3 +130,8 @@ class TestDataLoader:
         assert 'int_col' in df.columns
         assert 'float_col' in df.columns
         assert 'bool_col' in df.columns
+        assert 'str_col' in df.columns
+        assert 'date_col' in df.columns
+        assert list(df['int_col']) == [1, 2, 3, 4]
+        assert list(df['float_col']) == [1.5, 2.5, 3.5, 4.5]
+        assert list(df['str_col']) == ['text', 'more', 'data', 'here']

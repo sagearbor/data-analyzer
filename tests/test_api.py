@@ -486,8 +486,19 @@ class TestDictionaryParseEndpoint:
         data = {"save_program": "true"}
         response = client.post("/api/v1/dictionary/parse", files=files, data=data, headers=api_headers)
 
-        # Should succeed or return 503 if services not available
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
+        body = response.json()
+        assert body["program_id"] == "test-id-123"
+        assert body["program_name"] == "test-program"
+        assert body["fields_extracted"] == 5
+        assert body["rules_extracted"] == 3
+        assert body["logic_rules_extracted"] == 1
+        assert body["dictionary_format"] == "redcap_csv"
+        assert body["schema"] == {"record_id": "str", "age": "int"}
+        # The uploaded text (not a placeholder) is what reaches the parser
+        call = mock_pm.create_program_from_dictionary.call_args.kwargs
+        assert call["dictionary_content"] == sample_dictionary_csv
+        assert call["save"] is True
 
     def test_parse_dictionary_unsupported_format(self, client, api_headers):
         """Unsupported file format should return 400"""
@@ -496,12 +507,17 @@ class TestDictionaryParseEndpoint:
         assert response.status_code == 400
         assert "Unsupported file format" in response.json()["detail"]
 
-    def test_parse_dictionary_pdf_not_implemented(self, client, api_headers):
-        """PDF format should return 501 (not implemented)"""
+    @patch('api_server.program_manager')
+    def test_parse_dictionary_pdf_not_implemented(self, mock_pm, client, api_headers):
+        """PDF format should return exactly 501 (not implemented).
+
+        The program manager is stubbed as available, so the answer cannot be
+        confused with the 503 'service not available' reply."""
         files = {"dictionary_file": ("test.pdf", b"%PDF-1.4 fake content", "application/pdf")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
-        # Should return 501 or 503 depending on service availability
-        assert response.status_code in [501, 503]
+        assert response.status_code == 501
+        assert "PDF parsing not yet implemented" in response.json()["detail"]
+        mock_pm.create_program_from_dictionary.assert_not_called()
 
     @patch('api_server.program_manager')
     def test_parse_dictionary_json_valid(self, mock_pm, client, sample_dictionary_json, api_headers):
@@ -524,7 +540,14 @@ class TestDictionaryParseEndpoint:
         data = {"save_program": "true"}
         response = client.post("/api/v1/dictionary/parse", files=files, data=data, headers=api_headers)
 
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
+        body = response.json()
+        assert body["program_id"] == "test-id-json"
+        assert body["dictionary_format"] == "fhir_json"
+        assert body["fields_extracted"] == 2
+        call = mock_pm.create_program_from_dictionary.call_args.kwargs
+        assert call["dictionary_content"] == sample_dictionary_json
+        assert str(call["dictionary_path"]) == "test.json"
 
     @patch('api_server.program_manager')
     def test_parse_dictionary_save_program_false(self, mock_pm, client, sample_dictionary_csv, api_headers):
@@ -546,8 +569,10 @@ class TestDictionaryParseEndpoint:
         files = {"dictionary_file": ("test.csv", sample_dictionary_csv, "text/csv")}
         data = {"save_program": "false"}
         response = client.post("/api/v1/dictionary/parse", files=files, data=data, headers=api_headers)
-        # Should succeed or return 503 if services not available
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
+        assert response.json()["program_id"] == "test-id-nosave"
+        # 'do not save' must reach the program manager as save=False
+        assert mock_pm.create_program_from_dictionary.call_args.kwargs["save"] is False
 
     @patch('api_server.program_manager')
     def test_parse_dictionary_custom_name(self, mock_pm, client, sample_dictionary_csv, api_headers):
@@ -625,8 +650,9 @@ class TestDictionaryGetEndpoint:
         mock_pm.db.load_program.return_value = None
 
         response = client.get("/api/v1/dictionary/nonexistent-id", headers=api_headers)
-        # Should return 404 or 503 if services not available
-        assert response.status_code in [404, 503]
+        assert response.status_code == 404
+        assert "Program not found." in response.json()["detail"]
+        mock_pm.db.load_program.assert_called_once_with("nonexistent-id")
 
     @patch('api_server.program_manager')
     def test_get_dictionary_deleted(self, mock_pm, client, api_headers):
@@ -638,7 +664,7 @@ class TestDictionaryGetEndpoint:
         mock_pm.db.load_program.return_value = mock_program
 
         response = client.get("/api/v1/dictionary/deleted-id", headers=api_headers)
-        assert response.status_code in [404, 503]
+        assert response.status_code == 404
 
     @patch('api_server.program_manager')
     def test_get_dictionary_valid_id(self, mock_pm, client, api_headers):
@@ -669,7 +695,16 @@ class TestDictionaryGetEndpoint:
         mock_pm.db.load_program.return_value = mock_program
 
         response = client.get("/api/v1/dictionary/test-id-123", headers=api_headers)
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
+        body = response.json()
+        assert body["program_id"] == "test-id-123"
+        assert body["name"] == "test-program"
+        assert body["num_fields"] == 5
+        assert body["num_basic_rules"] == 3
+        assert body["num_logic_rules"] == 1
+        assert body["schema"] == {"record_id": "str", "age": "int"}
+        assert body["generated_code"] == "# validation code"
+        mock_pm.db.load_program.assert_called_once_with("test-id-123")
 
     @patch('api_server.program_manager')
     def test_get_dictionary_by_name(self, mock_pm, client, api_headers):
@@ -698,7 +733,13 @@ class TestDictionaryGetEndpoint:
         mock_pm.db.load_program.return_value = mock_program
 
         response = client.get("/api/v1/dictionary/my-program-name", headers=api_headers)
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "my-program-name"
+        assert body["program_id"] == "test-id-456"
+        assert body["use_count"] == 5
+        # The name from the URL is what is looked up
+        mock_pm.db.load_program.assert_called_once_with("my-program-name")
 
     @patch('api_server.program_manager')
     def test_get_dictionary_by_alias(self, mock_pm, client, api_headers):
@@ -724,10 +765,20 @@ class TestDictionaryGetEndpoint:
         mock_program.generation_time_seconds = 2.1
         mock_program.version = 1
 
-        mock_pm.db.load_program.return_value = mock_program
+        # Only the alias lookup finds the program; any other key finds nothing
+        mock_pm.db.load_program.side_effect = (
+            lambda key: mock_program if key in mock_program.aliases else None
+        )
 
         response = client.get("/api/v1/dictionary/my-alias", headers=api_headers)
-        assert response.status_code in [200, 503]
+        assert response.status_code == 200
+        body = response.json()
+        assert body["program_id"] == "test-id-789"
+        assert body["name"] == "original-name"
+        assert body["aliases"] == ["my-alias", "another-alias"]
+
+        # A key that is neither the program's alias nor its id is not found
+        assert client.get("/api/v1/dictionary/not-an-alias", headers=api_headers).status_code == 404
 
 
 # ============================================================================
@@ -786,7 +837,8 @@ class TestErrorHandling:
             headers={**api_headers, "Content-Type": "application/json"}
         )
         # FastAPI handles this as 422 Unprocessable Entity
-        assert response.status_code in [400, 422]
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"] == ["body", "dictionary_file"]
 
 
 if __name__ == "__main__":

@@ -223,10 +223,6 @@ class TestDictionaryWorkflow:
             headers=api_headers
         )
 
-        # Check if services are available
-        if parse_response.status_code == 503:
-            pytest.skip("Services not available for integration test")
-
         assert parse_response.status_code == 200
         parse_data = parse_response.json()
 
@@ -248,8 +244,11 @@ class TestDictionaryWorkflow:
         get_data = get_response.json()
 
         # Verify retrieved data matches (ProgramDetail field names)
+        assert program_id == "integration-test-prog-001"
         assert get_data["program_id"] == program_id
-        assert get_data["num_fields"] == parse_data["fields_extracted"]
+        assert get_data["name"] == "20251202-120000-PatientIntake"
+        assert get_data["num_fields"] == parse_data["fields_extracted"] == 8
+        mock_pm.db.load_program.assert_called_once_with(program_id)
         assert "schema" in get_data
         assert "generated_code" in get_data
 
@@ -285,11 +284,12 @@ class TestDictionaryWorkflow:
             headers=api_headers
         )
 
-        if response.status_code == 503:
-            pytest.skip("Services not available")
-
         assert response.status_code == 200
-        # Program should be returned but not persisted
+        assert response.json()["program_id"] == "temp-preview-001"
+        # Preview mode: the parser is told not to save, and the API itself
+        # never writes to the program database
+        assert mock_pm.create_program_from_dictionary.call_args.kwargs["save"] is False
+        mock_pm.db.save_program.assert_not_called()
 
 
 # ============================================================================
@@ -320,10 +320,12 @@ class TestMultiFormatDictionaries:
         files = {"dictionary_file": ("dict.csv", redcap_dictionary_csv, "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
 
-        if response.status_code == 503:
-            pytest.skip("Services not available")
-
         assert response.status_code == 200
+        body = response.json()
+        assert body["program_id"] == "csv-test"
+        assert body["dictionary_format"] == "redcap_csv"
+        assert body["fields_extracted"] == 8
+        assert mock_pm.create_program_from_dictionary.call_args.kwargs["dictionary_content"] == redcap_dictionary_csv
 
     @patch('api_server.program_manager')
     def test_json_format(self, mock_pm, client, fhir_dictionary_json, api_headers):
@@ -345,10 +347,12 @@ class TestMultiFormatDictionaries:
         files = {"dictionary_file": ("dict.json", fhir_dictionary_json, "application/json")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
 
-        if response.status_code == 503:
-            pytest.skip("Services not available")
-
         assert response.status_code == 200
+        body = response.json()
+        assert body["program_id"] == "json-test"
+        assert body["dictionary_format"] == "fhir_json"
+        assert body["fields_extracted"] == 3
+        assert mock_pm.create_program_from_dictionary.call_args.kwargs["dictionary_content"] == fhir_dictionary_json
 
     def test_unsupported_format(self, client, api_headers):
         """Test rejection of unsupported format"""
@@ -369,16 +373,22 @@ class TestErrorRecovery:
     """Test error handling and graceful degradation"""
 
     def test_service_unavailable_graceful_degradation(self, client, api_headers):
-        """Test graceful degradation when services are unavailable"""
-        # Health endpoint should always work
-        health_response = client.get("/api/v1/health")
-        assert health_response.status_code == 200
+        """Health stays reachable and reports 'degraded' when a service is down,
+        'healthy' when both core services are up (both states are forced, so
+        the assertion never depends on the machine's configuration)."""
+        with patch('api_server.program_manager', None), \
+                patch('api_server.logic_validator', MagicMock()):
+            down = client.get("/api/v1/health")
+        assert down.status_code == 200
+        assert down.json()["status"] == "degraded"
+        assert down.json()["services"]["program_manager"] is False
 
-        health_data = health_response.json()
-
-        # If services are unavailable, status should be 'degraded'
-        if not all(health_data["services"].values()):
-            assert health_data["status"] == "degraded"
+        with patch('api_server.program_manager', MagicMock()), \
+                patch('api_server.logic_validator', MagicMock()):
+            up = client.get("/api/v1/health")
+        assert up.status_code == 200
+        assert up.json()["status"] == "healthy"
+        assert up.json()["services"]["program_manager"] is True
 
     @patch('api_server.program_manager', None)
     def test_parse_when_service_down(self, client, redcap_dictionary_csv, api_headers):
@@ -410,17 +420,16 @@ class TestConcurrentRequests:
 
     def test_multiple_health_checks_concurrent(self, client):
         """Multiple concurrent health checks should all succeed"""
-        responses = []
+        from concurrent.futures import ThreadPoolExecutor
 
-        # Simulate concurrent requests
-        for _ in range(5):
-            response = client.get("/api/v1/health")
-            responses.append(response)
+        # Five requests in flight at the same time
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            responses = list(pool.map(lambda _: client.get("/api/v1/health"), range(5)))
 
-        # All should succeed
+        assert len(responses) == 5
         for response in responses:
             assert response.status_code == 200
-            assert "status" in response.json()
+            assert response.json()["status"] in ("healthy", "degraded")
 
     @patch('api_server.program_manager')
     def test_concurrent_dictionary_retrieval(self, mock_pm, client, api_headers):
@@ -448,14 +457,20 @@ class TestConcurrentRequests:
 
         mock_pm.db.load_program.return_value = mock_program
 
-        responses = []
-        for _ in range(3):
-            response = client.get("/api/v1/dictionary/concurrent-test", headers=api_headers)
-            responses.append(response)
+        from concurrent.futures import ThreadPoolExecutor
 
-        # All should succeed or fail consistently
-        status_codes = [r.status_code for r in responses]
-        assert all(code in [200, 503] for code in status_codes)
+        def fetch(_):
+            return client.get("/api/v1/dictionary/concurrent-test", headers=api_headers)
+
+        # Three fetches in flight at the same time
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            responses = list(pool.map(fetch, range(3)))
+
+        assert [r.status_code for r in responses] == [200, 200, 200]
+        bodies = [r.json() for r in responses]
+        assert all(b["program_id"] == "concurrent-test" for b in bodies)
+        assert bodies[0] == bodies[1] == bodies[2]
+        assert mock_pm.db.load_program.call_count == 3
 
 
 # ============================================================================
@@ -466,17 +481,33 @@ class TestConcurrentRequests:
 class TestFileSizeLimits:
     """Test file size limits and large file handling"""
 
-    def test_large_dictionary_file(self, client, api_headers):
-        """Test handling of large dictionary file (near limit)"""
-        # Create a large CSV (but under 10MB limit mentioned in docs)
+    @patch('api_server.program_manager')
+    def test_large_dictionary_file(self, mock_pm, client, api_headers):
+        """A 10,000-field dictionary (well under the size limit) is accepted
+        and handed over to the parser in full. The AI step is stubbed."""
         large_csv = "Variable / Field Name,Form Name,Field Type\n"
         large_csv += "\n".join([f"field_{i},form,text" for i in range(10000)])
+
+        mock_program = MagicMock()
+        mock_program.program_id = "large-test"
+        mock_program.name = "large-format"
+        mock_program.dictionary_format = "redcap_csv"
+        mock_program.num_fields = 10000
+        mock_program.num_basic_rules = 0
+        mock_program.num_logic_rules = 0
+        mock_program.schema = {}
+        mock_program.generated_code = "# code"
+        mock_program.model_used = "gpt-5-nano"
+        mock_pm.create_program_from_dictionary.return_value = mock_program
 
         files = {"dictionary_file": ("large.csv", large_csv, "text/csv")}
         response = client.post("/api/v1/dictionary/parse", files=files, headers=api_headers)
 
-        # Should either process or return error (not crash)
-        assert response.status_code in [200, 400, 413, 500, 503]
+        assert response.status_code == 200
+        assert response.json()["fields_extracted"] == 10000
+        sent = mock_pm.create_program_from_dictionary.call_args.kwargs["dictionary_content"]
+        assert sent == large_csv
+        assert sent.count("\n") == 10000
 
     @patch('api_server.program_manager')
     def test_empty_dictionary_file(self, mock_pm, client, api_headers):
@@ -505,31 +536,41 @@ class TestFileSizeLimits:
 class TestAuthenticationFlow:
     """Test authentication across multiple requests"""
 
-    def test_auth_persistence_across_requests(self, client, api_headers):
-        """API key should work consistently across multiple requests"""
-        # Make multiple authenticated requests
+    @patch('api_server.program_manager')
+    def test_auth_persistence_across_requests(self, mock_pm, client, api_headers):
+        """The API key keeps working on a protected route across several requests
+        (health needs no key, so it cannot prove this)."""
+        mock_pm.db.load_program.return_value = None  # authorised, but unknown ID
         for _ in range(3):
-            response = client.get("/api/v1/health", headers=api_headers)
-            assert response.status_code == 200
+            response = client.get("/api/v1/dictionary/persist-test", headers=api_headers)
+            assert response.status_code == 404  # reached the handler: key accepted
+        assert mock_pm.db.load_program.call_count == 3
 
-    def test_mixed_auth_and_no_auth_endpoints(self, client, api_headers):
+        # Same route without the key is refused, so the 404s above were earned
+        assert client.get("/api/v1/dictionary/persist-test").status_code == 401
+
+    @patch('api_server.program_manager')
+    def test_mixed_auth_and_no_auth_endpoints(self, mock_pm, client, api_headers):
         """Test access to both protected and public endpoints"""
         # Public endpoint (no auth required)
         public_response = client.get("/api/v1/health")
         assert public_response.status_code == 200
 
         # Protected endpoint (auth required)
+        mock_pm.db.load_program.return_value = None
         protected_response = client.get("/api/v1/dictionary/test", headers=api_headers)
-        # Should return 404 (not found) or 503, not 401 (auth working)
-        assert protected_response.status_code in [404, 503]
-        assert protected_response.status_code != 401  # Not unauthorized
+        # Key accepted, nothing stored under that ID: exactly 404
+        assert protected_response.status_code == 404
+        # And without the key the same address is refused
+        assert client.get("/api/v1/dictionary/test").status_code == 401
 
-    def test_auth_switching(self, client, api_headers, invalid_api_headers):
+    @patch('api_server.program_manager')
+    def test_auth_switching(self, mock_pm, client, api_headers, invalid_api_headers):
         """Test switching between valid and invalid auth"""
+        mock_pm.db.load_program.return_value = None
         # Valid auth
         response1 = client.get("/api/v1/dictionary/test1", headers=api_headers)
-        assert response1.status_code != 401
-        assert response1.status_code != 403
+        assert response1.status_code == 404
 
         # Invalid auth
         response2 = client.get("/api/v1/dictionary/test2", headers={"X-API-Key": "wrong"})
@@ -537,8 +578,7 @@ class TestAuthenticationFlow:
 
         # Valid auth again
         response3 = client.get("/api/v1/dictionary/test3", headers=api_headers)
-        assert response3.status_code != 401
-        assert response3.status_code != 403
+        assert response3.status_code == 404
 
 
 if __name__ == "__main__":

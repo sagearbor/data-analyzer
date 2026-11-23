@@ -214,6 +214,11 @@ class TestLogicViolation:
         )
         d = v.to_dict()
         assert d["rule_id"] == "r" and d["row_index"] == 0
+        assert d["rule_description"] == "d"
+        assert d["affected_fields"] == ["f"]
+        assert d["actual_values"] == {"f": "x"}
+        assert d["expected_behavior"] == "blank"
+        assert d["severity"] == "error"
 
 
 # ============================================================================
@@ -355,8 +360,32 @@ class TestLogicValidator:
             condition=Compare("gender", "eq", "Male"), action="must_be_blank",
             affected_fields=["pregnant"], description="d",
         )
-        violations = LogicValidator().validate([good], sample_df_violations)
-        assert len(violations) >= 1
+        # ADP-89: the old test supplied only the good rule. Now two faulty rules
+        # (an action the engine does not support; a rule with no condition at
+        # all, which the engine reports as unsupported) come BEFORE the good one.
+        unsupported = ConditionalRule(
+            rule_id="bad_action", rule_type="skip_if",
+            condition=Compare("gender", "eq", "Male"), action="no_such_action",
+            affected_fields=["pregnant"], description="d",
+        )
+        broken = ConditionalRule(
+            rule_id="broken", rule_type="skip_if",
+            condition=None, action="must_be_blank",
+            affected_fields=["pregnant"], description="d",
+        )
+        validator = LogicValidator()
+        violations, coverage = validator.validate_with_coverage(
+            [unsupported, broken, good], sample_df_violations)
+
+        # The good rule still ran: both males have 'pregnant' filled in
+        assert sorted(v.row_index for v in violations) == [0, 1]
+        assert {v.rule_id for v in violations} == {"g"}
+        # The faulty rules are reported as not checked, never as 'no violations'
+        assert coverage.total == 3
+        assert coverage.evaluated == 1
+        assert [u["rule_id"] for u in coverage.unsupported] == ["bad_action", "broken"]
+        assert coverage.failed == []
+        assert coverage.complete is False
 
 
 # ============================================================================

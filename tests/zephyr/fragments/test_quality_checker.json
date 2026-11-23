@@ -62,9 +62,9 @@
   "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
   "steps": [
    {
-    "action": "Add a mixed column and check types",
-    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active) plus a mixed column declared int",
-    "expected": "Failed; at least one issue, and the mixed column is named among the issues"
+    "action": "Check a table whose 'mixed' column holds '1', 2, 'three', 4, 5 against a schema saying it is an integer",
+    "data": "Made-up 5-row table",
+    "expected": "Fails and the only column flagged is 'mixed'."
    }
   ],
   "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_data_types_with_invalid"
@@ -118,9 +118,9 @@
   "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
   "steps": [
    {
-    "action": "Check ranges",
-    "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active); age 30 to 35, salary at most 50000",
-    "expected": "Failed with at least one issue (the exact issues are not checked)"
+    "action": "Check ages 25,30,35,28,40 against 30-35 and salaries against a maximum of 50000",
+    "data": "Made-up 5-row table",
+    "expected": "Fails with exactly 3 issues: age below 30 on rows 0 and 3, age above 35 on row 4, salary above 50000 on all five rows."
    }
   ],
   "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_value_ranges_numeric_fail"

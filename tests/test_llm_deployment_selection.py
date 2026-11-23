@@ -69,9 +69,12 @@ class TestGetAvailableDeployments:
         monkeypatch.delenv("AZURE_OPENAI_DEPLOYMENTS", raising=False)
         monkeypatch.delenv("AZURE_OPENAI_DEPLOYMENT", raising=False)
 
-        deployments = get_available_deployments()
-        assert isinstance(deployments, list)
-        assert len(deployments) >= 1
+        # With both settings absent the built-in default is offered
+        assert get_available_deployments() == ["gpt-5-nano"]
+
+        # With only the single-deployment setting present, that one is offered
+        monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "my-only-model")
+        assert get_available_deployments() == ["my-only-model"]
 
 
 # ---------------------------------------------------------------------------

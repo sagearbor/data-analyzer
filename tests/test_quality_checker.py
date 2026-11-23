@@ -82,7 +82,7 @@ class TestQualityChecker:
         assert len(result.get('issues', [])) > 0
         # Check that mixed column is flagged as invalid
         invalid_cols = [item['column'] for item in result['issues']]
-        assert 'mixed' in invalid_cols
+        assert invalid_cols == ['mixed']  # only the mixed column, nothing else
 
     @pytest.mark.unit
     def test_check_data_types_bool_validation(self, sample_df):
@@ -128,7 +128,13 @@ class TestQualityChecker:
         checker = QualityChecker(sample_df, rules=rules)
         result = checker.check_value_ranges()
         assert result['passed'] is False
-        assert len(result.get('issues', [])) > 0
+        by_rule = {(i['column'], i['rule']): i['violating_rows'] for i in result['issues']}
+        assert by_rule == {
+            ('age', 'min >= 30'): [0, 3],        # ages 25 and 28
+            ('age', 'max <= 35'): [4],           # age 40
+            ('salary', 'max <= 50000'): [0, 1, 2, 3, 4],  # every salary is above 50000
+        }
+        assert result['issues_found'] == 3
 
     @pytest.mark.unit
     def test_check_value_ranges_categorical(self, sample_df):
@@ -206,3 +212,5 @@ class TestQualityChecker:
         assert detected_types['age'] == 'int'
         assert detected_types['salary'] == 'float'
         assert detected_types['hire_date'] == 'datetime'
+        assert detected_types['is_active'] == 'bool'
+

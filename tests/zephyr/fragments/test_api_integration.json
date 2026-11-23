@@ -6,56 +6,56 @@
   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. The test is skipped if the service is unavailable (503).",
   "steps": [
    {
-    "action": "Upload a made-up REDCap dictionary CSV (8 fields) with save_program true and program name 'PatientIntake'.",
-    "data": "Made-up dictionary CSV.",
-    "expected": "HTTP 200. The reply contains program_id, program_name, fields_extracted and rules_extracted."
+    "action": "Upload a dictionary CSV with save_program true and a program name",
+    "data": "Made-up REDCap dictionary, name PatientIntake",
+    "expected": "HTTP 200 (no 'service unavailable' skip any more); reply has program id, name, field and rule counts. program_id is integration-test-prog-001."
    },
    {
-    "action": "Fetch the dictionary by the returned program ID.",
-    "data": "The ID from step 1.",
-    "expected": "HTTP 200. program_id matches; num_fields equals fields_extracted; schema and generated_code are present."
+    "action": "Fetch the program by the returned ID",
+    "data": "integration-test-prog-001",
+    "expected": "HTTP 200; same program_id, name 20251202-120000-PatientIntake, 8 fields (equal to the upload reply), schema and generated code present; the store was asked for exactly that ID."
    }
   ],
   "source": "tests/test_api_integration.py::TestDictionaryWorkflow::test_parse_save_retrieve_workflow"
  },
  {
   "id": "tests.test_api_integration.TestDictionaryWorkflow.test_parse_without_saving",
-  "name": "Data Analyzer: Upload a dictionary in preview mode (not saved) is accepted",
-  "objective": "Shows that the preview option works. Only the status is checked; the test does not verify nothing was saved.",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. Skipped if the service is unavailable.",
+  "name": "Data Analyzer: Upload a dictionary in preview mode (not saved) tells the parser not to save",
+  "objective": "Shows the preview option works: HTTP 200, the program creator is called with save=False and the API itself never writes to the program database.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload the made-up dictionary CSV with save_program false.",
-    "data": "Made-up dictionary CSV.",
-    "expected": "HTTP 200."
+    "action": "Upload a dictionary CSV with save_program false",
+    "data": "Made-up REDCap dictionary",
+    "expected": "HTTP 200, program_id temp-preview-001; parser called with save=False; the stand-in's save method is never called."
    }
   ],
   "source": "tests/test_api_integration.py::TestDictionaryWorkflow::test_parse_without_saving"
  },
  {
   "id": "tests.test_api_integration.TestMultiFormatDictionaries.test_csv_format",
-  "name": "Data Analyzer: REDCap CSV dictionary is accepted",
-  "objective": "Shows that a CSV dictionary is parsed successfully (using a stand-in result).",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. Skipped if unavailable.",
+  "name": "Data Analyzer: REDCap CSV dictionary is accepted and its text reaches the parser",
+  "objective": "Shows a CSV dictionary is parsed successfully (using a stand-in result): HTTP 200, the right program id, format and field count, and the parser receives the uploaded text unchanged.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload dict.csv.",
-    "data": "Made-up REDCap CSV.",
-    "expected": "HTTP 200."
+    "action": "Upload the REDCap CSV dictionary",
+    "data": "Made-up CSV",
+    "expected": "HTTP 200; program_id csv-test, format redcap_csv, 8 fields; parser received the exact CSV text."
    }
   ],
   "source": "tests/test_api_integration.py::TestMultiFormatDictionaries::test_csv_format"
  },
  {
   "id": "tests.test_api_integration.TestMultiFormatDictionaries.test_json_format",
-  "name": "Data Analyzer: FHIR-style JSON dictionary is accepted",
-  "objective": "Shows that a JSON dictionary is parsed successfully (using a stand-in result).",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. Skipped if unavailable.",
+  "name": "Data Analyzer: FHIR-style JSON dictionary is accepted and its text reaches the parser",
+  "objective": "Shows a JSON dictionary is parsed successfully (using a stand-in result): HTTP 200, the right program id, format and field count, and the parser receives the uploaded text unchanged.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload dict.json (a made-up patient intake questionnaire).",
-    "data": "Made-up FHIR-style JSON.",
-    "expected": "HTTP 200."
+    "action": "Upload the FHIR-style JSON dictionary",
+    "data": "Made-up JSON",
+    "expected": "HTTP 200; program_id json-test, format fhir_json, 3 fields; parser received the exact JSON text."
    }
   ],
   "source": "tests/test_api_integration.py::TestMultiFormatDictionaries::test_json_format"
@@ -76,14 +76,19 @@
  },
  {
   "id": "tests.test_api_integration.TestErrorRecovery.test_service_unavailable_graceful_degradation",
-  "name": "Data Analyzer: Health check reports 'degraded' whenever any internal service is down",
-  "objective": "Shows the health status honestly reflects missing services. Note: if all services are up the check asserts nothing.",
+  "name": "Data Analyzer: Health check reports 'degraded' when a core service is down and 'healthy' when both are up",
+  "objective": "Shows the health status honestly reflects missing services. Both states are forced with stand-ins, so the check no longer depends on how this machine is configured.",
   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
   "steps": [
    {
-    "action": "Request the health check.",
-    "data": "No key.",
-    "expected": "HTTP 200; and, only if any service is not available, the status is 'degraded'."
+    "action": "Ask for health with dictionary storage missing",
+    "data": "Storage removed, logic checker present",
+    "expected": "HTTP 200, status 'degraded', services.program_manager false."
+   },
+   {
+    "action": "Ask for health with both core services present",
+    "data": "Both replaced by stand-ins",
+    "expected": "HTTP 200, status 'healthy', services.program_manager true."
    }
   ],
   "source": "tests/test_api_integration.py::TestErrorRecovery::test_service_unavailable_graceful_degradation"
@@ -118,42 +123,42 @@
  },
  {
   "id": "tests.test_api_integration.TestConcurrentRequests.test_multiple_health_checks_concurrent",
-  "name": "Data Analyzer: Five health checks in a row all succeed (run one after another, not truly at once)",
-  "objective": "Shows repeated health checks keep working. Despite its name the requests are sent sequentially.",
+  "name": "Data Analyzer: Five health checks sent at the same time all succeed",
+  "objective": "Shows the health check keeps working when several requests arrive together. The five requests are now sent from five threads at once (previously they were sent one after another).",
   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
   "steps": [
    {
-    "action": "Request the health check five times.",
-    "data": "No key.",
-    "expected": "Every reply is HTTP 200 and contains status."
+    "action": "Send five health checks from five threads at once",
+    "data": "No key needed",
+    "expected": "Five replies, every one HTTP 200 with status 'healthy' or 'degraded'."
    }
   ],
   "source": "tests/test_api_integration.py::TestConcurrentRequests::test_multiple_health_checks_concurrent"
  },
  {
   "id": "tests.test_api_integration.TestConcurrentRequests.test_concurrent_dictionary_retrieval",
-  "name": "Data Analyzer: Three dictionary fetches in a row give consistent results (weak check)",
-  "objective": "Shows repeated retrievals do not fail unexpectedly. Requests are sequential, and statuses 200 or 503 both pass.",
+  "name": "Data Analyzer: Three dictionary fetches sent at the same time give identical results",
+  "objective": "Shows simultaneous retrievals of one dictionary all succeed with the same content. The three requests are now sent from three threads at once, and only HTTP 200 is accepted.",
   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record.",
   "steps": [
    {
-    "action": "Fetch the same dictionary ID three times.",
-    "data": "Made-up ID.",
-    "expected": "Each status is 200 or 503."
+    "action": "Fetch the same dictionary ID from three threads at once",
+    "data": "concurrent-test",
+    "expected": "Statuses are 200, 200, 200; all three bodies are identical with program_id concurrent-test; the store was asked three times."
    }
   ],
   "source": "tests/test_api_integration.py::TestConcurrentRequests::test_concurrent_dictionary_retrieval"
  },
  {
   "id": "tests.test_api_integration.TestFileSizeLimits.test_large_dictionary_file",
-  "name": "Data Analyzer: A 10,000-field dictionary does not crash the server (very weak check)",
-  "objective": "Shows only that a large upload receives some answer. The test accepts nearly any status including 500 and does not stub the AI step.",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is NOT stubbed in this test.",
+  "name": "Data Analyzer: A 10,000-field dictionary is accepted and handed to the parser in full",
+  "objective": "Shows a large (but under the size limit) dictionary upload gets HTTP 200 and that all 10,000 rows reach the parser untruncated. The AI step is replaced by a stand-in, so no AI model is called.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload a dictionary CSV with 10,000 made-up field rows.",
-    "data": "Made-up large CSV.",
-    "expected": "HTTP status is one of 200, 400, 413, 500 or 503."
+    "action": "Upload a dictionary CSV with 10,000 made-up field rows",
+    "data": "Made-up large CSV",
+    "expected": "HTTP 200 with 10000 fields extracted; the parser received the full text (10,000 data lines)."
    }
   ],
   "source": "tests/test_api_integration.py::TestFileSizeLimits::test_large_dictionary_file"
@@ -174,33 +179,43 @@
  },
  {
   "id": "tests.test_api_integration.TestAuthenticationFlow.test_auth_persistence_across_requests",
-  "name": "Data Analyzer: Health check succeeds three times while sending a key",
-  "objective": "Shows that sending a key does not break the health check. The health check does not require a key, so this does not prove key persistence.",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
+  "name": "Data Analyzer: The key keeps working on a protected address across three requests",
+  "objective": "Shows the API key is accepted every time on a protected address (the health check needs no key, so it could not prove this). The same address without the key is refused.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
   "steps": [
    {
-    "action": "Request the health check three times with the correct key.",
-    "data": "Correct key.",
-    "expected": "Each reply is HTTP 200."
+    "action": "Fetch an unknown dictionary ID three times with the key",
+    "data": "persist-test",
+    "expected": "Each reply is HTTP 404 (the key was accepted and the handler ran); the store was asked three times."
+   },
+   {
+    "action": "Fetch the same address with no key",
+    "data": "No key",
+    "expected": "HTTP 401."
    }
   ],
   "source": "tests/test_api_integration.py::TestAuthenticationFlow::test_auth_persistence_across_requests"
  },
  {
   "id": "tests.test_api_integration.TestAuthenticationFlow.test_mixed_auth_and_no_auth_endpoints",
-  "name": "Data Analyzer: Public health check works and protected dictionary fetch accepts the key",
-  "objective": "Shows that public and protected addresses behave differently.",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
+  "name": "Data Analyzer: Public health check works; protected dictionary fetch needs the key",
+  "objective": "Shows public and protected addresses behave differently: health works with no key, the dictionary address answers exactly 404 with the key (nothing stored) and 401 without it.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
   "steps": [
    {
-    "action": "Request the health check with no key.",
-    "data": "No key.",
+    "action": "Ask for health with no key",
+    "data": "No key",
     "expected": "HTTP 200."
    },
    {
-    "action": "Request /api/v1/dictionary/test with the correct key.",
-    "data": "Made-up ID.",
-    "expected": "Status is 404 or 503 and not 401, showing the key was accepted."
+    "action": "Fetch an unknown dictionary with the key",
+    "data": "ID test",
+    "expected": "HTTP 404."
+   },
+   {
+    "action": "Fetch the same address with no key",
+    "data": "No key",
+    "expected": "HTTP 401."
    }
   ],
   "source": "tests/test_api_integration.py::TestAuthenticationFlow::test_mixed_auth_and_no_auth_endpoints"
@@ -209,22 +224,22 @@
   "id": "tests.test_api_integration.TestAuthenticationFlow.test_auth_switching",
   "name": "Data Analyzer: Valid, then wrong, then valid key behave correctly in sequence",
   "objective": "Shows that a rejected key does not affect later requests with the right key.",
-  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
   "steps": [
    {
-    "action": "Fetch a dictionary with the correct key.",
-    "data": "Made-up ID.",
-    "expected": "Status is neither 401 nor 403."
+    "action": "Fetch an unknown dictionary with the right key",
+    "data": "ID test1",
+    "expected": "HTTP 404 (key accepted)."
    },
    {
-    "action": "Fetch again with the wrong key.",
-    "data": "Wrong key.",
+    "action": "Fetch with a wrong key",
+    "data": "ID test2",
     "expected": "HTTP 403."
    },
    {
-    "action": "Fetch again with the correct key.",
-    "data": "Correct key.",
-    "expected": "Status is neither 401 nor 403."
+    "action": "Fetch with the right key again",
+    "data": "ID test3",
+    "expected": "HTTP 404 (key accepted again)."
    }
   ],
   "source": "tests/test_api_integration.py::TestAuthenticationFlow::test_auth_switching"

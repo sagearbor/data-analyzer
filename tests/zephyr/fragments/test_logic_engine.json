@@ -235,9 +235,9 @@
   "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
   "steps": [
    {
-    "action": "Convert a made-up violation to a plain record.",
-    "data": "Rule id r, row 0, field f, value x, severity error",
-    "expected": "The record has rule_id 'r' and row_index 0. Other values are not checked."
+    "action": "Convert a made-up violation record to a dictionary",
+    "data": "Rule r, description d, row 0, field f, value x, expected 'blank', severity error",
+    "expected": "Every property comes back with the value that was put in (id, description, row, fields, values, expected behaviour, severity)."
    }
   ],
   "source": "tests/test_logic_engine.py::TestLogicViolation::test_to_dict"
@@ -520,14 +520,14 @@
  },
  {
   "id": "tests.test_logic_engine.TestLogicValidator.test_one_bad_rule_does_not_abort_others",
-  "name": "Data Analyzer: Validation continues past a problem rule (weakly tested)",
-  "objective": "Intended to prove one faulty rule does not stop others. As written only a single valid rule is supplied (no faulty rule), so it really proves a normal rule reports at least one violation.",
+  "name": "Data Analyzer: Validation continues past rules that cannot be checked",
+  "objective": "Proves faulty rules do not stop good rules from running and are reported as not checked. Two faulty rules (an unsupported action; a rule with no condition) come before one valid rule.",
   "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
   "steps": [
    {
-    "action": "Validate two male rows against one valid 'must be blank' rule.",
-    "data": "Rule: gender equals Male, pregnant must be blank",
-    "expected": "At least one violation is reported."
+    "action": "Validate two male rows against three rules, faulty ones first",
+    "data": "Faulty: unknown action, missing condition. Good: gender equals Male, pregnant must be blank",
+    "expected": "The good rule still reports its violations (rows 0 and 1). Coverage says 3 rules, 1 evaluated, both faulty rules listed as unsupported, none failed, and not complete."
    }
   ],
   "source": "tests/test_logic_engine.py::TestLogicValidator::test_one_bad_rule_does_not_abort_others"
