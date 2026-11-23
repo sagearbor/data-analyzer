@@ -673,7 +673,7 @@ if ENVBANNER_AVAILABLE:
 # `unsafe_allow_html` markup, only inside a real container - and the
 # container itself is pinned with position:fixed. Navigation inside the bar
 # uses st.segmented_control (its own public testid root,
-# [data-testid="stSegmentedControl"], not a data-baseweb internal) instead of
+# [data-testid="stButtonGroup"], not a data-baseweb internal) instead of
 # st.tabs, because st.tabs cannot be relocated into an arbitrary container.
 st.markdown("""
 <style>
@@ -748,21 +748,34 @@ st.markdown("""
     /* Segmented-control navigation, restyled as light pills on the dark bar.
        Selector targets the widget's own public testid root only - no
        data-baseweb descendant selectors. */
-    .st-key-navbar [data-testid="stSegmentedControl"] {
+    .st-key-navbar [data-testid="stButtonGroup"] {
         display: flex;
         justify-content: center;
     }
-    .st-key-navbar [data-testid="stSegmentedControl"] label {
+    /* The pills are <button> elements (aria-checked marks the selected one),
+       and the page-wide `p { color: #334155 }` rule would otherwise paint
+       their label dark-on-dark (ADP-90). Colour the button AND its label text
+       explicitly, in both themes: unselected #cbd5e1 on #1e293b (10.5:1),
+       selected #ffffff on #2563eb (5.2:1) - both above WCAG AA 4.5:1. */
+    .st-key-navbar [data-testid="stButtonGroup"] button {
         background-color: transparent !important;
-        color: #cbd5e1 !important;
         border: none !important;
         font-weight: 500;
     }
-    .st-key-navbar [data-testid="stSegmentedControl"] label:hover {
+    .st-key-navbar [data-testid="stButtonGroup"] button,
+    .st-key-navbar [data-testid="stButtonGroup"] button p,
+    .st-key-navbar [data-testid="stButtonGroup"] button span {
+        color: #cbd5e1 !important;
+    }
+    .st-key-navbar [data-testid="stButtonGroup"] button:hover {
         background-color: #334155 !important;
     }
-    .st-key-navbar [data-testid="stSegmentedControl"] label[aria-checked="true"] {
+    .st-key-navbar [data-testid="stButtonGroup"] button[aria-checked="true"] {
         background-color: #2563eb !important;
+    }
+    .st-key-navbar [data-testid="stButtonGroup"] button[aria-checked="true"],
+    .st-key-navbar [data-testid="stButtonGroup"] button[aria-checked="true"] p,
+    .st-key-navbar [data-testid="stButtonGroup"] button[aria-checked="true"] span {
         color: #ffffff !important;
     }
 
