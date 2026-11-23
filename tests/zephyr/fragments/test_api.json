@@ -366,14 +366,14 @@
  },
  {
   "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_csv_valid",
-  "name": "Data Analyzer: Dictionary CSV upload is accepted (weak check: status only)",
-  "objective": "Shows only that uploading a CSV dictionary does not fail with an error. The test checks the status code and not the content of the reply.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "name": "Data Analyzer: Dictionary CSV upload returns the program details and passes the file text to the parser",
+  "objective": "Proves a REDCap-style CSV dictionary upload gets HTTP 200 with the program's id, name, counts, format and schema, and that the uploaded text (and the 'save' choice) reaches the program creator unchanged.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload the dictionary CSV with save_program = true.",
-    "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
-    "expected": "HTTP status is 200 or 503 (service unavailable). Nothing else is checked."
+    "action": "Upload the sample dictionary CSV with save_program true",
+    "data": "Made-up REDCap dictionary",
+    "expected": "HTTP 200; program_id test-id-123, program_name test-program, 5 fields, 3 rules, 1 logic rule, format redcap_csv, schema record_id/age. The parser received the exact uploaded text with save=True."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_csv_valid"
@@ -394,42 +394,42 @@
  },
  {
   "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_pdf_not_implemented",
-  "name": "Data Analyzer: A PDF dictionary gets 'not implemented' or 'service unavailable' (loose check)",
-  "objective": "Shows that PDF dictionaries are not handled as normal data. The test accepts either of two statuses.",
-  "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+  "name": "Data Analyzer: A PDF dictionary gets 501 'not implemented'",
+  "objective": "Shows that PDF dictionaries are refused with exactly HTTP 501 and a clear message. The dictionary storage stand-in is present, so the answer cannot be mistaken for the 503 'service unavailable' reply, and the parser is never called.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload a file named test.pdf as the dictionary.",
-    "data": "Made-up bytes beginning '%PDF-1.4'.",
-    "expected": "HTTP status is 501 (not implemented) or 503 (service unavailable)."
+    "action": "Upload a small fake PDF as a dictionary",
+    "data": "Made-up bytes named test.pdf",
+    "expected": "HTTP 501 with 'PDF parsing not yet implemented' in the message; the program creator is not called."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_pdf_not_implemented"
  },
  {
   "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_json_valid",
-  "name": "Data Analyzer: Dictionary JSON upload is accepted (weak check: status only)",
-  "objective": "Shows only that a JSON dictionary upload does not fail with an error.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "name": "Data Analyzer: Dictionary JSON upload returns the program details and passes the file text to the parser",
+  "objective": "Proves a JSON dictionary upload gets HTTP 200 with the program's id, format and field count, and that the uploaded text and file name reach the program creator.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload a small made-up FHIR-style questionnaire JSON (two items: Record ID, Age) with save_program = true.",
-    "data": "Made-up JSON.",
-    "expected": "HTTP status is 200 or 503. Nothing else is checked."
+    "action": "Upload the sample dictionary JSON with save_program true",
+    "data": "Made-up FHIR-like dictionary named test.json",
+    "expected": "HTTP 200; program_id test-id-json, format fhir_json, 2 fields. The parser received the exact uploaded text and the file name test.json."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_json_valid"
  },
  {
   "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_save_program_false",
-  "name": "Data Analyzer: Dictionary upload with 'do not save' is accepted (weak check: status only)",
-  "objective": "Shows only that the do-not-save option does not cause an error. It does not check that nothing was saved.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "name": "Data Analyzer: Dictionary upload with 'do not save' tells the parser not to save",
+  "objective": "Shows the do-not-save option is honoured: the reply is HTTP 200 and the program creator is called with save=False.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Upload the dictionary CSV with save_program = false.",
-    "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
-    "expected": "HTTP status is 200 or 503. Nothing else is checked."
+    "action": "Upload the sample dictionary CSV with save_program false",
+    "data": "Made-up REDCap dictionary",
+    "expected": "HTTP 200, program_id test-id-nosave; the parser was called with save=False."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_save_program_false"
@@ -506,70 +506,75 @@
  },
  {
   "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_not_found",
-  "name": "Data Analyzer: Fetching an unknown dictionary gives 'not found' (404) or 503",
-  "objective": "Shows that asking for a dictionary that does not exist does not return one.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that reports that no such program exists, so no AI model is called.",
+  "name": "Data Analyzer: Fetching an unknown dictionary gives 'not found' (404)",
+  "objective": "Shows that asking for a dictionary that does not exist returns exactly HTTP 404 with 'Program not found.', after looking up the ID that was asked for.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
   "steps": [
    {
-    "action": "Request /api/v1/dictionary/nonexistent-id.",
-    "data": "Made-up ID.",
-    "expected": "HTTP status is 404 (not found) or 503."
+    "action": "Fetch an ID that is not stored",
+    "data": "nonexistent-id",
+    "expected": "HTTP 404 with 'Program not found.' in the message; the store was asked for exactly 'nonexistent-id'."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_not_found"
  },
  {
   "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_deleted",
-  "name": "Data Analyzer: A deleted dictionary is reported as not found (404) or 503",
-  "objective": "Shows that a dictionary marked deleted is not returned.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a program marked as deleted, so no AI model is called.",
+  "name": "Data Analyzer: A deleted dictionary is reported as not found (404)",
+  "objective": "Shows a dictionary marked deleted is not returned: the reply is exactly HTTP 404.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a record marked deleted, so no AI model is called.",
   "steps": [
    {
-    "action": "Request /api/v1/dictionary/deleted-id.",
-    "data": "Made-up ID.",
-    "expected": "HTTP status is 404 or 503."
+    "action": "Fetch an ID whose record is marked deleted",
+    "data": "deleted-id",
+    "expected": "HTTP 404."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_deleted"
  },
  {
   "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_valid_id",
-  "name": "Data Analyzer: Fetching a dictionary by ID succeeds (weak check: status only)",
-  "objective": "Shows only that a known ID does not produce an error. The contents of the reply are not checked.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "name": "Data Analyzer: Fetching a dictionary by ID returns its details",
+  "objective": "Proves a known ID returns HTTP 200 with the stored program's id, name, counts, schema and generated code, after looking up that ID.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Request /api/v1/dictionary/test-id-123.",
-    "data": "Stand-in record with 5 fields.",
-    "expected": "HTTP status is 200 or 503."
+    "action": "Fetch test-id-123",
+    "data": "Made-up stored program",
+    "expected": "HTTP 200; program_id test-id-123, name test-program, 5 fields, 3 basic rules, 1 logic rule, schema record_id/age, generated code '# validation code'."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_valid_id"
  },
  {
   "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_by_name",
-  "name": "Data Analyzer: Fetching a dictionary by name succeeds (weak check: status only)",
-  "objective": "Shows only that a name lookup does not produce an error.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "name": "Data Analyzer: Fetching a dictionary by name returns its details",
+  "objective": "Proves a name typed in the address is the key that is looked up, and the matching program's details are returned.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
   "steps": [
    {
-    "action": "Request /api/v1/dictionary/my-program-name.",
-    "data": "Stand-in record.",
-    "expected": "HTTP status is 200 or 503."
+    "action": "Fetch my-program-name",
+    "data": "Made-up stored program",
+    "expected": "HTTP 200; name my-program-name, program_id test-id-456, use count 5. The store was asked for exactly 'my-program-name'."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_by_name"
  },
  {
   "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_by_alias",
-  "name": "Data Analyzer: Fetching a dictionary by alias succeeds (weak check: status only)",
-  "objective": "Shows only that an alias lookup does not produce an error. The stand-in returns its record for any name, so the alias matching itself is not tested.",
-  "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+  "name": "Data Analyzer: Fetching a dictionary by alias returns it, and a name that is not an alias does not",
+  "objective": "Proves an alias typed in the address finds the program that owns the alias, and that a key which is not one of its aliases gives 404. The stand-in store only answers for the program's own aliases, so the alias is what decides the result.",
+  "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in that answers only for the program's own aliases, so no AI model is called.",
   "steps": [
    {
-    "action": "Request /api/v1/dictionary/my-alias.",
-    "data": "Stand-in record listing two aliases.",
-    "expected": "HTTP status is 200 or 503."
+    "action": "Fetch my-alias",
+    "data": "Program original-name with aliases my-alias and another-alias",
+    "expected": "HTTP 200; program_id test-id-789, name original-name, both aliases listed."
+   },
+   {
+    "action": "Fetch not-an-alias",
+    "data": "Same stand-in",
+    "expected": "HTTP 404."
    }
   ],
   "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_by_alias"
@@ -646,14 +651,14 @@
  },
  {
   "id": "tests.test_api.TestErrorHandling.test_invalid_json_body",
-  "name": "Data Analyzer: Sending text where a file upload is expected returns 400 or 422",
-  "objective": "Shows that a request in the wrong format is refused with a client error.",
+  "name": "Data Analyzer: Sending JSON text where a file upload is expected returns 422 and names the missing file",
+  "objective": "Shows a request in the wrong format is refused with exactly HTTP 422, pointing at the missing 'dictionary_file' part.",
   "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
   "steps": [
    {
-    "action": "Post the plain text 'not json' with content type application/json to the dictionary parse endpoint.",
-    "data": "Made-up text.",
-    "expected": "HTTP status is 400 or 422 (could not be processed)."
+    "action": "POST plain text labelled JSON to the dictionary upload address",
+    "data": "Text 'not json' with a valid key",
+    "expected": "HTTP 422; the first error points at body > dictionary_file."
    }
   ],
   "source": "tests/test_api.py::TestErrorHandling::test_invalid_json_body"

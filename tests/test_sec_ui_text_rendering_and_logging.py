@@ -48,11 +48,18 @@ def test_field_markdown_escapes_every_dictionary_supplied_string():
     assert "*[Required]*" in out
 
 
-@pytest.mark.parametrize("field", [{}, {"field_name": 5}, {"description": 7, "allowed_values": "abc"},
-                                   {"min_value": None, "max_value": 3, "description": ["x"]}])
-def test_field_markdown_never_crashes_on_odd_dictionary_entries(field):
-    assert isinstance(field_markdown(field), str)
-    assert isinstance(field_markdown(field, detailed=True), str)
+@pytest.mark.parametrize("field, shown_name, shown_type", [
+    ({}, "(unnamed)", "unknown"),
+    ({"field_name": 5}, "5", "unknown"),
+    ({"description": 7, "allowed_values": "abc"}, "(unnamed)", "unknown"),
+    ({"min_value": None, "max_value": 3, "description": ["x"]}, "(unnamed)", "unknown"),
+])
+def test_field_markdown_never_crashes_on_odd_dictionary_entries(field, shown_name, shown_type):
+    expected_head = f"**{md_escape(shown_name)}** ({md_escape(shown_type)})"
+    for detailed in (False, True):
+        out = field_markdown(field, detailed=detailed)
+        assert isinstance(out, str)
+        assert out.startswith(expected_head)   # falls back to a readable name and type
 
 
 @pytest.mark.parametrize("bad", [[], "text", 5, {"rules": []}, {"fields": {}}, {"fields": ["a"]},

@@ -83,6 +83,10 @@ def test_pdf_text_extraction(pdf_path):
     text_content = _read_pdf_text(pdf_path, max_pages=5)
 
     assert len(text_content) > 0, "PDF extraction returned empty content"
+    # Real content from page 1 of the fixture, not just "some text"
+    assert "LTC-PROMISE.8314_QC" in text_content
+    assert "[record_id] text" in text_content
+    assert "[consent_date] text (date_mdy) Required" in text_content
 
 
 def test_pdf_extraction(pdf_path):
@@ -116,6 +120,8 @@ def test_pdf_extraction(pdf_path):
         result = parser.parse_dictionary(text_content, max_fields=500)
 
     mock_parse.assert_called_once_with(text_content, max_fields=500)
+    # The text handed to the parser is the real extracted PDF text
+    assert "[record_id] text" in mock_parse.call_args.args[0]
 
     fields = result.get("fields", [])
     assert fields is not None, "No fields returned from parser"

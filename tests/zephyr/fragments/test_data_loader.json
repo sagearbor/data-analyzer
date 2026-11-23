@@ -174,9 +174,9 @@
   "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
   "steps": [
    {
-    "action": "Load a made-up 4-row CSV with integer, decimal, text, boolean and date columns",
-    "data": "Columns int_col, float_col, str_col, bool_col, date_col",
-    "expected": "4 rows; columns int_col, float_col and bool_col are present (str_col and date_col are not checked)"
+    "action": "Load made-up CSV text with five differently-typed columns",
+    "data": "4 rows",
+    "expected": "4 rows; all five columns present; int_col is 1-4, float_col is 1.5-4.5 and str_col is text, more, data, here."
    }
   ],
   "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_with_different_types"

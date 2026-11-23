@@ -380,6 +380,7 @@
   "tests.test_program_cache.TestProgramManager.test_clean_name_preserves_alphanumeric",
   "tests.test_program_cache.TestProgramManager.test_manager_init_without_llm",
   "tests.test_program_cache.TestProgramManager.test_execute_program_returns_dict",
+  "tests.test_program_cache.TestProgramManager.test_execute_program_counts_one_use_per_run",
   "tests.test_program_cache.TestProgramManager.test_execute_program_not_found",
   "tests.test_program_cache.TestProgramManager.test_execute_program_deleted",
   "tests.test_program_cache.TestIntegration.test_full_workflow_create_alias_use_delete_restore",

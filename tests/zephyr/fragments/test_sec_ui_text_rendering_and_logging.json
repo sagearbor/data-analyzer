@@ -44,7 +44,7 @@
  {
   "id": "tests.test_sec_ui_text_rendering_and_logging.test_field_markdown_never_crashes_on_odd_dictionary_entries",
   "name": "Data Analyzer: Field display does not crash on unusual dictionary entries",
-  "objective": "Proves odd dictionary input (empty, numbers where text is expected, a list as description) still produces text.",
+  "objective": "Proves odd dictionary entries (empty, a number as the name, wrong-typed description or allowed values) produce text that starts with a readable name and type: '(unnamed)' and 'unknown' when missing, the number itself when given. Runs over 4 entries, in short and detailed form.",
   "precondition": "None.",
   "steps": [
    {

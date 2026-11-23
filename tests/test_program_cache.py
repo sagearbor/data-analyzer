@@ -390,7 +390,10 @@ class TestProgramDatabase:
 
     @pytest.mark.unit
     def test_list_all_programs_ordering(self, db_instance):
-        """Test list_all_programs() returns programs ordered by use_count descending"""
+        """list_all_programs() returns programs most recently used first, never-used last.
+
+        (ADP-89: this used to claim ordering by use_count and only checked the
+        count of results. The product orders by last_used descending.)"""
         from src.program_cache import ValidationProgram
 
         # Create programs with different use counts
@@ -406,7 +409,8 @@ class TestProgramDatabase:
             conditional_rules=[],
             created_by="user1",
             created_at=datetime.now(),
-            use_count=1
+            use_count=1,
+            last_used=datetime(2024, 1, 1, 9, 0, 0)
         )
 
         prog2 = ValidationProgram(
@@ -421,7 +425,8 @@ class TestProgramDatabase:
             conditional_rules=[],
             created_by="user2",
             created_at=datetime.now(),
-            use_count=10
+            use_count=10,
+            last_used=None  # never used (despite the highest use_count): must come last
         )
 
         prog3 = ValidationProgram(
@@ -436,7 +441,8 @@ class TestProgramDatabase:
             conditional_rules=[],
             created_by="user3",
             created_at=datetime.now(),
-            use_count=5
+            use_count=5,
+            last_used=datetime(2024, 6, 1, 9, 0, 0)
         )
 
         db_instance.save_program(prog1)
@@ -445,8 +451,9 @@ class TestProgramDatabase:
 
         results = db_instance.list_all_programs()
 
-        # Should return all 3 programs
-        assert len(results) == 3
+        # Most recently used first (MediumUsage, Jun), then LowUsage (Jan),
+        # then the never-used program last. Use count plays no part.
+        assert [p.program_id for p in results] == ["prog3", "prog1", "prog2"]
 
     @pytest.mark.unit
     def test_create_alias_success(self, db_instance, sample_program):
@@ -553,6 +560,17 @@ class TestProgramDatabase:
         conn.close()
 
         assert row is not None
+
+        # The stored row carries the values that were recorded
+        history = db_instance.get_execution_history(sample_program.program_id)
+        assert len(history) == 1
+        entry = history[0]
+        assert entry['executed_by'] == 'testuser'
+        assert entry['data_file'] == 'test_data.csv'
+        assert entry['rows_processed'] == 100
+        assert entry['field_violations_found'] == 3
+        assert entry['logic_violations_found'] == 2
+        assert entry['execution_time_seconds'] == 2.5
 
     @pytest.mark.unit
     def test_delete_program_wrong_password(self, db_instance, sample_program, mock_env_admin_password):
@@ -848,12 +866,17 @@ class TestProgramManager:
         """Test ProgramManager can be initialized without LLM client"""
         from src.program_manager import ProgramManager
 
-        # Should not raise even without Azure credentials
-        try:
+        # With no AI client supplied and no credentials (the parser refuses to
+        # start), the manager must still be created, in limited mode.
+        # The parser and database are stubbed so the test is independent of
+        # this machine's environment and never touches the real database.
+        with patch('src.program_manager.LLMDictionaryParser',
+                   side_effect=ValueError("AZURE_OPENAI_ENDPOINT is not set")), \
+                patch('src.program_manager.ProgramDatabase') as mock_db_cls:
             manager = ProgramManager(llm_client=None)
-        except Exception:
-            # If init fails due to missing creds, that's expected
-            pass
+
+        assert manager.llm is None
+        assert manager.db is mock_db_cls.return_value
 
     @pytest.mark.unit
     def test_execute_program_returns_dict(self, db_instance, sample_program):
@@ -873,9 +896,39 @@ class TestProgramManager:
 
         result = manager.execute_program(sample_program.program_id, test_data)
 
-        # Should return dict with 'program' or 'error' key
-        assert isinstance(result, dict)
-        assert 'program' in result or 'error' in result
+        # A successful run: no error, the right program, the right row count
+        assert 'error' not in result
+        assert result['program'].program_id == sample_program.program_id
+        assert result['logic_violations'] == []
+        assert result['summary']['rows_processed'] == 3
+        assert result['summary']['program_id'] == sample_program.program_id
+        assert result['summary']['total_logic_violations'] == 0
+
+        # ... and the run is recorded in the run history
+        history = db_instance.get_execution_history(sample_program.program_id)
+        assert len(history) == 1
+        assert history[0]['rows_processed'] == 3
+
+    @pytest.mark.unit
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Product bug (ADP-89 finding): ProgramManager.execute_program() calls "
+               "db.increment_use_count() and then db.record_execution(), which also "
+               "increments the use count, so one run adds 2 to use_count.",
+    )
+    def test_execute_program_counts_one_use_per_run(self, db_instance, sample_program):
+        """One run of a program must raise its use count by exactly one."""
+        from src.program_manager import ProgramManager
+        import pandas as pd
+
+        db_instance.save_program(sample_program)
+        manager = ProgramManager.__new__(ProgramManager)
+        manager.db = db_instance
+        manager.llm = None
+
+        manager.execute_program(sample_program.program_id, pd.DataFrame({"field1": [1, 2, 3]}))
+
+        assert db_instance.load_program(sample_program.program_id).use_count == 1
 
     @pytest.mark.unit
     def test_execute_program_not_found(self, db_instance):
@@ -1066,10 +1119,12 @@ class TestIntegration:
         db = ProgramDatabase(db_path=temp_db_dir / "programs.db")
         db.save_program(sample_program)
 
-        # Simulate multiple uses
+        # Ten uses made at the same time from ten threads
+        from concurrent.futures import ThreadPoolExecutor
         num_uses = 10
-        for i in range(num_uses):
-            db.increment_use_count(sample_program.program_id)
+        with ThreadPoolExecutor(max_workers=num_uses) as pool:
+            list(pool.map(lambda _: db.increment_use_count(sample_program.program_id),
+                          range(num_uses)))
 
         # Verify final count
         reloaded = db.load_program(sample_program.program_id)

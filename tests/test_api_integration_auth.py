@@ -131,27 +131,62 @@ class TestSecurityBestPractices:
     """Verify security best practices are followed"""
 
     def test_api_key_not_in_logs(self, client_with_auth, caplog):
-        """Verify API keys are not logged in plain text"""
-        # Attempt authentication with valid key
-        from api_server import verify_api_key
-        import asyncio
+        """Verify API keys are not logged in plain text.
 
-        asyncio.run(verify_api_key(api_key="test-api-key-integration"))
+        ADP-89: the old version called the key check directly, which logs
+        nothing, so its loop ran over zero records. This one sends real
+        requests (right key, wrong key) through a route that does log, proves
+        logging happened, and then searches every log line for the key."""
+        import logging
+        from unittest.mock import patch
 
-        # Check logs don't contain the actual key
-        for record in caplog.records:
-            assert "test-api-key-integration" not in record.message
+        right, wrong = "test-api-key-integration", "wrong-key-for-log-test"
+        caplog.set_level(logging.DEBUG)
+        with patch("api_server.program_manager") as mock_pm:
+            mock_pm.db.load_program.return_value = None
+            ok = client_with_auth.get("/api/v1/dictionary/log-probe", headers={"X-API-Key": right})
+            bad = client_with_auth.get("/api/v1/dictionary/log-probe", headers={"X-API-Key": wrong})
+        assert ok.status_code == 404   # right key accepted, reached the handler
+        assert bad.status_code == 403  # wrong key refused
+
+        # The test is only meaningful if the server actually logged something
+        assert any("log-probe" in r.getMessage() for r in caplog.records)
+        for secret in (right, wrong):
+            assert secret not in caplog.text
+            for record in caplog.records:
+                assert secret not in record.getMessage()
 
     def test_admin_password_not_in_logs(self, client_with_auth, caplog):
-        """Verify admin passwords are not logged in plain text"""
-        from api_server import verify_admin_password
+        """Verify admin passwords are not logged in plain text.
+
+        Runs the admin check with the password unset on the server (which logs
+        an error line), then with a wrong and a right password, and proves
+        log lines were produced before searching them for the password."""
+        import api_server
         import asyncio
+        import logging
+        from fastapi import HTTPException
 
-        asyncio.run(verify_admin_password(admin_password="test-admin-password-integration"))
+        right, wrong = "test-admin-password-integration", "wrong-admin-for-log-test"
+        caplog.set_level(logging.DEBUG)
 
-        # Check logs don't contain the actual password
-        for record in caplog.records:
-            assert "test-admin-password-integration" not in record.message
+        # Not configured: the server logs an error and refuses (503)
+        with patch.object(api_server, "ADMIN_PASSWORD", ""):
+            with pytest.raises(HTTPException) as unset:
+                asyncio.run(api_server.verify_admin_password(admin_password=right))
+        assert unset.value.status_code == 503
+        assert any("not configured" in r.getMessage() for r in caplog.records)
+
+        with patch.object(api_server, "ADMIN_PASSWORD", right):
+            with pytest.raises(HTTPException) as refused:
+                asyncio.run(api_server.verify_admin_password(admin_password=wrong))
+            assert refused.value.status_code == 403
+            assert asyncio.run(api_server.verify_admin_password(admin_password=right)) == right
+
+        for secret in (right, wrong):
+            assert secret not in caplog.text
+            for record in caplog.records:
+                assert secret not in record.getMessage()
 
     def test_error_messages_dont_leak_credentials(self, client_with_auth):
         """Verify error messages don't leak credential information"""

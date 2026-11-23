@@ -90,28 +90,28 @@
  },
  {
   "id": "tests.test_api_integration_auth.TestSecurityBestPractices.test_api_key_not_in_logs",
-  "name": "Data Analyzer: API key is not written to the log (weak check)",
-  "objective": "Shows the key is not logged when the key check runs. Likely nothing is logged at all, so the check may pass without testing much.",
+  "name": "Data Analyzer: API key is not written to the log",
+  "objective": "Shows neither the right nor a wrong key appears in any log line when real requests are made. The test first proves the server really did log something about the requests, so it cannot pass on an empty log.",
   "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
   "steps": [
    {
-    "action": "Run the key check with the correct key and read the captured log records.",
-    "data": "Correct key.",
-    "expected": "No captured log record contains the key text."
+    "action": "Send a request with the right key and one with a wrong key to a dictionary address",
+    "data": "Made-up keys; storage stand-in finds nothing",
+    "expected": "Right key gives 404, wrong key gives 403; log lines mentioning the request exist; neither key text appears anywhere in the captured log."
    }
   ],
   "source": "tests/test_api_integration_auth.py::TestSecurityBestPractices::test_api_key_not_in_logs"
  },
  {
   "id": "tests.test_api_integration_auth.TestSecurityBestPractices.test_admin_password_not_in_logs",
-  "name": "Data Analyzer: Admin password is not written to the log (weak check)",
-  "objective": "As above for the administrator password.",
+  "name": "Data Analyzer: Admin password is not written to the log",
+  "objective": "As above for the administrator password: the admin check is run with the password unset (which logs an error), with a wrong password and with the right one, log lines are proven to exist, and neither password appears in them.",
   "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
   "steps": [
    {
-    "action": "Run the admin check with the correct password and read the captured log records.",
-    "data": "Correct password.",
-    "expected": "No captured log record contains the password."
+    "action": "Run the admin check with the password unset, wrong, then right",
+    "data": "Made-up passwords",
+    "expected": "503 when unset (with a 'not configured' log line), 403 for the wrong one, the right one accepted; neither password text appears in the captured log."
    }
   ],
   "source": "tests/test_api_integration_auth.py::TestSecurityBestPractices::test_admin_password_not_in_logs"

@@ -6,9 +6,9 @@
   "precondition": "Offline test harness; the sample PDF LTCPROMISE8314QC.pdf must be present. No AI model is used.",
   "steps": [
    {
-    "action": "Extract text from the first 5 pages of the sample PDF",
-    "data": "tests/test_data/dictionaries/LTCPROMISE8314QC.pdf, pages 1-5",
-    "expected": "The file exists and the extracted text is not empty (the content itself is not checked)"
+    "action": "Extract text from the first five pages of the fixture PDF",
+    "data": "LTCPROMISE8314QC.pdf",
+    "expected": "Text is not empty and contains the form title 'LTC-PROMISE.8314_QC' and the field markers '[record_id] text' and '[consent_date] text (date_mdy) Required'."
    }
   ],
   "source": "tests/test_pdf_extraction.py::test_pdf_text_extraction"
