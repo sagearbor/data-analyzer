@@ -6,7 +6,7 @@
 project_info:
   name: Data Analyzer - Active Development
   version: 1.0.0
-  last_updated: 2026-11-20T00:00:00Z
+  last_updated: 2026-11-23T00:00:00Z
 
 # =========================================================
 # CRITICAL UPDATE - 2025-09-28 - READ THIS FIRST
@@ -958,14 +958,40 @@ phase_release_1_0_security_and_sdlc:
     - id: ADP-53
       name: "Every automated test described in plain language (tests/zephyr/) and recorded in Zephyr"
       status: INPROGRESS
-      notes: "tools/release/build_zephyr_manifest.py assembles tests/zephyr/release-1.0-manifest.json."
+      notes: |
+        tools/release/build_zephyr_manifest.py assembles tests/zephyr/release-1.0-manifest.json.
+        Run it with the same Python that produced the JUnit file: it stamps that environment.
+        Cycles: ADP-R1 (266cd7f, superseded, wrong environment stamp), ADP-R3 (b6ca097),
+        and one for the merged code a2d3b09 (recording on 2026-11-23; check `zs cycles ADP`).
+        The repo venv/ is on older libraries than requirements.txt; use a fresh install.
+        Remaining: owner decides who approves the Draft cases.
     - id: ADP-54
-      name: "SDLC documents from the DS-S-001 templates (Confluence ADP, SDLC / Data Analyzer)"
+      name: "SDLC documents (Confluence ADP, SDLC / Data Analyzer)"
       status: INPROGRESS
-      notes: "Release request ADP-91 and Validation Plan drafted; preliminary risk Medium. Board review is a people step."
+      notes: |
+        Started under DS-S-001 (VP, RS filled); TS-S-001 very likely applies instead, a quality
+        manager confirms. TSRA plus all eight TS-S-001 drafts filled 2026-11-23, unsigned, with
+        TBDs for people. Page ids in docs/release-1.0/tracking.json. Release request ADP-91.
+        Not started: Validation Report, Release to Production, PQ/UAT pages; project intake;
+        SKMS application portfolio entry. Working files in docs/release-1.0/sdlc-work/ are kept
+        out of git and are deleted by `git worktree remove`: copy them out first.
     - id: ADP-89
       name: "Strengthen automated tests that prove little or cannot fail"
+      status: INPROGRESS
+      notes: "Done on release/1.0-open-items (about 45 tests rewritten); DONE once merged to main. About ten partial-check tests and test_refactor.py::test_validation left for a follow-up."
+    - id: ADP-108
+      name: "Defect: one run of a saved dictionary adds 2 to its use count"
       status: TODO
+      notes: "Found by ADP-89; covered by a strict expected-failure test in tests/test_program_cache.py."
+    - id: ADP-74
+      name: "Image packages with advisories"
+      status: INPROGRESS
+      notes: "Fixed on release/1.0-open-items: 0 Critical, 0 High with a fix available in both images; scans in tmp/adp-74/ (not in git). Owner decision needed on High rows with no Debian fix."
+    - id: ADP-86
+      name: "About page makes no outside requests"
+      status: INPROGRESS
+      notes: "Already fixed on 2026-11-20; a rendering test added on release/1.0-open-items."
     - id: ADP-90
       name: "Selected tab label on the top bar is hard to read"
-      status: TODO
+      status: INPROGRESS
+      notes: "Fixed on release/1.0-open-items: contrast 1.29:1 before, 5.17:1 after (measured in a browser); DONE once merged and checked on the deployed site."

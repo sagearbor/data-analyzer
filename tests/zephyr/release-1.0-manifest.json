@@ -3,9 +3,9 @@
  "folder": "Data Analyzer 1.0",
  "source_repo": "sagearbor/data-analyzer",
  "branch": "release/1.0-open-items",
- "commit": "b6ca097",
+ "commit": "a2d3b09",
  "run_command": "python -m pytest tests -p no:cacheprovider --junitxml=results.xml",
- "environment": "Developer workstation (macOS, Python 3.14, a fresh environment installed from requirements.txt: Streamlit 1.66.1, Pillow 13.0.0), offline: no network and no AI model (AI calls are replaced by canned answers), made-up data",
+ "environment": "Developer workstation (macOS, Python 3.14.6, Streamlit 1.66.1, Pillow 13.0.0), offline: no network and no AI model (AI calls are replaced by canned answers), made-up data",
  "issue_ids": {
   "ADP-49": 219585,
   "ADP-50": 219586,
@@ -18,6 +18,7 @@
   "ADP-89": 219627,
   "ADP-90": 219628,
   "ADP-91": 219629,
+  "ADP-108": 219717,
   "ADP-48": 219584
  },
  "cycle_issues": [
@@ -671,14 +672,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_csv_valid",
-   "name": "Data Analyzer: Dictionary CSV upload is accepted (weak check: status only)",
-   "objective": "Shows only that uploading a CSV dictionary does not fail with an error. The test checks the status code and not the content of the reply.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+   "name": "Data Analyzer: Dictionary CSV upload returns the program details and passes the file text to the parser",
+   "objective": "Proves a REDCap-style CSV dictionary upload gets HTTP 200 with the program's id, name, counts, format and schema, and that the uploaded text (and the 'save' choice) reaches the program creator unchanged.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload the dictionary CSV with save_program = true.",
-     "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
-     "expected": "HTTP status is 200 or 503 (service unavailable). Nothing else is checked."
+     "action": "Upload the sample dictionary CSV with save_program true",
+     "data": "Made-up REDCap dictionary",
+     "expected": "HTTP 200; program_id test-id-123, program_name test-program, 5 fields, 3 rules, 1 logic rule, format redcap_csv, schema record_id/age. The parser received the exact uploaded text with save=True."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_csv_valid",
@@ -703,14 +704,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_pdf_not_implemented",
-   "name": "Data Analyzer: A PDF dictionary gets 'not implemented' or 'service unavailable' (loose check)",
-   "objective": "Shows that PDF dictionaries are not handled as normal data. The test accepts either of two statuses.",
-   "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
+   "name": "Data Analyzer: A PDF dictionary gets 501 'not implemented'",
+   "objective": "Shows that PDF dictionaries are refused with exactly HTTP 501 and a clear message. The dictionary storage stand-in is present, so the answer cannot be mistaken for the 503 'service unavailable' reply, and the parser is never called.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload a file named test.pdf as the dictionary.",
-     "data": "Made-up bytes beginning '%PDF-1.4'.",
-     "expected": "HTTP status is 501 (not implemented) or 503 (service unavailable)."
+     "action": "Upload a small fake PDF as a dictionary",
+     "data": "Made-up bytes named test.pdf",
+     "expected": "HTTP 501 with 'PDF parsing not yet implemented' in the message; the program creator is not called."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_pdf_not_implemented",
@@ -719,14 +720,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_json_valid",
-   "name": "Data Analyzer: Dictionary JSON upload is accepted (weak check: status only)",
-   "objective": "Shows only that a JSON dictionary upload does not fail with an error.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+   "name": "Data Analyzer: Dictionary JSON upload returns the program details and passes the file text to the parser",
+   "objective": "Proves a JSON dictionary upload gets HTTP 200 with the program's id, format and field count, and that the uploaded text and file name reach the program creator.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload a small made-up FHIR-style questionnaire JSON (two items: Record ID, Age) with save_program = true.",
-     "data": "Made-up JSON.",
-     "expected": "HTTP status is 200 or 503. Nothing else is checked."
+     "action": "Upload the sample dictionary JSON with save_program true",
+     "data": "Made-up FHIR-like dictionary named test.json",
+     "expected": "HTTP 200; program_id test-id-json, format fhir_json, 2 fields. The parser received the exact uploaded text and the file name test.json."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_json_valid",
@@ -735,14 +736,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryParseEndpoint.test_parse_dictionary_save_program_false",
-   "name": "Data Analyzer: Dictionary upload with 'do not save' is accepted (weak check: status only)",
-   "objective": "Shows only that the do-not-save option does not cause an error. It does not check that nothing was saved.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+   "name": "Data Analyzer: Dictionary upload with 'do not save' tells the parser not to save",
+   "objective": "Shows the do-not-save option is honoured: the reply is HTTP 200 and the program creator is called with save=False.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload the dictionary CSV with save_program = false.",
-     "data": "Made-up REDCap data-dictionary CSV (a 'data dictionary' is the file that describes each field in a study: record_id, age, gender, weight_kg, bmi).",
-     "expected": "HTTP status is 200 or 503. Nothing else is checked."
+     "action": "Upload the sample dictionary CSV with save_program false",
+     "data": "Made-up REDCap dictionary",
+     "expected": "HTTP 200, program_id test-id-nosave; the parser was called with save=False."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryParseEndpoint::test_parse_dictionary_save_program_false",
@@ -831,14 +832,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_not_found",
-   "name": "Data Analyzer: Fetching an unknown dictionary gives 'not found' (404) or 503",
-   "objective": "Shows that asking for a dictionary that does not exist does not return one.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that reports that no such program exists, so no AI model is called.",
+   "name": "Data Analyzer: Fetching an unknown dictionary gives 'not found' (404)",
+   "objective": "Shows that asking for a dictionary that does not exist returns exactly HTTP 404 with 'Program not found.', after looking up the ID that was asked for.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
    "steps": [
     {
-     "action": "Request /api/v1/dictionary/nonexistent-id.",
-     "data": "Made-up ID.",
-     "expected": "HTTP status is 404 (not found) or 503."
+     "action": "Fetch an ID that is not stored",
+     "data": "nonexistent-id",
+     "expected": "HTTP 404 with 'Program not found.' in the message; the store was asked for exactly 'nonexistent-id'."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_not_found",
@@ -847,14 +848,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_deleted",
-   "name": "Data Analyzer: A deleted dictionary is reported as not found (404) or 503",
-   "objective": "Shows that a dictionary marked deleted is not returned.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a program marked as deleted, so no AI model is called.",
+   "name": "Data Analyzer: A deleted dictionary is reported as not found (404)",
+   "objective": "Shows a dictionary marked deleted is not returned: the reply is exactly HTTP 404.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a record marked deleted, so no AI model is called.",
    "steps": [
     {
-     "action": "Request /api/v1/dictionary/deleted-id.",
-     "data": "Made-up ID.",
-     "expected": "HTTP status is 404 or 503."
+     "action": "Fetch an ID whose record is marked deleted",
+     "data": "deleted-id",
+     "expected": "HTTP 404."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_deleted",
@@ -863,14 +864,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_valid_id",
-   "name": "Data Analyzer: Fetching a dictionary by ID succeeds (weak check: status only)",
-   "objective": "Shows only that a known ID does not produce an error. The contents of the reply are not checked.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+   "name": "Data Analyzer: Fetching a dictionary by ID returns its details",
+   "objective": "Proves a known ID returns HTTP 200 with the stored program's id, name, counts, schema and generated code, after looking up that ID.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Request /api/v1/dictionary/test-id-123.",
-     "data": "Stand-in record with 5 fields.",
-     "expected": "HTTP status is 200 or 503."
+     "action": "Fetch test-id-123",
+     "data": "Made-up stored program",
+     "expected": "HTTP 200; program_id test-id-123, name test-program, 5 fields, 3 basic rules, 1 logic rule, schema record_id/age, generated code '# validation code'."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_valid_id",
@@ -879,14 +880,14 @@
   },
   {
    "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_by_name",
-   "name": "Data Analyzer: Fetching a dictionary by name succeeds (weak check: status only)",
-   "objective": "Shows only that a name lookup does not produce an error.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+   "name": "Data Analyzer: Fetching a dictionary by name returns its details",
+   "objective": "Proves a name typed in the address is the key that is looked up, and the matching program's details are returned.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Request /api/v1/dictionary/my-program-name.",
-     "data": "Stand-in record.",
-     "expected": "HTTP status is 200 or 503."
+     "action": "Fetch my-program-name",
+     "data": "Made-up stored program",
+     "expected": "HTTP 200; name my-program-name, program_id test-id-456, use count 5. The store was asked for exactly 'my-program-name'."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_by_name",
@@ -895,14 +896,19 @@
   },
   {
    "id": "tests.test_api.TestDictionaryGetEndpoint.test_get_dictionary_by_alias",
-   "name": "Data Analyzer: Fetching a dictionary by alias succeeds (weak check: status only)",
-   "objective": "Shows only that an alias lookup does not produce an error. The stand-in returns its record for any name, so the alias matching itself is not tested.",
-   "precondition": "Same offline test harness as above. The server's dictionary-storage component is replaced by a stand-in that returns a canned, made-up program record, so no AI model is called.",
+   "name": "Data Analyzer: Fetching a dictionary by alias returns it, and a name that is not an alias does not",
+   "objective": "Proves an alias typed in the address finds the program that owns the alias, and that a key which is not one of its aliases gives 404. The stand-in store only answers for the program's own aliases, so the alias is what decides the result.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured. Dictionary storage is replaced by a stand-in that answers only for the program's own aliases, so no AI model is called.",
    "steps": [
     {
-     "action": "Request /api/v1/dictionary/my-alias.",
-     "data": "Stand-in record listing two aliases.",
-     "expected": "HTTP status is 200 or 503."
+     "action": "Fetch my-alias",
+     "data": "Program original-name with aliases my-alias and another-alias",
+     "expected": "HTTP 200; program_id test-id-789, name original-name, both aliases listed."
+    },
+    {
+     "action": "Fetch not-an-alias",
+     "data": "Same stand-in",
+     "expected": "HTTP 404."
     }
    ],
    "source": "tests/test_api.py::TestDictionaryGetEndpoint::test_get_dictionary_by_alias",
@@ -991,14 +997,14 @@
   },
   {
    "id": "tests.test_api.TestErrorHandling.test_invalid_json_body",
-   "name": "Data Analyzer: Sending text where a file upload is expected returns 400 or 422",
-   "objective": "Shows that a request in the wrong format is refused with a client error.",
+   "name": "Data Analyzer: Sending JSON text where a file upload is expected returns 422 and names the missing file",
+   "objective": "Shows a request in the wrong format is refused with exactly HTTP 422, pointing at the missing 'dictionary_file' part.",
    "precondition": "Server application (the API) loaded in the offline test harness, with no network and no AI model, and with a made-up API key configured. Requests carry the correct key unless stated.",
    "steps": [
     {
-     "action": "Post the plain text 'not json' with content type application/json to the dictionary parse endpoint.",
-     "data": "Made-up text.",
-     "expected": "HTTP status is 400 or 422 (could not be processed)."
+     "action": "POST plain text labelled JSON to the dictionary upload address",
+     "data": "Text 'not json' with a valid key",
+     "expected": "HTTP 422; the first error points at body > dictionary_file."
     }
    ],
    "source": "tests/test_api.py::TestErrorHandling::test_invalid_json_body",
@@ -1209,14 +1215,14 @@
    "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. The test is skipped if the service is unavailable (503).",
    "steps": [
     {
-     "action": "Upload a made-up REDCap dictionary CSV (8 fields) with save_program true and program name 'PatientIntake'.",
-     "data": "Made-up dictionary CSV.",
-     "expected": "HTTP 200. The reply contains program_id, program_name, fields_extracted and rules_extracted."
+     "action": "Upload a dictionary CSV with save_program true and a program name",
+     "data": "Made-up REDCap dictionary, name PatientIntake",
+     "expected": "HTTP 200 (no 'service unavailable' skip any more); reply has program id, name, field and rule counts. program_id is integration-test-prog-001."
     },
     {
-     "action": "Fetch the dictionary by the returned program ID.",
-     "data": "The ID from step 1.",
-     "expected": "HTTP 200. program_id matches; num_fields equals fields_extracted; schema and generated_code are present."
+     "action": "Fetch the program by the returned ID",
+     "data": "integration-test-prog-001",
+     "expected": "HTTP 200; same program_id, name 20251202-120000-PatientIntake, 8 fields (equal to the upload reply), schema and generated code present; the store was asked for exactly that ID."
     }
    ],
    "source": "tests/test_api_integration.py::TestDictionaryWorkflow::test_parse_save_retrieve_workflow",
@@ -1225,14 +1231,14 @@
   },
   {
    "id": "tests.test_api_integration.TestDictionaryWorkflow.test_parse_without_saving",
-   "name": "Data Analyzer: Upload a dictionary in preview mode (not saved) is accepted",
-   "objective": "Shows that the preview option works. Only the status is checked; the test does not verify nothing was saved.",
-   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. Skipped if the service is unavailable.",
+   "name": "Data Analyzer: Upload a dictionary in preview mode (not saved) tells the parser not to save",
+   "objective": "Shows the preview option works: HTTP 200, the program creator is called with save=False and the API itself never writes to the program database.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload the made-up dictionary CSV with save_program false.",
-     "data": "Made-up dictionary CSV.",
-     "expected": "HTTP 200."
+     "action": "Upload a dictionary CSV with save_program false",
+     "data": "Made-up REDCap dictionary",
+     "expected": "HTTP 200, program_id temp-preview-001; parser called with save=False; the stand-in's save method is never called."
     }
    ],
    "source": "tests/test_api_integration.py::TestDictionaryWorkflow::test_parse_without_saving",
@@ -1241,14 +1247,14 @@
   },
   {
    "id": "tests.test_api_integration.TestMultiFormatDictionaries.test_csv_format",
-   "name": "Data Analyzer: REDCap CSV dictionary is accepted",
-   "objective": "Shows that a CSV dictionary is parsed successfully (using a stand-in result).",
-   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. Skipped if unavailable.",
+   "name": "Data Analyzer: REDCap CSV dictionary is accepted and its text reaches the parser",
+   "objective": "Shows a CSV dictionary is parsed successfully (using a stand-in result): HTTP 200, the right program id, format and field count, and the parser receives the uploaded text unchanged.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload dict.csv.",
-     "data": "Made-up REDCap CSV.",
-     "expected": "HTTP 200."
+     "action": "Upload the REDCap CSV dictionary",
+     "data": "Made-up CSV",
+     "expected": "HTTP 200; program_id csv-test, format redcap_csv, 8 fields; parser received the exact CSV text."
     }
    ],
    "source": "tests/test_api_integration.py::TestMultiFormatDictionaries::test_csv_format",
@@ -1257,14 +1263,14 @@
   },
   {
    "id": "tests.test_api_integration.TestMultiFormatDictionaries.test_json_format",
-   "name": "Data Analyzer: FHIR-style JSON dictionary is accepted",
-   "objective": "Shows that a JSON dictionary is parsed successfully (using a stand-in result).",
-   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record. Skipped if unavailable.",
+   "name": "Data Analyzer: FHIR-style JSON dictionary is accepted and its text reaches the parser",
+   "objective": "Shows a JSON dictionary is parsed successfully (using a stand-in result): HTTP 200, the right program id, format and field count, and the parser receives the uploaded text unchanged.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload dict.json (a made-up patient intake questionnaire).",
-     "data": "Made-up FHIR-style JSON.",
-     "expected": "HTTP 200."
+     "action": "Upload the FHIR-style JSON dictionary",
+     "data": "Made-up JSON",
+     "expected": "HTTP 200; program_id json-test, format fhir_json, 3 fields; parser received the exact JSON text."
     }
    ],
    "source": "tests/test_api_integration.py::TestMultiFormatDictionaries::test_json_format",
@@ -1289,14 +1295,19 @@
   },
   {
    "id": "tests.test_api_integration.TestErrorRecovery.test_service_unavailable_graceful_degradation",
-   "name": "Data Analyzer: Health check reports 'degraded' whenever any internal service is down",
-   "objective": "Shows the health status honestly reflects missing services. Note: if all services are up the check asserts nothing.",
+   "name": "Data Analyzer: Health check reports 'degraded' when a core service is down and 'healthy' when both are up",
+   "objective": "Shows the health status honestly reflects missing services. Both states are forced with stand-ins, so the check no longer depends on how this machine is configured.",
    "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
    "steps": [
     {
-     "action": "Request the health check.",
-     "data": "No key.",
-     "expected": "HTTP 200; and, only if any service is not available, the status is 'degraded'."
+     "action": "Ask for health with dictionary storage missing",
+     "data": "Storage removed, logic checker present",
+     "expected": "HTTP 200, status 'degraded', services.program_manager false."
+    },
+    {
+     "action": "Ask for health with both core services present",
+     "data": "Both replaced by stand-ins",
+     "expected": "HTTP 200, status 'healthy', services.program_manager true."
     }
    ],
    "source": "tests/test_api_integration.py::TestErrorRecovery::test_service_unavailable_graceful_degradation",
@@ -1337,14 +1348,14 @@
   },
   {
    "id": "tests.test_api_integration.TestConcurrentRequests.test_multiple_health_checks_concurrent",
-   "name": "Data Analyzer: Five health checks in a row all succeed (run one after another, not truly at once)",
-   "objective": "Shows repeated health checks keep working. Despite its name the requests are sent sequentially.",
+   "name": "Data Analyzer: Five health checks sent at the same time all succeed",
+   "objective": "Shows the health check keeps working when several requests arrive together. The five requests are now sent from five threads at once (previously they were sent one after another).",
    "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
    "steps": [
     {
-     "action": "Request the health check five times.",
-     "data": "No key.",
-     "expected": "Every reply is HTTP 200 and contains status."
+     "action": "Send five health checks from five threads at once",
+     "data": "No key needed",
+     "expected": "Five replies, every one HTTP 200 with status 'healthy' or 'degraded'."
     }
    ],
    "source": "tests/test_api_integration.py::TestConcurrentRequests::test_multiple_health_checks_concurrent",
@@ -1353,14 +1364,14 @@
   },
   {
    "id": "tests.test_api_integration.TestConcurrentRequests.test_concurrent_dictionary_retrieval",
-   "name": "Data Analyzer: Three dictionary fetches in a row give consistent results (weak check)",
-   "objective": "Shows repeated retrievals do not fail unexpectedly. Requests are sequential, and statuses 200 or 503 both pass.",
+   "name": "Data Analyzer: Three dictionary fetches sent at the same time give identical results",
+   "objective": "Shows simultaneous retrievals of one dictionary all succeed with the same content. The three requests are now sent from three threads at once, and only HTTP 200 is accepted.",
    "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is replaced by a stand-in returning a canned, made-up program record.",
    "steps": [
     {
-     "action": "Fetch the same dictionary ID three times.",
-     "data": "Made-up ID.",
-     "expected": "Each status is 200 or 503."
+     "action": "Fetch the same dictionary ID from three threads at once",
+     "data": "concurrent-test",
+     "expected": "Statuses are 200, 200, 200; all three bodies are identical with program_id concurrent-test; the store was asked three times."
     }
    ],
    "source": "tests/test_api_integration.py::TestConcurrentRequests::test_concurrent_dictionary_retrieval",
@@ -1369,14 +1380,14 @@
   },
   {
    "id": "tests.test_api_integration.TestFileSizeLimits.test_large_dictionary_file",
-   "name": "Data Analyzer: A 10,000-field dictionary does not crash the server (very weak check)",
-   "objective": "Shows only that a large upload receives some answer. The test accepts nearly any status including 500 and does not stub the AI step.",
-   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called. Dictionary storage is NOT stubbed in this test.",
+   "name": "Data Analyzer: A 10,000-field dictionary is accepted and handed to the parser in full",
+   "objective": "Shows a large (but under the size limit) dictionary upload gets HTTP 200 and that all 10,000 rows reach the parser untruncated. The AI step is replaced by a stand-in, so no AI model is called.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in returning a canned, made-up program record, so no AI model is called.",
    "steps": [
     {
-     "action": "Upload a dictionary CSV with 10,000 made-up field rows.",
-     "data": "Made-up large CSV.",
-     "expected": "HTTP status is one of 200, 400, 413, 500 or 503."
+     "action": "Upload a dictionary CSV with 10,000 made-up field rows",
+     "data": "Made-up large CSV",
+     "expected": "HTTP 200 with 10000 fields extracted; the parser received the full text (10,000 data lines)."
     }
    ],
    "source": "tests/test_api_integration.py::TestFileSizeLimits::test_large_dictionary_file",
@@ -1401,14 +1412,19 @@
   },
   {
    "id": "tests.test_api_integration.TestAuthenticationFlow.test_auth_persistence_across_requests",
-   "name": "Data Analyzer: Health check succeeds three times while sending a key",
-   "objective": "Shows that sending a key does not break the health check. The health check does not require a key, so this does not prove key persistence.",
-   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
+   "name": "Data Analyzer: The key keeps working on a protected address across three requests",
+   "objective": "Shows the API key is accepted every time on a protected address (the health check needs no key, so it could not prove this). The same address without the key is refused.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
    "steps": [
     {
-     "action": "Request the health check three times with the correct key.",
-     "data": "Correct key.",
-     "expected": "Each reply is HTTP 200."
+     "action": "Fetch an unknown dictionary ID three times with the key",
+     "data": "persist-test",
+     "expected": "Each reply is HTTP 404 (the key was accepted and the handler ran); the store was asked three times."
+    },
+    {
+     "action": "Fetch the same address with no key",
+     "data": "No key",
+     "expected": "HTTP 401."
     }
    ],
    "source": "tests/test_api_integration.py::TestAuthenticationFlow::test_auth_persistence_across_requests",
@@ -1417,19 +1433,24 @@
   },
   {
    "id": "tests.test_api_integration.TestAuthenticationFlow.test_mixed_auth_and_no_auth_endpoints",
-   "name": "Data Analyzer: Public health check works and protected dictionary fetch accepts the key",
-   "objective": "Shows that public and protected addresses behave differently.",
-   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
+   "name": "Data Analyzer: Public health check works; protected dictionary fetch needs the key",
+   "objective": "Shows public and protected addresses behave differently: health works with no key, the dictionary address answers exactly 404 with the key (nothing stored) and 401 without it.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
    "steps": [
     {
-     "action": "Request the health check with no key.",
-     "data": "No key.",
+     "action": "Ask for health with no key",
+     "data": "No key",
      "expected": "HTTP 200."
     },
     {
-     "action": "Request /api/v1/dictionary/test with the correct key.",
-     "data": "Made-up ID.",
-     "expected": "Status is 404 or 503 and not 401, showing the key was accepted."
+     "action": "Fetch an unknown dictionary with the key",
+     "data": "ID test",
+     "expected": "HTTP 404."
+    },
+    {
+     "action": "Fetch the same address with no key",
+     "data": "No key",
+     "expected": "HTTP 401."
     }
    ],
    "source": "tests/test_api_integration.py::TestAuthenticationFlow::test_mixed_auth_and_no_auth_endpoints",
@@ -1440,22 +1461,22 @@
    "id": "tests.test_api_integration.TestAuthenticationFlow.test_auth_switching",
    "name": "Data Analyzer: Valid, then wrong, then valid key behave correctly in sequence",
    "objective": "Shows that a rejected key does not affect later requests with the right key.",
-   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in where stated, so no AI model is called.",
+   "precondition": "Server application loaded in the offline test harness with a made-up API key configured; the application is reloaded for this group of tests. Dictionary storage is replaced by a stand-in that finds nothing, so no AI model is called.",
    "steps": [
     {
-     "action": "Fetch a dictionary with the correct key.",
-     "data": "Made-up ID.",
-     "expected": "Status is neither 401 nor 403."
+     "action": "Fetch an unknown dictionary with the right key",
+     "data": "ID test1",
+     "expected": "HTTP 404 (key accepted)."
     },
     {
-     "action": "Fetch again with the wrong key.",
-     "data": "Wrong key.",
+     "action": "Fetch with a wrong key",
+     "data": "ID test2",
      "expected": "HTTP 403."
     },
     {
-     "action": "Fetch again with the correct key.",
-     "data": "Correct key.",
-     "expected": "Status is neither 401 nor 403."
+     "action": "Fetch with the right key again",
+     "data": "ID test3",
+     "expected": "HTTP 404 (key accepted again)."
     }
    ],
    "source": "tests/test_api_integration.py::TestAuthenticationFlow::test_auth_switching",
@@ -1565,14 +1586,14 @@
   },
   {
    "id": "tests.test_api_integration_auth.TestSecurityBestPractices.test_api_key_not_in_logs",
-   "name": "Data Analyzer: API key is not written to the log (weak check)",
-   "objective": "Shows the key is not logged when the key check runs. Likely nothing is logged at all, so the check may pass without testing much.",
+   "name": "Data Analyzer: API key is not written to the log",
+   "objective": "Shows neither the right nor a wrong key appears in any log line when real requests are made. The test first proves the server really did log something about the requests, so it cannot pass on an empty log.",
    "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
    "steps": [
     {
-     "action": "Run the key check with the correct key and read the captured log records.",
-     "data": "Correct key.",
-     "expected": "No captured log record contains the key text."
+     "action": "Send a request with the right key and one with a wrong key to a dictionary address",
+     "data": "Made-up keys; storage stand-in finds nothing",
+     "expected": "Right key gives 404, wrong key gives 403; log lines mentioning the request exist; neither key text appears anywhere in the captured log."
     }
    ],
    "source": "tests/test_api_integration_auth.py::TestSecurityBestPractices::test_api_key_not_in_logs",
@@ -1581,14 +1602,14 @@
   },
   {
    "id": "tests.test_api_integration_auth.TestSecurityBestPractices.test_admin_password_not_in_logs",
-   "name": "Data Analyzer: Admin password is not written to the log (weak check)",
-   "objective": "As above for the administrator password.",
+   "name": "Data Analyzer: Admin password is not written to the log",
+   "objective": "As above for the administrator password: the admin check is run with the password unset (which logs an error), with a wrong password and with the right one, log lines are proven to exist, and neither password appears in them.",
    "precondition": "Server application reloaded in the offline test harness with a made-up API key and admin password configured.",
    "steps": [
     {
-     "action": "Run the admin check with the correct password and read the captured log records.",
-     "data": "Correct password.",
-     "expected": "No captured log record contains the password."
+     "action": "Run the admin check with the password unset, wrong, then right",
+     "data": "Made-up passwords",
+     "expected": "503 when unset (with a 'not configured' log line), 403 for the wrong one, the right one accepted; neither password text appears in the captured log."
     }
    ],
    "source": "tests/test_api_integration_auth.py::TestSecurityBestPractices::test_admin_password_not_in_logs",
@@ -2389,9 +2410,9 @@
    "precondition": "Offline test harness; no network and no AI model; the data loader component is used directly.",
    "steps": [
     {
-     "action": "Load a made-up 4-row CSV with integer, decimal, text, boolean and date columns",
-     "data": "Columns int_col, float_col, str_col, bool_col, date_col",
-     "expected": "4 rows; columns int_col, float_col and bool_col are present (str_col and date_col are not checked)"
+     "action": "Load made-up CSV text with five differently-typed columns",
+     "data": "4 rows",
+     "expected": "4 rows; all five columns present; int_col is 1-4, float_col is 1.5-4.5 and str_col is text, more, data, here."
     }
    ],
    "source": "tests/test_data_loader.py::TestDataLoader::test_load_csv_with_different_types",
@@ -3603,14 +3624,19 @@
   },
   {
    "id": "tests.test_llm_deployment_selection.TestGetAvailableDeployments.test_always_returns_at_least_one_entry",
-   "name": "Data Analyzer: Model list always has at least one entry",
-   "objective": "Shows the app can never end up with an empty model choice.",
+   "name": "Data Analyzer: With no deployment lists set, the built-in default is offered; a single setting is offered alone",
+   "objective": "Proves the fallback: with neither deployment setting present the list is exactly the built-in default (gpt-5-nano), and with only the single-deployment setting present the list is exactly that one name.",
    "precondition": "Offline test harness; the AI service settings are set through environment values as stated in each step. No network and no AI model.",
    "steps": [
     {
-     "action": "Set the environment values, then ask for the list of available AI models.",
-     "data": "Neither setting is set",
-     "expected": "The result is a list with at least one item (the test does not check which item)."
+     "action": "Read the list with both settings removed",
+     "data": "No settings",
+     "expected": "The list is ['gpt-5-nano']."
+    },
+    {
+     "action": "Read the list with only the single-deployment setting",
+     "data": "my-only-model",
+     "expected": "The list is ['my-only-model']."
     }
    ],
    "source": "tests/test_llm_deployment_selection.py::TestGetAvailableDeployments::test_always_returns_at_least_one_entry",
@@ -4429,9 +4455,9 @@
    "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
    "steps": [
     {
-     "action": "Convert a made-up violation to a plain record.",
-     "data": "Rule id r, row 0, field f, value x, severity error",
-     "expected": "The record has rule_id 'r' and row_index 0. Other values are not checked."
+     "action": "Convert a made-up violation record to a dictionary",
+     "data": "Rule r, description d, row 0, field f, value x, expected 'blank', severity error",
+     "expected": "Every property comes back with the value that was put in (id, description, row, fields, values, expected behaviour, severity)."
     }
    ],
    "source": "tests/test_logic_engine.py::TestLogicViolation::test_to_dict",
@@ -4754,14 +4780,14 @@
   },
   {
    "id": "tests.test_logic_engine.TestLogicValidator.test_one_bad_rule_does_not_abort_others",
-   "name": "Data Analyzer: Validation continues past a problem rule (weakly tested)",
-   "objective": "Intended to prove one faulty rule does not stop others. As written only a single valid rule is supplied (no faulty rule), so it really proves a normal rule reports at least one violation.",
+   "name": "Data Analyzer: Validation continues past rules that cannot be checked",
+   "objective": "Proves faulty rules do not stop good rules from running and are reported as not checked. Two faulty rules (an unsupported action; a rule with no condition) come before one valid rule.",
    "precondition": "Offline test harness; the conditional-logic checking component is used directly on small made-up tables. No network, no AI model.",
    "steps": [
     {
-     "action": "Validate two male rows against one valid 'must be blank' rule.",
-     "data": "Rule: gender equals Male, pregnant must be blank",
-     "expected": "At least one violation is reported."
+     "action": "Validate two male rows against three rules, faulty ones first",
+     "data": "Faulty: unknown action, missing condition. Good: gender equals Male, pregnant must be blank",
+     "expected": "The good rule still reports its violations (rows 0 and 1). Coverage says 3 rules, 1 evaluated, both faulty rules listed as unsupported, none failed, and not complete."
     }
    ],
    "source": "tests/test_logic_engine.py::TestLogicValidator::test_one_bad_rule_does_not_abort_others",
@@ -4871,14 +4897,14 @@
   },
   {
    "id": "tests.test_mcp_integration.test_mcp_analyze_data",
-   "name": "Data Analyzer: Full analysis of a small employee table is run (outcome not enforced)",
-   "objective": "Runs load-and-analyze on made-up data with one planted age error. The test catches every error and only returns a value, so it passes whether or not the analysis works; it does not prove the age error is found.",
-   "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+   "name": "Data Analyzer: Full analysis of a small employee table finds the one planted age error",
+   "objective": "Loads made-up CSV text and runs all checks with a schema and rules. Proves the analysis passes row-count and data-type checks, fails the value-range check, and reports exactly one issue: the age of 150 against a maximum of 65. (Previously every error was caught and the test could not fail.)",
+   "precondition": "Offline test harness; data is made up and built inside the test. No network, no AI model.",
    "steps": [
     {
      "action": "Load made-up CSV, run all checks with schema and rules",
      "data": "5 employees; one age of 150 against a 18-65 rule; salary and department rules",
-     "expected": "Nothing is asserted. Results are printed; any error is caught and the test still passes"
+     "expected": "Overall result is 'not passed' with exactly 1 issue; row-count and data-type checks pass, value-range check fails. The issue is for column age, rule 'max <= 65', on row index 4 (the fifth row)."
     }
    ],
    "source": "tests/test_mcp_integration.py::test_mcp_analyze_data",
@@ -4887,14 +4913,19 @@
   },
   {
    "id": "tests.test_mcp_integration.test_multi_format_mcp",
-   "name": "Data Analyzer: Analysis runs on JSON and Excel-style tables (outcome not enforced)",
-   "objective": "Runs the checks on a JSON-loaded table and a table built to resemble Excel. Errors are caught and printed, so the test always passes.",
-   "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+   "name": "Data Analyzer: Analysis runs cleanly on a JSON-loaded table and an Excel-style table",
+   "objective": "Proves a table loaded from JSON text and a table built like an Excel sheet both analyse with no issues. (Previously errors were caught and printed, so the test always passed.)",
+   "precondition": "Offline test harness; data is made up and built inside the test. No network, no AI model.",
    "steps": [
     {
-     "action": "Load made-up JSON, run checks; then run checks on a made-up product table",
-     "data": "3 score rows as JSON; 3 product rows",
-     "expected": "Nothing is asserted; failures are caught and only printed"
+     "action": "Load made-up JSON text, run checks",
+     "data": "3 score rows as JSON",
+     "expected": "The table has columns id, name, score and 3 rows; the analysis passes with 0 issues and reports shape 3 rows by 3 columns."
+    },
+    {
+     "action": "Run checks on a made-up product table",
+     "data": "3 product rows with a decimal price column",
+     "expected": "The analysis passes with 0 issues and detects the price column as float."
     }
    ],
    "source": "tests/test_mcp_integration.py::test_multi_format_mcp",
@@ -4903,14 +4934,24 @@
   },
   {
    "id": "tests.test_mcp_integration.test_data_quality_checks",
-   "name": "Data Analyzer: Row count, type, range and summary checks are run on a flawed table (outcome not enforced)",
-   "objective": "Runs the individual checks on made-up data with duplicates, missing values and bad ages. Nothing is asserted and errors are caught, so it always passes.",
-   "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+   "name": "Data Analyzer: Row count, range and summary checks report the planted problems on a flawed table",
+   "objective": "Runs the individual checks on made-up data with a duplicate id, blank values, bad ages and a mixed-case status. Proves each planted problem is reported against the right rows. (Previously nothing was asserted.)",
+   "precondition": "Offline test harness; data is made up and built inside the test. No network, no AI model.",
    "steps": [
     {
-     "action": "Run row count, type, range and summary checks",
-     "data": "5 made-up rows with a duplicate id, blank values, ages 200 and -5, mixed-case status",
-     "expected": "Nothing is asserted; results are printed only"
+     "action": "Run the row-count check with minimum 3, then minimum 10",
+     "data": "5 made-up rows",
+     "expected": "Minimum 3 passes and reports 5 rows; minimum 10 fails."
+    },
+    {
+     "action": "Run the range check",
+     "data": "ages 200 and -5 against 0-120; status 'ACTIVE' against allowed active/inactive/pending",
+     "expected": "3 issues: age below 0 on row 3, age above 120 on row 1, and invalid value 'ACTIVE' on row 2."
+    },
+    {
+     "action": "Read the summary statistics",
+     "data": "Same table",
+     "expected": "Shape is 5 rows by 4 columns; missing values are id 1, email 1, age 0, status 0."
     }
    ],
    "source": "tests/test_mcp_integration.py::test_data_quality_checks",
@@ -4919,14 +4960,14 @@
   },
   {
    "id": "tests.test_mcp_integration.test_auto_type_detection",
-   "name": "Data Analyzer: Automatic detection of column types is exercised (assertions are swallowed)",
-   "objective": "Intends to show integers, decimals, text, dates and true/false are recognised. The checks sit inside a catch-all error handler, so a wrong answer is printed but the test still passes.",
-   "precondition": "Offline test harness. NOTE: this test cannot fail on a quality problem; see objective.",
+   "name": "Data Analyzer: Automatic detection of column types recognises integers, decimals, text, dates and true/false",
+   "objective": "Proves integer, decimal, text, ISO-date and true/false columns are recognised. (Previously the checks sat inside a catch-all handler, so a wrong answer still passed.)",
+   "precondition": "Offline test harness; data is made up and built inside the test. No network, no AI model.",
    "steps": [
     {
      "action": "Detect types for six made-up columns",
      "data": "int, decimal, text, ISO date and true/false columns, plus a mixed column",
-     "expected": "Intended: int, float, str, datetime, bool detected. In practice any mismatch is caught and the test still passes"
+     "expected": "int, float, str, datetime and bool are detected for the five clean columns (the mixed column is not asserted)."
     }
    ],
    "source": "tests/test_mcp_integration.py::test_auto_type_detection",
@@ -5030,9 +5071,9 @@
    "precondition": "Offline test harness; the sample PDF LTCPROMISE8314QC.pdf must be present. No AI model is used.",
    "steps": [
     {
-     "action": "Extract text from the first 5 pages of the sample PDF",
-     "data": "tests/test_data/dictionaries/LTCPROMISE8314QC.pdf, pages 1-5",
-     "expected": "The file exists and the extracted text is not empty (the content itself is not checked)"
+     "action": "Extract text from the first five pages of the fixture PDF",
+     "data": "LTCPROMISE8314QC.pdf",
+     "expected": "Text is not empty and contains the form title 'LTC-PROMISE.8314_QC' and the field markers '[record_id] text' and '[consent_date] text (date_mdy) Required'."
     }
    ],
    "source": "tests/test_pdf_extraction.py::test_pdf_text_extraction",
@@ -5321,14 +5362,14 @@
   },
   {
    "id": "tests.test_program_cache.TestProgramDatabase.test_list_all_programs_ordering",
-   "name": "Data Analyzer: Listing all programs returns every saved program",
-   "objective": "Proves that listing returns all saved programs. Note: the title and description say the list is ordered by use count, but the test only checks that 3 programs come back, not their order.",
+   "name": "Data Analyzer: Listing all programs returns the most recently used first and never-used last",
+   "objective": "Proves the list order: most recently used first, programs never used last. Use count plays no part (the product orders by last-used date; the old test title wrongly said use count and only counted results).",
    "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
    "steps": [
     {
-     "action": "Save three made-up programs with use counts 1, 10 and 5, then list all programs.",
-     "data": "Programs LowUsage (1), HighUsage (10), MediumUsage (5)",
-     "expected": "The list contains exactly 3 programs. The order is not checked."
+     "action": "Save three made-up programs, then list all programs",
+     "data": "LowUsage (used Jan 2024), MediumUsage (used Jun 2024), HighUsage (use count 10 but never used)",
+     "expected": "The order is MediumUsage, LowUsage, HighUsage."
     }
    ],
    "source": "tests/test_program_cache.py::TestProgramDatabase::test_list_all_programs_ordering",
@@ -5458,9 +5499,14 @@
    "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
    "steps": [
     {
-     "action": "Save the sample program and record one run.",
-     "data": "Made-up run: user testuser, file test_data.csv, 100 rows, 3 field problems, 2 logic problems, 2.5 seconds",
-     "expected": "A row for this program exists in the run history table. Its contents are not checked."
+     "action": "Save the sample program and record one run with statistics",
+     "data": "User testuser, file test_data.csv, 100 rows, 3 field violations, 2 logic violations, 2.5 seconds",
+     "expected": "The call succeeds."
+    },
+    {
+     "action": "Read the run history",
+     "data": "",
+     "expected": "Exactly one row exists carrying the same user, file, row count, both violation counts and the time."
     }
    ],
    "source": "tests/test_program_cache.py::TestProgramDatabase::test_record_execution",
@@ -5767,14 +5813,14 @@
   },
   {
    "id": "tests.test_program_cache.TestProgramManager.test_manager_init_without_llm",
-   "name": "Data Analyzer: Program manager can be created without an AI client (no real check)",
-   "objective": "Intended to show the manager can start without an AI client. As written the test passes whether or not creation succeeds, because any error is swallowed; it therefore only shows the test code runs.",
-   "precondition": "Offline test harness; no database, network or AI model is used.",
+   "name": "Data Analyzer: Program manager starts in limited mode when the AI client cannot start",
+   "objective": "Proves that when no AI client is supplied and the parser refuses to start (no credentials), the manager is still created with no AI client and keeps its database. The parser and database are stand-ins, so the result does not depend on this machine's settings.",
+   "precondition": "Offline test harness; the AI parser and the database class are replaced by stand-ins. No real database, network or AI model.",
    "steps": [
     {
-     "action": "Try to create the program manager with no AI client.",
+     "action": "Create the program manager with no AI client while the parser raises a 'not configured' error",
      "data": "No AI client",
-     "expected": "Nothing is asserted: success or any error both let the test pass."
+     "expected": "No error; the manager's AI client is empty and its database is the stand-in."
     }
    ],
    "source": "tests/test_program_cache.py::TestProgramManager::test_manager_init_without_llm",
@@ -5783,19 +5829,35 @@
   },
   {
    "id": "tests.test_program_cache.TestProgramManager.test_execute_program_returns_dict",
-   "name": "Data Analyzer: Running a saved program returns a result record",
-   "objective": "Proves that running a saved program on a small table returns a dictionary-style result. The check is weak: it only requires the result to contain a 'program' or an 'error' entry, not that validation worked.",
+   "name": "Data Analyzer: Running a saved program returns its results and records the run",
+   "objective": "Proves running a saved program on a small table succeeds: no error entry, the right program, an empty violation list, a summary with the right row count, and one row in the run history.",
    "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model. The program manager is built without an AI client.",
    "steps": [
     {
-     "action": "Save the sample program, then run it on a made-up 3-row table.",
+     "action": "Save the sample program, then run it on a made-up 3-row table",
      "data": "One column field1 with values 1, 2, 3",
-     "expected": "The result is a dictionary containing either a 'program' entry or an 'error' entry. Its content is not checked."
+     "expected": "No 'error' entry; program id test-uuid-1234; no logic violations; summary says 3 rows processed; one run-history row with 3 rows processed."
     }
    ],
    "source": "tests/test_program_cache.py::TestProgramManager::test_execute_program_returns_dict",
    "issue": "ADP-53",
    "key": "ADP-T343"
+  },
+  {
+   "id": "tests.test_program_cache.TestProgramManager.test_execute_program_counts_one_use_per_run",
+   "name": "Data Analyzer: One run of a saved program adds exactly one to its use count (known product bug: adds two)",
+   "objective": "Proves one run raises the program's use count by one. Currently expected to fail (marked xfail, strict): running a program records the use twice, so the count goes up by two. Remove the xfail marker when the product is fixed.",
+   "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model. The program manager is built without an AI client.",
+   "steps": [
+    {
+     "action": "Save the sample program, run it once on a made-up 3-row table",
+     "data": "One column field1 with values 1, 2, 3",
+     "expected": "Expected: use count 1. Actual today: 2, so the test is an expected failure."
+    }
+   ],
+   "source": "tests/test_program_cache.py::TestProgramManager::test_execute_program_counts_one_use_per_run",
+   "issue": "ADP-53",
+   "key": "ADP-T731"
   },
   {
    "id": "tests.test_program_cache.TestProgramManager.test_execute_program_not_found",
@@ -5899,13 +5961,13 @@
   },
   {
    "id": "tests.test_program_cache.TestIntegration.test_concurrent_use_count_increments",
-   "name": "Data Analyzer: Ten successive uses give a use count of ten",
-   "objective": "Proves the use counter adds up correctly over ten uses. Note: despite the name, the ten uses are made one after another, not at the same time.",
+   "name": "Data Analyzer: Ten uses made at the same time give a use count of ten",
+   "objective": "Proves the use counter does not lose updates when ten uses are recorded at the same moment from ten threads (previously they were made one after another).",
    "precondition": "Offline test harness; a brand-new empty program database is created in a temporary folder for this test and discarded afterwards. No network and no AI model.",
    "steps": [
     {
-     "action": "Save the sample program, record ten uses in a row, then reload it.",
-     "data": "10 uses",
+     "action": "Save the sample program, record ten uses from ten threads, then reload it",
+     "data": "10 simultaneous uses",
      "expected": "Use count is exactly 10."
     }
    ],
@@ -6005,9 +6067,9 @@
    "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
    "steps": [
     {
-     "action": "Add a mixed column and check types",
-     "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active) plus a mixed column declared int",
-     "expected": "Failed; at least one issue, and the mixed column is named among the issues"
+     "action": "Check a table whose 'mixed' column holds '1', 2, 'three', 4, 5 against a schema saying it is an integer",
+     "data": "Made-up 5-row table",
+     "expected": "Fails and the only column flagged is 'mixed'."
     }
    ],
    "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_data_types_with_invalid",
@@ -6069,9 +6131,9 @@
    "precondition": "Offline test harness; the quality checker is used directly on a small made-up table.",
    "steps": [
     {
-     "action": "Check ranges",
-     "data": "5-row made-up employee table (id, name, age, salary, hire_date, is_active); age 30 to 35, salary at most 50000",
-     "expected": "Failed with at least one issue (the exact issues are not checked)"
+     "action": "Check ages 25,30,35,28,40 against 30-35 and salaries against a maximum of 50000",
+     "data": "Made-up 5-row table",
+     "expected": "Fails with exactly 3 issues: age below 30 on rows 0 and 3, age above 35 on row 4, salary above 50000 on all five rows."
     }
    ],
    "source": "tests/test_quality_checker.py::TestQualityChecker::test_check_value_ranges_numeric_fail",
@@ -6193,7 +6255,7 @@
   {
    "id": "tests.test_quality_pipeline.TestQualityPipeline.test_run_all_checks_basic",
    "name": "Data Analyzer: Running all checks returns every expected result section",
-   "objective": "Shows the combined result has timestamp, summary statistics, checks, overall verdict, issue count and issue list. Values are not checked, only presence.",
+   "objective": "Shows the combined result has timestamp, summary statistics, checks, overall verdict, issue count and issue list, and that for clean data with no schema or rules the verdict is 'passed' with 0 issues, shape 5 rows by 5 columns, and the row-count check passed.",
    "precondition": "Offline test harness; the full quality pipeline is used directly on a small made-up table.",
    "steps": [
     {
@@ -8355,14 +8417,14 @@
   },
   {
    "id": "tests.test_sec_build_workflows.test_ui_image_runtime_stage_has_no_compilers_git_or_ssh_client",
-   "name": "Data Analyzer: Web-page container final image has no compilers, git or SSH client and runs as a non-admin user",
+   "name": "Data Analyzer: Web-page container final image has no compilers, git, SSH client or curl and runs as a non-admin user",
    "objective": "Proves the final stage of the web-page (UI) container build installs none of the build tools an attacker could misuse and runs as an unprivileged user.",
    "precondition": "Repository build, deployment and CI files are present. Nothing is built, deployed or executed; the test only reads and parses the files.",
    "steps": [
     {
      "action": "Read the Dockerfile and take the final stage, looking only at the part before it copies from the builder stage",
      "data": "Dockerfile",
-     "expected": "None of the words build-essential, gcc, git or openssh-client appear as installed software"
+     "expected": "None of the words build-essential, gcc, git, openssh-client or curl appear as installed software"
     },
     {
      "action": "Check the user setting",
@@ -9794,7 +9856,7 @@
   {
    "id": "tests.test_sec_ui_cache_and_pdf_safety.test_a_non_regular_entry_file_is_refused",
    "name": "Data Analyzer: A cache entry that is a special file (named pipe) is refused without hanging",
-   "objective": "Proves a special file in the cache cannot make the page freeze. The test only checks that reading returns nothing and that writing returns; it asserts nothing about the written result.",
+   "objective": "Proves a special file (a named pipe) planted as a cache entry cannot make the page freeze: reading returns nothing, writing returns, the special file is left in place (not replaced by a normal file), and nothing readable is stored.",
    "precondition": "Test harness with a temporary folder for the dictionary cache and a made-up 32-character session identifier. Linux/macOS file permissions are used. No network.",
    "steps": [
     {
@@ -9953,14 +10015,19 @@
   },
   {
    "id": "tests.test_sec_ui_cache_and_pdf_safety.test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it",
-   "name": "Data Analyzer: The memory limit helper never crashes",
-   "objective": "Proves that on any system the helper returns yes/no instead of an error. It accepts either answer, so it checks only that nothing is raised.",
+   "name": "Data Analyzer: The memory-limit helper reports True when the limit is applied and False (without error) when the platform refuses",
+   "objective": "Proves both outcomes with a stand-in for the operating-system limit call: when it succeeds the helper returns True and asks for at least the requested extra memory; when it refuses the helper returns False and raises nothing. It no longer changes this process's real limit.",
    "precondition": "Reader program loaded directly in the test process.",
    "steps": [
     {
-     "action": "Call the memory-limit helper with 1,000,000,000.",
-     "data": "Limit 10^9",
-     "expected": "The result is True or False; no error is raised."
+     "action": "Run the helper with the limit call succeeding",
+     "data": "512 MB request",
+     "expected": "Returns True; the limit asked for is for address space and is at least 512 MB."
+    },
+    {
+     "action": "Run the helper with the limit call refusing",
+     "data": "512 MB request",
+     "expected": "Returns False; no error is raised."
     }
    ],
    "source": "tests/test_sec_ui_cache_and_pdf_safety.py::test_the_memory_limit_helper_never_raises_even_when_the_platform_cannot_apply_it",
@@ -10221,6 +10288,38 @@
    "source": "tests/test_sec_ui_deploy_config.py::test_inspect_cache_script_never_loads_pickle_files",
    "issue": "ADP-49",
    "key": "ADP-T578"
+  },
+  {
+   "id": "tests.test_sec_ui_deploy_config.test_rendered_about_page_loads_nothing_from_outside_in_either_diagram_view",
+   "name": "Data Analyzer: Opening the About page makes no outside requests, in both diagram views",
+   "objective": "Proves the rendered About page only shows pre-built diagram images served by the app and contains no embedded frames, scripts or outside image links.",
+   "precondition": "The web page code is loaded in Streamlit's headless test mode with About selected; nothing is deployed or contacted.",
+   "steps": [
+    {
+     "action": "Render the About page, then switch the diagram choice from Simple View to Detailed View",
+     "data": "both diagram views",
+     "expected": "Each view shows exactly one image whose address is the app's own (no http/https address), and the page has no frame, HTML-component, script, link or outside-image markup"
+    }
+   ],
+   "source": "tests/test_sec_ui_deploy_config.py::test_rendered_about_page_loads_nothing_from_outside_in_either_diagram_view",
+   "issue": "ADP-49",
+   "key": "ADP-T732"
+  },
+  {
+   "id": "tests.test_sec_ui_deploy_config.test_top_bar_tab_label_colours_meet_wcag_aa_contrast",
+   "name": "Data Analyzer: Top bar tab labels are readable (contrast at least 4.5 to 1)",
+   "objective": "Proves the colours set for the selected and unselected top-bar tab labels meet the WCAG 2.1 AA text contrast minimum of 4.5 to 1.",
+   "precondition": "The page style rules in web_app.py are read as text; no browser is started.",
+   "steps": [
+    {
+     "action": "Read the label colour and background colour for the selected tab and for the unselected tab, and compute the contrast ratio",
+     "data": "selected: white on blue; unselected: light grey on the dark bar",
+     "expected": "Both ratios are 4.5 or higher (5.17 and 9.85 at the time of writing)"
+    }
+   ],
+   "source": "tests/test_sec_ui_deploy_config.py::test_top_bar_tab_label_colours_meet_wcag_aa_contrast",
+   "issue": "ADP-49",
+   "key": "ADP-T733"
   },
   {
    "id": "tests.test_sec_ui_dictionary_cache.test_a_new_session_cannot_read_entries_written_by_another_session",
@@ -10906,7 +11005,7 @@
   {
    "id": "tests.test_sec_ui_text_rendering_and_logging.test_field_markdown_never_crashes_on_odd_dictionary_entries",
    "name": "Data Analyzer: Field display does not crash on unusual dictionary entries",
-   "objective": "Proves odd dictionary input (empty, numbers where text is expected, a list as description) still produces text.",
+   "objective": "Proves odd dictionary entries (empty, a number as the name, wrong-typed description or allowed values) produce text that starts with a readable name and type: '(unnamed)' and 'unknown' when missing, the number itself when given. Runs over 4 entries, in short and detailed form.",
    "precondition": "None.",
    "steps": [
     {
