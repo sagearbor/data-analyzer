@@ -67,6 +67,12 @@
    "id": "219629",
    "type": "Change Request",
    "summary": "Data Analyzer.1.0 - release request (first production release)"
+  },
+  "use-count-double": {
+   "key": "ADP-108",
+   "id": "219717",
+   "type": "Task",
+   "summary": "Defect: one run of a saved dictionary adds 2 to its use count"
   }
  },
  "pages": {

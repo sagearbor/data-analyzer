@@ -56,9 +56,9 @@ def main():
     dup = sorted({n for n in names if names.count(n) > 1})
     manifest = {
         "project": "ADP", "folder": "Data Analyzer 1.0",
-        "source_repo": "sagearbor/data-analyzer", "branch": "release/1.0-sdlc", "commit": commit,
-        "run_command": "venv/bin/python -m pytest tests -p no:cacheprovider --junitxml=results.xml",
-        "environment": "Developer workstation (macOS, Python 3.14, Streamlit 1.66.1, Pillow 13.0.0), offline: no network and no AI model (AI calls are replaced by canned answers), made-up data",
+        "source_repo": "sagearbor/data-analyzer", "branch": subprocess.check_output(["git", "-C", ROOT, "rev-parse", "--abbrev-ref", "HEAD"]).decode().strip(), "commit": commit,
+        "run_command": "python -m pytest tests -p no:cacheprovider --junitxml=results.xml",
+        "environment": "Developer workstation (macOS, Python 3.14, a fresh environment installed from requirements.txt: Streamlit 1.66.1, Pillow 13.0.0), offline: no network and no AI model (AI calls are replaced by canned answers), made-up data",
         "issue_ids": ISSUES, "cycle_issues": [TRACK["epic"], KEY["site-test"]],
         "tests": tests,
     }
