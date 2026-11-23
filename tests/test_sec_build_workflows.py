@@ -67,7 +67,7 @@ def test_gitignore_blocks_sidecar_and_key_files_but_not_env_example():
 def test_ui_image_runtime_stage_has_no_compilers_git_or_ssh_client():
     text = (ROOT / "Dockerfile").read_text()
     runtime = text.split("AS builder", 1)[1].split("\nFROM ", 1)[1]
-    for tool in ("build-essential", "gcc", "git", "openssh-client"):
+    for tool in ("build-essential", "gcc", "git", "openssh-client", "curl"):
         assert not re.search(rf"\b{tool}\b", runtime.split("COPY --from=builder")[0]), tool
     assert "USER appuser" in runtime
 

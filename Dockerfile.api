@@ -61,11 +61,14 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
 # Install runtime dependencies only (minimal set for production)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
+# apt-get upgrade picks up Debian security fixes newer than the base image;
+# setuptools/wheel are build tools (vendored jaraco.context / wheel advisories)
+# not needed at runtime (ADP-74). curl stays: compose healthchecks use it.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && update-ca-certificates
+    && update-ca-certificates \
+    && pip uninstall -y setuptools wheel
 
 # Create non-root user for security
 # Running as non-root is a Docker security best practice
